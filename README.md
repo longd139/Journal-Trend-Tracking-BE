@@ -19,7 +19,9 @@
 
 ### 1. Clone project
 
+```
 git clone <repository-url>
+```
 
 ### 2. Tạo database
 
@@ -27,12 +29,14 @@ Tạo database tên: JournalTrendDB
 
 ### 3. Tạo file application-local.properties
 
-Tạo file tại src/main/resources/application-local.properties
+Tạo file tại **src/main/resources/application-local.properties**
 Điền thông tin kết nối SQL Server của bạn (xem mục cấu hình)
 
 ### 4. Chạy project
 
+```
 mvn spring-boot:run
+```
 
 ## API chạy tại
 
