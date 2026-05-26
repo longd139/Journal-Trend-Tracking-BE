@@ -51,7 +51,7 @@ http://localhost:8080
 
 ## Commit convention
 
-feat: thêm API lấy danh sách journal
-fix: sửa lỗi authentication
-refactor: tối ưu query
+feat: thêm API lấy danh sách journal  
+fix: sửa lỗi authentication  
+refactor: tối ưu query  
 docs: cập nhật README
