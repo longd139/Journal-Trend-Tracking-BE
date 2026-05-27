@@ -27,6 +27,26 @@ Backend cho hệ thống **Scientific Journal Publication Trend Tracking System*
 > ⚠️ **QUAN TRỌNG:** Không dùng SQL Server cài sẵn trên máy. Team thống nhất dùng SQL Server 2022 qua Docker để tránh lỗi tương thích.
 
 ---
+## Cấu hình JDK 21
+### Bước 1 — Cài đặt JDK 21 & Cấu hình IDE
+1. Cài đặt trên máy tính (Bắt buộc để chạy được lệnh mvn):
+
+- Tải và cài đặt JDK 21 (khuyên dùng Eclipse Temurin 21 hoặc Oracle JDK).
+
+- Mở Environment Variables của Windows.
+
+- Tạo biến JAVA_HOME trỏ tới thư mục cài đặt JDK 21 (VD: C:\Program Files\Java\jdk-21).
+
+- Thêm %JAVA_HOME%\bin vào biến Path.
+
+- Mở Terminal gõ java -version và mvn -version, nếu hiện 21.x là thành công.
+
+2. Cấu hình trên IntelliJ IDEA:
+
+- Mở File > Project Structure (Ctrl + Alt + Shift + S): Ở mục Project, chỉnh SDK và Language level thành 21.
+
+- Mở File > Settings (Ctrl + Alt + S): Tìm đến Build, Execution, Deployment > Build Tools > Maven > Runner. Ở mục JRE, chọn 21 (hoặc Project JDK).
+---
 
 ## Cài đặt và chạy project
 
