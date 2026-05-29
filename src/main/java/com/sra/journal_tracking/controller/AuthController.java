@@ -7,7 +7,7 @@ import com.sra.journal_tracking.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
+//trieu test code
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
