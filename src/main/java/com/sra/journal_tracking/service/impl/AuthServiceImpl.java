@@ -1,17 +1,7 @@
 package com.sra.journal_tracking.service.impl;
 
-import com.sra.journal_tracking.dto.auth.AuthResponse;
-import com.sra.journal_tracking.dto.auth.LoginRequest;
-import com.sra.journal_tracking.dto.auth.RegisterRequest;
-import com.sra.journal_tracking.entity.Role;
-import com.sra.journal_tracking.entity.User;
-import com.sra.journal_tracking.entity.UserSession;
-import com.sra.journal_tracking.repository.RoleRepository;
-import com.sra.journal_tracking.repository.UserRepository;
-import com.sra.journal_tracking.repository.UserSessionRepository;
-import com.sra.journal_tracking.security.JwtTokenProvider;
-import com.sra.journal_tracking.service.AuthService;
-import lombok.RequiredArgsConstructor;
+import java.time.LocalDateTime;
+
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -20,7 +10,19 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import com.sra.journal_tracking.dto.auth.AuthResponse;
+import com.sra.journal_tracking.dto.auth.LoginRequest;
+import com.sra.journal_tracking.dto.auth.RegisterRequest;
+import com.sra.journal_tracking.entity.jpa.Role;
+import com.sra.journal_tracking.entity.jpa.User;
+import com.sra.journal_tracking.entity.jpa.UserSession;
+import com.sra.journal_tracking.repository.jpa.RoleRepository;
+import com.sra.journal_tracking.repository.jpa.UserRepository;
+import com.sra.journal_tracking.repository.jpa.UserSessionRepository;
+import com.sra.journal_tracking.security.JwtTokenProvider;
+import com.sra.journal_tracking.service.AuthService;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor

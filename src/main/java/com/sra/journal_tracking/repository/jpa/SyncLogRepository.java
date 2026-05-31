@@ -1,10 +1,11 @@
-package com.sra.journal_tracking.repository;
+package com.sra.journal_tracking.repository.jpa;
 
-import com.sra.journal_tracking.entity.SyncLog;
+import java.util.UUID;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
-import java.util.UUID;
+import com.sra.journal_tracking.entity.jpa.SyncLog;
 
 @Repository
 public interface SyncLogRepository extends JpaRepository<SyncLog, UUID> {

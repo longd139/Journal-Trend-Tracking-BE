@@ -1,10 +1,11 @@
-package com.sra.journal_tracking.repository;
+package com.sra.journal_tracking.repository.neo4j;
 
-import com.sra.journal_tracking.entity.Journal;
+import java.util.UUID;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
-import java.util.UUID;
+import com.sra.journal_tracking.entity.jpa.Journal;
 
 @Repository
 public interface JournalRepository extends JpaRepository<Journal, UUID> {

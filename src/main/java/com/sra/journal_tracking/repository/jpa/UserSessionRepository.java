@@ -1,12 +1,13 @@
-package com.sra.journal_tracking.repository;
-
-import com.sra.journal_tracking.entity.UserSession;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
+package com.sra.journal_tracking.repository.jpa;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import com.sra.journal_tracking.entity.jpa.UserSession;
 
 @Repository
 public interface UserSessionRepository extends JpaRepository<UserSession, UUID> {
