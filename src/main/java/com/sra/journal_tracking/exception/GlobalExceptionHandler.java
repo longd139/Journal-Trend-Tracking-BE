@@ -16,15 +16,32 @@ import com.sra.journal_tracking.dto.response.ErrorResponse;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    // Thêm hàm này để bắt đúng lỗi sai mật khẩu và trả về 401
-    @ExceptionHandler(BadCredentialsException.class)
-    public ResponseEntity<?> handleBadCredentialsException(BadCredentialsException ex) {
-        // Bạn có thể tùy chỉnh JSON trả về theo cấu trúc của project
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-                "{\"status\": 401, \"message\": \"Email hoặc mật khẩu không chính xác!\"}");
+    // 1. THÊM MỚI: Xử lý TẤT CẢ các lỗi logic nghiệp vụ do bạn tự ném
+    // (AppException)
+    @ExceptionHandler(AppException.class)
+    public ResponseEntity<ErrorResponse> handleAppException(AppException ex) {
+        ErrorCode errorCode = ex.getErrorCode();
+
+        // Dùng ErrorResponse để đồng bộ cấu trúc với các lỗi khác
+        ErrorResponse errorResponse = new ErrorResponse(
+                errorCode.getStatusCode().value(),
+                errorCode.getMessage(),
+                null);
+        return new ResponseEntity<>(errorResponse, errorCode.getStatusCode());
     }
 
-    /** * Xử lý lỗi validation từ @Valid */
+    // 2. ĐÃ CHỈNH SỬA: Xử lý lỗi sai mật khẩu từ Spring Security
+    @ExceptionHandler(BadCredentialsException.class)
+    public ResponseEntity<ErrorResponse> handleBadCredentialsException(BadCredentialsException ex) {
+        // Thay vì trả về chuỗi String, hãy dùng ErrorResponse cho đồng bộ
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.UNAUTHORIZED.value(),
+                "Email or password incorrect !",
+                null);
+        return new ResponseEntity<>(errorResponse, HttpStatus.UNAUTHORIZED);
+    }
+
+    // 3. GIỮ NGUYÊN: Xử lý lỗi validation từ @Valid
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationException(MethodArgumentNotValidException ex) {
         Map<String, String> fieldErrors = new HashMap<>();
@@ -33,23 +50,34 @@ public class GlobalExceptionHandler {
             String errorMessage = error.getDefaultMessage();
             fieldErrors.put(fieldName, errorMessage);
         });
-        ErrorResponse errorResponse = new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Dữ liệu đầu vào không hợp lệ",
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                "Dữ liệu đầu vào không hợp lệ",
                 fieldErrors);
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
-    /** * Xử lý lỗi không tìm thấy dữ liệu */
+    // 4. GIỮ NGUYÊN: Dành cho các lỗi cũ chưa kịp refactor sang AppException
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleResourceNotFoundException(ResourceNotFoundException ex) {
-        ErrorResponse errorResponse = new ErrorResponse(HttpStatus.NOT_FOUND.value(), ex.getMessage(), null);
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                null);
         return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
     }
 
-    /** * Xử lý tất cả exception còn lại */
+    // 5. GIỮ NGUYÊN: Bắt các lỗi hệ thống sập (NullPointer, Database Error...)
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGlobalException(Exception ex) {
-        ErrorResponse errorResponse = new ErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "Đã xảy ra lỗi hệ thống", null);
+        // Nên in lỗi ra log server để backend dev còn biết đường fix
+        ex.printStackTrace();
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                "Đã xảy ra lỗi hệ thống",
+                null);
         return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }
