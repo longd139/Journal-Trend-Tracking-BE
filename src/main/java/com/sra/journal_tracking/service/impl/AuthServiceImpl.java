@@ -46,7 +46,7 @@ public class AuthServiceImpl implements AuthService {
 
                 String roleName = request.getRole() != null ? request.getRole() : "ACADEMIC_USER";
                 Role role = roleRepository.findByRoleName(roleName)
-                                .orElseThrow(() -> new RuntimeException("Role not found."));
+                                .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
 
                 User user = User.builder()
                                 .fullName(request.getFullName())
@@ -78,7 +78,7 @@ public class AuthServiceImpl implements AuthService {
                 String jwt = tokenProvider.generateToken(authentication);
 
                 User user = userRepository.findByEmail(request.getEmail())
-                                .orElseThrow(() -> new RuntimeException("User not found"));
+                                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
                 saveUserSession(user, jwt);
 

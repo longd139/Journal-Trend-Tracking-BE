@@ -1,5 +1,7 @@
 package com.sra.journal_tracking.security;
 
+import com.sra.journal_tracking.exception.AppException;
+import com.sra.journal_tracking.exception.ErrorCode;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -59,7 +61,7 @@ public class JwtTokenProvider {
             }
             return hexString.toString();
         } catch (java.security.NoSuchAlgorithmException e) {
-            throw new RuntimeException("Error hashing token", e);
+            throw new AppException(ErrorCode.TOKEN_HASH_ERROR);
         }
     }
 
