@@ -26,7 +26,7 @@ public class JwtAccessDeniedHandler implements AccessDeniedHandler {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.FORBIDDEN.value(),
-                "Bạn không có quyền thực hiện hành động này!",
+                "You do not have permission to perform this action!",
                 null);
 
         ObjectMapper mapper = new ObjectMapper();

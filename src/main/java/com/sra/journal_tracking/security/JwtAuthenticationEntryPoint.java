@@ -26,7 +26,7 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.UNAUTHORIZED.value(),
-                "Bạn cần đăng nhập để truy cập tài nguyên này!",
+                "You need to login to access this resource!",
                 null);
 
         ObjectMapper mapper = new ObjectMapper();
