@@ -29,7 +29,7 @@ public class GlobalExceptionHandler {
 
     // ===================== BUSINESS LOGIC EXCEPTIONS =====================
 
-    // 1. Xử lý TẤT CẢ các lỗi logic nghiệp vụ do bạn tự ném (AppException)
+    // 1. Handle all business logic exceptions thrown via AppException
     @ExceptionHandler(AppException.class)
     public ResponseEntity<ErrorResponse> handleAppException(AppException ex) {
         ErrorCode errorCode = ex.getErrorCode();
@@ -43,17 +43,17 @@ public class GlobalExceptionHandler {
 
     // ===================== AUTHENTICATION & AUTHORIZATION =====================
 
-    // 2. Xử lý lỗi sai mật khẩu từ Spring Security (BadCredentials)
+    // 2. Handle incorrect password from Spring Security (BadCredentials)
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ErrorResponse> handleBadCredentialsException(BadCredentialsException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.UNAUTHORIZED.value(),
-                "Email hoặc mật khẩu không chính xác!",
+                "Incorrect email or password!",
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.UNAUTHORIZED);
     }
 
-    // 3. Xử lý lỗi xác thực chung (AuthenticationException)
+    // 3. Handle general authentication exceptions
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ErrorResponse> handleAuthenticationException(AuthenticationException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
@@ -63,17 +63,17 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.UNAUTHORIZED);
     }
 
-    // 4. Xử lý lỗi không có quyền truy cập (403 Forbidden)
+    // 4. Handle access denied (403 Forbidden)
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDeniedException(AccessDeniedException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.FORBIDDEN.value(),
-                "Bạn không có quyền thực hiện hành động này!",
+                "You do not have permission to perform this action!",
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
     }
 
-    // 5. Xử lý lỗi không tìm thấy user trong Spring Security
+    // 5. Handle user not found in Spring Security
     @ExceptionHandler(UsernameNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleUsernameNotFoundException(UsernameNotFoundException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
@@ -85,7 +85,7 @@ public class GlobalExceptionHandler {
 
     // ===================== VALIDATION ERRORS =====================
 
-    // 6. Xử lý lỗi validation từ @Valid (MethodArgumentNotValidException)
+    // 6. Handle @Valid validation errors (MethodArgumentNotValidException)
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationException(MethodArgumentNotValidException ex) {
         Map<String, String> fieldErrors = new HashMap<>();
@@ -97,12 +97,12 @@ public class GlobalExceptionHandler {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
-                "Dữ liệu đầu vào không hợp lệ",
+                "Invalid input data",
                 fieldErrors);
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
-    // 7. Xử lý lỗi validation từ @Validated trên path variable / request param (ConstraintViolationException)
+    // 7. Handle @Validated validation errors on path variables / request params
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleConstraintViolationException(ConstraintViolationException ex) {
         Map<String, String> fieldErrors = new HashMap<>();
@@ -114,53 +114,53 @@ public class GlobalExceptionHandler {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
-                "Dữ liệu đầu vào không hợp lệ",
+                "Invalid input data",
                 fieldErrors);
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
-    // 8. Xử lý lỗi thiếu tham số bắt buộc (MissingServletRequestParameterException)
+    // 8. Handle missing required request parameters
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<ErrorResponse> handleMissingParams(MissingServletRequestParameterException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
-                "Thiếu tham số bắt buộc: " + ex.getParameterName(),
+                "Missing required parameter: " + ex.getParameterName(),
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
-    // 9. Xử lý lỗi sai kiểu dữ liệu tham số (MethodArgumentTypeMismatchException)
+    // 9. Handle type mismatch on request parameters
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
-                "Tham số '" + ex.getName() + "' phải có kiểu dữ liệu là '"
-                        + (ex.getRequiredType() != null ? ex.getRequiredType().getSimpleName() : "phù hợp") + "'",
+                "Parameter '" + ex.getName() + "' must be of type '"
+                        + (ex.getRequiredType() != null ? ex.getRequiredType().getSimpleName() : "appropriate") + "'",
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
-    // 10. Xử lý lỗi request body không đọc được (HttpMessageNotReadableException - malformed JSON)
+    // 10. Handle unreadable request body (malformed JSON)
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleMessageNotReadable(HttpMessageNotReadableException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
-                "Request body không hợp lệ hoặc thiếu dữ liệu!",
+                "Invalid or missing request body!",
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
-    // 11. Xử lý lỗi sai HTTP method (HttpRequestMethodNotSupportedException)
+    // 11. Handle wrong HTTP method
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.METHOD_NOT_ALLOWED.value(),
-                "Phương thức HTTP '" + ex.getMethod() + "' không được hỗ trợ cho endpoint này!",
+                "HTTP method '" + ex.getMethod() + "' is not supported for this endpoint!",
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.METHOD_NOT_ALLOWED);
     }
 
-    // 12. Xử lý lỗi IllegalArgumentException
+    // 12. Handle illegal argument exceptions
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(IllegalArgumentException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
@@ -172,14 +172,14 @@ public class GlobalExceptionHandler {
 
     // ===================== DATABASE ERRORS =====================
 
-    // 13. Xử lý lỗi ràng buộc dữ liệu (DataIntegrityViolationException - duplicate key, foreign key, ...)
+    // 13. Handle data integrity violations (duplicate key, foreign key, ...)
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
-        String message = "Dữ liệu vi phạm ràng buộc hệ thống!";
+        String message = "Data violates system constraints!";
         String detailMessage = ex.getMostSpecificCause().getMessage();
 
         if (detailMessage != null && detailMessage.toLowerCase().contains("duplicate")) {
-            message = "Dữ liệu đã tồn tại trong hệ thống!";
+            message = "Data already exists in the system!";
         }
 
         ErrorResponse errorResponse = new ErrorResponse(
@@ -191,7 +191,7 @@ public class GlobalExceptionHandler {
 
     // ===================== LEGACY SUPPORT =====================
 
-    // 14. Dành cho các lỗi cũ chưa kịp refactor sang AppException
+    // 14. Legacy handler for old code not yet refactored to AppException
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleResourceNotFoundException(ResourceNotFoundException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
@@ -203,15 +203,15 @@ public class GlobalExceptionHandler {
 
     // ===================== FALLBACK =====================
 
-    // 15. Bắt các lỗi hệ thống chưa được xử lý (NullPointer, Database Error...)
+    // 15. Catch-all for unhandled exceptions (NullPointer, unexpected DB errors...)
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGlobalException(Exception ex) {
-        // In lỗi ra log server để backend dev biết đường fix
+        // Print stack trace to server log for debugging
         ex.printStackTrace();
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "Đã xảy ra lỗi hệ thống",
+                "An internal system error occurred",
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
     }

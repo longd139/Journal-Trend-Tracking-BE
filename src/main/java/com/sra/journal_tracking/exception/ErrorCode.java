@@ -14,34 +14,39 @@ public enum ErrorCode {
 
     INVALID_REQUEST(
             HttpStatus.BAD_REQUEST,
-            "Dữ liệu yêu cầu không hợp lệ!"
+            "Invalid request data!"
     ),
 
     INVALID_OLD_PASSWORD(
             HttpStatus.BAD_REQUEST,
-            "Mật khẩu cũ không chính xác!"
+            "Incorrect old password!"
+    ),
+
+    INVALID_RESET_TOKEN(
+            HttpStatus.BAD_REQUEST,
+            "Invalid or expired reset token!"
     ),
 
     // 401 Unauthorized
     INVALID_CREDENTIALS(
             HttpStatus.UNAUTHORIZED,
-            "Email hoặc mật khẩu không chính xác!"
+            "Incorrect email or password!"
     ),
 
     UNAUTHORIZED(
             HttpStatus.UNAUTHORIZED,
-            "Bạn cần đăng nhập để thực hiện hành động này!"
+            "You need to login to perform this action!"
     ),
 
     INVALID_TOKEN(
             HttpStatus.UNAUTHORIZED,
-            "Token không hợp lệ hoặc đã hết hạn!"
+            "Invalid or expired token!"
     ),
 
     // 403 Forbidden
     ACCESS_DENIED(
             HttpStatus.FORBIDDEN,
-            "Bạn không có quyền thực hiện hành động này!"
+            "You do not have permission to perform this action!"
     ),
 
     BOOKMARK_LIMIT_EXCEEDED(
@@ -57,12 +62,12 @@ public enum ErrorCode {
     // 404 Not Found
     USER_NOT_FOUND(
             HttpStatus.NOT_FOUND,
-            "Không tìm thấy người dùng này!"
+            "User not found!"
     ),
 
     ROLE_NOT_FOUND(
             HttpStatus.NOT_FOUND,
-            "Không tìm thấy vai trò này!"
+            "Role not found!"
     ),
 
     BOOKMARK_NOT_FOUND(
@@ -77,30 +82,35 @@ public enum ErrorCode {
 
     RESOURCE_NOT_FOUND(
             HttpStatus.NOT_FOUND,
-            "Không tìm thấy tài nguyên yêu cầu!"
+            "Resource not found!"
     ),
 
     // 405 Method Not Allowed
     METHOD_NOT_ALLOWED(
             HttpStatus.METHOD_NOT_ALLOWED,
-            "Phương thức HTTP không được hỗ trợ cho endpoint này!"
+            "HTTP method not supported for this endpoint!"
     ),
 
     // 409 Conflict
     DUPLICATE_ENTRY(
             HttpStatus.CONFLICT,
-            "Dữ liệu đã tồn tại trong hệ thống!"
+            "Data already exists in the system!"
     ),
 
     // 500 Internal Server Error
     TOKEN_HASH_ERROR(
             HttpStatus.INTERNAL_SERVER_ERROR,
-            "Lỗi xử lý token bảo mật!"
+            "Token processing error!"
+    ),
+
+    EMAIL_SEND_FAILED(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "Failed to send email. Please try again later!"
     ),
 
     UNCATEGORIZED_EXCEPTION(
             HttpStatus.INTERNAL_SERVER_ERROR,
-            "Đã xảy ra lỗi hệ thống không xác định."
+            "An unknown system error occurred."
     );
 
     private final HttpStatus statusCode;
