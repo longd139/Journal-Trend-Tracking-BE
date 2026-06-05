@@ -111,7 +111,7 @@ public class AuthServiceImpl implements AuthService {
                                 .tokenType("Bearer")
                                 .user(AuthResponse.UserAuthInfo.builder()
                                                 .id(user.getUserId().toString())
-                                                .username(user.getFullName())
+                                                .fullName(user.getFullName())
                                                 .email(user.getEmail())
                                                 .roleName(user.getRole().getRoleName())
                                                 .build())
