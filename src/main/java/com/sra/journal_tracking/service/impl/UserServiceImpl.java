@@ -1,21 +1,23 @@
 package com.sra.journal_tracking.service.impl;
 
-import com.sra.journal_tracking.dto.user.ChangePasswordRequest;
-import com.sra.journal_tracking.dto.user.UpdateProfileRequest;
-import com.sra.journal_tracking.dto.user.UserDTO;
-import com.sra.journal_tracking.entity.Role;
-import com.sra.journal_tracking.entity.User;
-import com.sra.journal_tracking.repository.RoleRepository;
-import com.sra.journal_tracking.repository.UserRepository;
-import com.sra.journal_tracking.service.UserService;
-import lombok.RequiredArgsConstructor;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.UUID;
-import java.util.stream.Collectors;
+import com.sra.journal_tracking.dto.user.ChangePasswordRequest;
+import com.sra.journal_tracking.dto.user.UpdateProfileRequest;
+import com.sra.journal_tracking.dto.user.UserDTO;
+import com.sra.journal_tracking.entity.jpa.Role;
+import com.sra.journal_tracking.entity.jpa.User;
+import com.sra.journal_tracking.repository.jpa.RoleRepository;
+import com.sra.journal_tracking.repository.jpa.UserRepository;
+import com.sra.journal_tracking.service.UserService;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor

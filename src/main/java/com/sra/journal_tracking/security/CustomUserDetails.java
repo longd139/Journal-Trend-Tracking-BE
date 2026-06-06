@@ -1,12 +1,13 @@
 package com.sra.journal_tracking.security;
 
-import com.sra.journal_tracking.entity.User;
+import java.util.Collection;
+import java.util.Collections;
+
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
-import java.util.Collection;
-import java.util.Collections;
+import com.sra.journal_tracking.entity.jpa.User;
 
 public class CustomUserDetails implements UserDetails {
     private final User user;
