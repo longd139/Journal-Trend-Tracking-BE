@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  # 1. DATABASE SQL SERVER (Giữ nguyên của bạn)
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: journal_sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD}
+    ports:
+      - "1434:1433" # Ánh xạ cổng 1434 trên máy ra cổng 1433 của container
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+
+  # 2. DATABASE NEO4J (Thêm mới)
+  neo4j:
+    image: neo4j:latest
+    container_name: journal_neo4j
+    environment:
+      # Dùng luôn biến môi trường trong file .env cho đồng bộ
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+    ports:
+      - "7474:7474" # Cổng cho UI Neo4j Browser
+      - "7687:7687" # Cổng cho Spring Boot kết nối
+    volumes:
+      - neo4j_data:/data
+
+# Khai báo các ổ cứng ảo để lưu dữ liệu
+volumes:
+  sqlserver_data:
+  neo4j_data:

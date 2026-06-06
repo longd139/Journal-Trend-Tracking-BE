@@ -1,0 +1,39 @@
+package com.sra.journal_tracking.entity.jpa;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+@Entity
+@Table(name = "FOLLOW")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Follow {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "FollowID")
+    private UUID followId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "UserID", nullable = false)
+    private User user;
+
+    @Column(name = "Type", nullable = false)
+    private String type;
+
+    @Column(name = "TargetID", nullable = false)
+    private String targetId;
+
+    @Column(name = "CreatedAt")
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    public void prePersist() {
+        createdAt = LocalDateTime.now();
+    }
+}
