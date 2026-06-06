@@ -2,7 +2,6 @@ package com.sra.journal_tracking.service.impl;
 
 import java.time.LocalDateTime;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -24,16 +23,11 @@ import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserSessionRepository;
 import com.sra.journal_tracking.security.JwtTokenProvider;
 import com.sra.journal_tracking.service.AuthService;
-import com.sra.journal_tracking.service.EmailService;
-
-import java.util.Optional;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class AuthServiceImpl implements AuthService {
 
         private final UserRepository userRepository;
@@ -42,10 +36,6 @@ public class AuthServiceImpl implements AuthService {
         private final PasswordEncoder passwordEncoder;
         private final AuthenticationManager authenticationManager;
         private final JwtTokenProvider tokenProvider;
-        private final EmailService emailService;
-
-        @Value("${app.frontend-url:http://localhost:3000}")
-        private String frontendUrl;
 
         @Override
         @Transactional
@@ -54,9 +44,9 @@ public class AuthServiceImpl implements AuthService {
                         throw new AppException(ErrorCode.USER_EXISTED);
                 }
 
-                String roleName = request.getRole() != null ? request.getRole() : "ACADEMIC_USER";
-                Role role = roleRepository.findByRoleName(roleName)
-                                .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
+                String roleName = request.getRole() != null ? request.getRole() : "academic_user";
+                Role role = roleRepository.findByRoleNameIgnoreCase(roleName)
+                                .orElseThrow(() -> new RuntimeException("Role not found."));
 
                 User user = User.builder()
                                 .fullName(request.getFullName())
@@ -88,7 +78,7 @@ public class AuthServiceImpl implements AuthService {
                 String jwt = tokenProvider.generateToken(authentication);
 
                 User user = userRepository.findByEmail(request.getEmail())
-                                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+                                .orElseThrow(() -> new RuntimeException("User not found"));
 
                 saveUserSession(user, jwt);
 
@@ -115,54 +105,13 @@ public class AuthServiceImpl implements AuthService {
                 }
         }
 
-        @Override
-        @Transactional
-        public void forgotPassword(String email) {
-                Optional<User> userOpt = userRepository.findByEmail(email);
-
-                // Always return silently to prevent email enumeration
-                if (userOpt.isEmpty()) {
-                        return;
-                }
-
-                User user = userOpt.get();
-                String resetToken = tokenProvider.generateResetToken(user.getEmail());
-                String resetLink = frontendUrl + "/reset-password?token=" + resetToken;
-
-                log.info("============================================");
-                log.info("PASSWORD RESET LINK for {}:", user.getEmail());
-                log.info("{}", resetLink);
-                log.info("============================================");
-
-                emailService.sendPasswordResetEmail(user.getEmail(), resetLink);
-        }
-
-        @Override
-        @Transactional
-        public void resetPassword(String token, String newPassword) {
-                if (!tokenProvider.validateToken(token)) {
-                        throw new AppException(ErrorCode.INVALID_RESET_TOKEN);
-                }
-
-                String email = tokenProvider.getUsernameFromJWT(token);
-
-                User user = userRepository.findByEmail(email)
-                                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
-
-                user.setPasswordHash(passwordEncoder.encode(newPassword));
-                userRepository.save(user);
-
-                // Invalidate all existing sessions for security
-                userSessionRepository.deleteByUser_UserId(user.getUserId());
-        }
-
         private AuthResponse buildAuthResponse(String token, User user) {
                 return AuthResponse.builder()
                                 .accessToken(token)
                                 .tokenType("Bearer")
                                 .user(AuthResponse.UserAuthInfo.builder()
                                                 .id(user.getUserId().toString())
-                                                .username(user.getFullName())
+                                                .fullName(user.getFullName())
                                                 .email(user.getEmail())
                                                 .roleName(user.getRole().getRoleName())
                                                 .build())

@@ -7,6 +7,17 @@
 --  Script co the chay lai nhieu lan (idempotent).
 -- ============================================================
 
+USE master;
+GO
+
+-- ── TAO DATABASE ─────────────────────────────────────────────
+IF DB_ID('JournalTrendDB') IS NULL
+    CREATE DATABASE JournalTrendDB
+        COLLATE Vietnamese_CI_AI;
+GO
+
+USE JournalTrendDB;
+GO
 
 -- ============================================================
 --  XOA CAC BANG CU (thu tu nguoc FK dependency)
@@ -943,5 +954,3 @@ BEGIN
     SELECT @@ROWCOUNT AS [UpdatedTopics];
 END;
 GO
-
-select * from [USER]
