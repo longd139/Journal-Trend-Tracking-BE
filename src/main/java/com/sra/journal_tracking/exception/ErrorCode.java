@@ -5,113 +5,16 @@ import org.springframework.http.HttpStatus;
 
 @Getter
 public enum ErrorCode {
+    // ---- LỖI AUTHENTICATION (ĐĂNG NHẬP / ĐĂNG KÝ) ----
+    USER_EXISTED(HttpStatus.BAD_REQUEST, "Email is already in use!"),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng này!"),
+    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không chính xác!"),
 
-    // 400 Bad Request
-    USER_EXISTED(
-            HttpStatus.BAD_REQUEST,
-            "Email is already in use!"
-    ),
+    // ---- CÁC LỖI KHÁC THÊM SAU NÀY ----
+    // INVALID_ROLE(HttpStatus.BAD_REQUEST, "Role không hợp lệ!"),
 
-    INVALID_REQUEST(
-            HttpStatus.BAD_REQUEST,
-            "Invalid request data!"
-    ),
-
-    INVALID_OLD_PASSWORD(
-            HttpStatus.BAD_REQUEST,
-            "Incorrect old password!"
-    ),
-
-    INVALID_RESET_TOKEN(
-            HttpStatus.BAD_REQUEST,
-            "Invalid or expired reset token!"
-    ),
-
-    // 401 Unauthorized
-    INVALID_CREDENTIALS(
-            HttpStatus.UNAUTHORIZED,
-            "Incorrect email or password!"
-    ),
-
-    UNAUTHORIZED(
-            HttpStatus.UNAUTHORIZED,
-            "You need to login to perform this action!"
-    ),
-
-    INVALID_TOKEN(
-            HttpStatus.UNAUTHORIZED,
-            "Invalid or expired token!"
-    ),
-
-    // 403 Forbidden
-    ACCESS_DENIED(
-            HttpStatus.FORBIDDEN,
-            "You do not have permission to perform this action!"
-    ),
-
-    BOOKMARK_LIMIT_EXCEEDED(
-            HttpStatus.FORBIDDEN,
-            "Bookmark limit exceeded!"
-    ),
-
-    FOLLOW_LIMIT_EXCEEDED(
-            HttpStatus.FORBIDDEN,
-            "Follow limit exceeded!"
-    ),
-
-    // 404 Not Found
-    USER_NOT_FOUND(
-            HttpStatus.NOT_FOUND,
-            "User not found!"
-    ),
-
-    ROLE_NOT_FOUND(
-            HttpStatus.NOT_FOUND,
-            "Role not found!"
-    ),
-
-    BOOKMARK_NOT_FOUND(
-            HttpStatus.NOT_FOUND,
-            "Bookmark not found!"
-    ),
-
-    FOLLOW_NOT_FOUND(
-            HttpStatus.NOT_FOUND,
-            "Follow not found!"
-    ),
-
-    RESOURCE_NOT_FOUND(
-            HttpStatus.NOT_FOUND,
-            "Resource not found!"
-    ),
-
-    // 405 Method Not Allowed
-    METHOD_NOT_ALLOWED(
-            HttpStatus.METHOD_NOT_ALLOWED,
-            "HTTP method not supported for this endpoint!"
-    ),
-
-    // 409 Conflict
-    DUPLICATE_ENTRY(
-            HttpStatus.CONFLICT,
-            "Data already exists in the system!"
-    ),
-
-    // 500 Internal Server Error
-    TOKEN_HASH_ERROR(
-            HttpStatus.INTERNAL_SERVER_ERROR,
-            "Token processing error!"
-    ),
-
-    EMAIL_SEND_FAILED(
-            HttpStatus.INTERNAL_SERVER_ERROR,
-            "Failed to send email. Please try again later!"
-    ),
-
-    UNCATEGORIZED_EXCEPTION(
-            HttpStatus.INTERNAL_SERVER_ERROR,
-            "An unknown system error occurred."
-    );
+    // ---- LỖI HỆ THỐNG (Fallback) ----
+    UNCATEGORIZED_EXCEPTION(HttpStatus.INTERNAL_SERVER_ERROR, "Đã xảy ra lỗi hệ thống không xác định.");
 
     private final HttpStatus statusCode;
     private final String message;

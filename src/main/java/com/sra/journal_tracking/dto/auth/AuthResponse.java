@@ -33,8 +33,8 @@ public class AuthResponse {
         @Schema(description = "User ID", example = "1")
         private String id;
 
-        @Schema(description = "Username", example = "khang")
-        private String username;
+        @Schema(description = "Full name", example = "khang")
+        private String fullName;
 
         @Schema(description = "Email address", example = "khang@gmail.com")
         private String email;
