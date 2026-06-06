@@ -1,4 +1,4 @@
-package com.sra.journal_tracking.repository.neo4j;
+package com.sra.journal_tracking.repository.jpa;
 
 import java.util.UUID;
 
