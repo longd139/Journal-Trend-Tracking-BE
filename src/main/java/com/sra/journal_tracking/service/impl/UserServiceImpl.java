@@ -42,8 +42,8 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
-        if (request.getUsername() != null) user.setFullName(request.getUsername());
-        if (request.getOrganization() != null) user.setInstitution(request.getOrganization());
+        if (request.getFullName() != null) user.setFullName(request.getFullName());
+        if (request.getInstitution() != null) user.setInstitution(request.getInstitution());
 
         return mapToDTO(userRepository.save(user));
     }
@@ -115,12 +115,12 @@ public class UserServiceImpl implements UserService {
     private UserDTO mapToDTO(User user) {
         return UserDTO.builder()
                 .userId(user.getUserId())
-                .username(user.getFullName())
+                .fullName(user.getFullName())
                 .email(user.getEmail())
-                .organization(user.getInstitution())
+                .institution(user.getInstitution())
                 .avatarUrl(null)
                 .roleName(user.getRole() != null ? user.getRole().getRoleName() : null)
-                .status(user.getIsActive())
+                .isActive(user.getIsActive())
                 .remainingSearches(null)
                 .remainingViews(null)
                 .createdAt(user.getCreatedAt())
