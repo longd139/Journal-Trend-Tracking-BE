@@ -5,6 +5,7 @@ import com.sra.journal_tracking.dto.sync.SemanticScholarResponseDTO;
 import com.sra.journal_tracking.entity.jpa.ApiSource;
 import com.sra.journal_tracking.entity.jpa.Author;
 import com.sra.journal_tracking.entity.jpa.PaperAuthor;
+import com.sra.journal_tracking.entity.jpa.PaperAuthorId;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.entity.jpa.SyncLog;
 import com.sra.journal_tracking.repository.jpa.ApiSourceRepository;
@@ -13,6 +14,7 @@ import com.sra.journal_tracking.repository.jpa.PaperAuthorRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SyncLogRepository;
 import com.sra.journal_tracking.service.DataSyncService;
+import com.sra.journal_tracking.service.GraphService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -37,6 +39,7 @@ public class DataSyncServiceImpl implements DataSyncService {
     private final PaperAuthorRepository paperAuthorRepository;
     private final ApiSourceRepository apiSourceRepository;
     private final SyncLogRepository syncLogRepository;
+    private final GraphService graphService;
     private final RestTemplate restTemplate;
 
     @Override
@@ -84,6 +87,9 @@ public class DataSyncServiceImpl implements DataSyncService {
 
                     ResearchPaper savedPaper = researchPaperRepository.save(newPaper);
                     insertedCount++;
+
+                    // Lưu vào Neo4j graph để tìm kiếm lần sau nhanh hơn
+                    savePaperToNeo4j(savedPaper, query);
 
                     if (paperDTO.getAuthors() != null) {
                         int order = 1;
@@ -151,6 +157,9 @@ public class DataSyncServiceImpl implements DataSyncService {
 
                     ResearchPaper savedPaper = researchPaperRepository.save(newPaper);
                     insertedCount++;
+
+                    // Lưu vào Neo4j graph để tìm kiếm lần sau nhanh hơn
+                    savePaperToNeo4j(savedPaper, query);
 
                     if (work.getAuthorships() != null) {
                         int order = 1;
@@ -221,18 +230,22 @@ public class DataSyncServiceImpl implements DataSyncService {
     private Author getOrCreateSemanticScholarAuthor(
             SemanticScholarResponseDTO.SemanticScholarPaperDTO.AuthorDTO authorDTO,
             ApiSource source) {
+        String fullName = authorDTO.getName() != null ? authorDTO.getName() : "Unknown Author";
+
         if (authorDTO.getAuthorId() == null) {
-            return authorRepository.save(Author.builder()
-                    .source(source)
-                    .fullName(authorDTO.getName() != null ? authorDTO.getName() : "Unknown Author")
-                    .build());
+            // Không có external ID → tìm theo tên trước, dùng saveAndFlush để tránh duplicate NULL
+            return authorRepository.findByFullNameAndSource_SourceId(fullName, source.getSourceId())
+                    .orElseGet(() -> authorRepository.saveAndFlush(Author.builder()
+                            .source(source)
+                            .fullName(fullName)
+                            .build()));
         }
 
         return authorRepository.findByExternalAuthorIdAndSource_SourceId(authorDTO.getAuthorId(), source.getSourceId())
-                .orElseGet(() -> authorRepository.save(Author.builder()
+                .orElseGet(() -> authorRepository.saveAndFlush(Author.builder()
                         .source(source)
                         .externalAuthorId(authorDTO.getAuthorId())
-                        .fullName(authorDTO.getName() != null ? authorDTO.getName() : "Unknown Author")
+                        .fullName(fullName)
                         .build()));
     }
 
@@ -242,15 +255,17 @@ public class DataSyncServiceImpl implements DataSyncService {
         String affiliation = resolveAffiliation(authorship.getRawAffiliationStrings());
 
         if (externalAuthorId == null) {
-            return authorRepository.save(Author.builder()
-                    .source(source)
-                    .fullName(fullName)
-                    .affiliation(affiliation)
-                    .build());
+            // Không có external ID → tìm theo tên trước, dùng saveAndFlush để tránh duplicate NULL
+            return authorRepository.findByFullNameAndSource_SourceId(fullName, source.getSourceId())
+                    .orElseGet(() -> authorRepository.saveAndFlush(Author.builder()
+                            .source(source)
+                            .fullName(fullName)
+                            .affiliation(affiliation)
+                            .build()));
         }
 
         return authorRepository.findByExternalAuthorIdAndSource_SourceId(externalAuthorId, source.getSourceId())
-                .orElseGet(() -> authorRepository.save(Author.builder()
+                .orElseGet(() -> authorRepository.saveAndFlush(Author.builder()
                         .source(source)
                         .externalAuthorId(externalAuthorId)
                         .fullName(fullName)
@@ -260,6 +275,7 @@ public class DataSyncServiceImpl implements DataSyncService {
 
     private void savePaperAuthor(ResearchPaper savedPaper, Author author, int authorOrder) {
         PaperAuthor paperAuthor = PaperAuthor.builder()
+                .id(new PaperAuthorId()) // @EmbeddedId cần được khởi tạo, @MapsId sẽ tự điền
                 .paper(savedPaper)
                 .author(author)
                 .authorOrder(authorOrder)
@@ -325,6 +341,25 @@ public class DataSyncServiceImpl implements DataSyncService {
                 .map(Map.Entry::getValue)
                 .reduce((left, right) -> left + " " + right)
                 .orElse(null);
+    }
+
+    /**
+     * Lưu paper vào Neo4j graph để phục vụ tìm kiếm graph-based.
+     * Dùng search query làm keyword tag.
+     */
+    private void savePaperToNeo4j(ResearchPaper paper, String searchQuery) {
+        try {
+            List<String> keywords = List.of(searchQuery.trim());
+            graphService.savePaperWithKeywords(
+                    paper.getPaperId().toString(),
+                    paper.getTitle(),
+                    paper.getDoi(),
+                    paper.getPubYear() != null ? paper.getPubYear().intValue() : null,
+                    keywords
+            );
+        } catch (Exception e) {
+            log.warn("Neo4j save skipped for paper {}: {}", paper.getPaperId(), e.getMessage());
+        }
     }
 
     private String normalizeDoi(String doi) {

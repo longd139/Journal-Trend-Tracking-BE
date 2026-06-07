@@ -11,4 +11,6 @@ import com.sra.journal_tracking.entity.jpa.Author;
 @Repository
 public interface AuthorRepository extends JpaRepository<Author, UUID> {
     Optional<Author> findByExternalAuthorIdAndSource_SourceId(String externalAuthorId, UUID sourceId);
+
+    Optional<Author> findByFullNameAndSource_SourceId(String fullName, UUID sourceId);
 }

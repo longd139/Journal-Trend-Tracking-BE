@@ -7,17 +7,6 @@
 --  Script co the chay lai nhieu lan (idempotent).
 -- ============================================================
 
-USE master;
-GO
-
--- ── TAO DATABASE ─────────────────────────────────────────────
-IF DB_ID('JournalTrendDB') IS NULL
-    CREATE DATABASE JournalTrendDB
-        COLLATE Vietnamese_CI_AI;
-GO
-
-USE JournalTrendDB;
-GO
 
 -- ============================================================
 --  XOA CAC BANG CU (thu tu nguoc FK dependency)
@@ -193,7 +182,6 @@ CREATE TABLE JOURNAL (
     IsActive        BIT                 NOT NULL  DEFAULT 1,
 
     CONSTRAINT PK_JOURNAL           PRIMARY KEY (JournalID),
-    CONSTRAINT UK_JOURNAL_ISSN      UNIQUE      (ISSN),
     CONSTRAINT FK_JOURNAL_Source    FOREIGN KEY (SourceID) REFERENCES API_SOURCE(SourceID),
     CONSTRAINT FK_JOURNAL_Field     FOREIGN KEY (FieldID)  REFERENCES RESEARCH_FIELD(FieldID)
 );
@@ -211,7 +199,6 @@ CREATE TABLE AUTHOR (
     TotalCitations      INT                 NULL  DEFAULT 0,
 
     CONSTRAINT PK_AUTHOR            PRIMARY KEY (AuthorID),
-    CONSTRAINT UK_AUTHOR_External   UNIQUE      (SourceID, ExternalAuthorID),
     CONSTRAINT FK_AUTHOR_Source     FOREIGN KEY (SourceID) REFERENCES API_SOURCE(SourceID)
 );
 GO
@@ -249,7 +236,6 @@ CREATE TABLE RESEARCH_PAPER (
     CreatedAt       DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
 
     CONSTRAINT PK_RESEARCH_PAPER    PRIMARY KEY (PaperID),
-    CONSTRAINT UK_PAPER_DOI         UNIQUE      (DOI),
     CONSTRAINT FK_PAPER_Source      FOREIGN KEY (SourceID)  REFERENCES API_SOURCE(SourceID),
     CONSTRAINT FK_PAPER_Journal     FOREIGN KEY (JournalID) REFERENCES JOURNAL(JournalID),
     CONSTRAINT FK_PAPER_Field       FOREIGN KEY (FieldID)   REFERENCES RESEARCH_FIELD(FieldID),
@@ -579,9 +565,12 @@ CREATE INDEX IX_FIELD_ParentID      ON RESEARCH_FIELD(ParentFieldID);
 -- JOURNAL
 CREATE INDEX IX_JOURNAL_FieldID     ON JOURNAL(FieldID);
 CREATE INDEX IX_JOURNAL_SourceID    ON JOURNAL(SourceID);
+-- Filtered unique: chi enforce unique tren ISSN khac NULL
+CREATE UNIQUE INDEX UK_JOURNAL_ISSN ON JOURNAL(ISSN) WHERE ISSN IS NOT NULL;
 
 -- AUTHOR
-CREATE INDEX IX_AUTHOR_SourceExt    ON AUTHOR(SourceID, ExternalAuthorID);
+-- Filtered unique: chi enforce unique khi ExternalAuthorID khac NULL
+CREATE UNIQUE INDEX UK_AUTHOR_External ON AUTHOR(SourceID, ExternalAuthorID) WHERE ExternalAuthorID IS NOT NULL;
 
 -- KEYWORD
 CREATE INDEX IX_KEYWORD_FieldID     ON KEYWORD(FieldID);
@@ -592,6 +581,8 @@ CREATE INDEX IX_PAPER_JournalID     ON RESEARCH_PAPER(JournalID);
 CREATE INDEX IX_PAPER_FieldID       ON RESEARCH_PAPER(FieldID);
 CREATE INDEX IX_PAPER_PubYear       ON RESEARCH_PAPER(PubYear DESC);
 CREATE INDEX IX_PAPER_CreatedAt     ON RESEARCH_PAPER(CreatedAt DESC);
+-- Filtered unique: chi enforce unique tren DOI khac NULL
+CREATE UNIQUE INDEX UK_PAPER_DOI ON RESEARCH_PAPER(DOI) WHERE DOI IS NOT NULL;
 
 -- Full-text search tren Title va Abstract
 -- (can bat Full-Text Search feature tren SQL Server)

@@ -3,8 +3,6 @@ package com.sra.journal_tracking.entity.jpa;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.util.UUID;
-
 @Entity
 @Table(name = "PAPER_AUTHOR")
 @Data
@@ -15,19 +13,24 @@ import java.util.UUID;
 @ToString(exclude = {"paper", "author"})
 public class PaperAuthor {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "PaperAuthorID", updatable = false, nullable = false)
-    private UUID paperAuthorId;
+    @EmbeddedId
+    private PaperAuthorId id;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @MapsId("paperId")
     @JoinColumn(name = "PaperID", nullable = false)
     private ResearchPaper paper;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @MapsId("authorId")
     @JoinColumn(name = "AuthorID", nullable = false)
     private Author author;
 
     @Column(name = "AuthorOrder")
-    private Integer authorOrder;
+    @Builder.Default
+    private Integer authorOrder = 1;
+
+    @Column(name = "IsCorresponding")
+    @Builder.Default
+    private Boolean isCorresponding = false;
 }

@@ -3,6 +3,7 @@ package com.sra.journal_tracking.entity.jpa;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
@@ -38,4 +39,8 @@ public class UserUsage {
     @Column(name = "ChartViewCount", nullable = false)
     @Builder.Default
     private Integer chartViewCount = 0;
+
+    @Column(name = "LastUpdated", nullable = false)
+    @Builder.Default
+    private LocalDateTime lastUpdated = LocalDateTime.now();
 }

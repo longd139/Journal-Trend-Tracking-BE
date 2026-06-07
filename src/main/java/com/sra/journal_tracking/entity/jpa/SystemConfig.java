@@ -3,6 +3,7 @@ package com.sra.journal_tracking.entity.jpa;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
@@ -23,4 +24,14 @@ public class SystemConfig {
 
     @Column(name = "ConfigValue", nullable = false)
     private String configValue;
+
+    @Column(name = "Description", length = 500)
+    private String description;
+
+    @Column(name = "UpdatedAt", nullable = false)
+    @Builder.Default
+    private LocalDateTime updatedAt = LocalDateTime.now();
+
+    @Column(name = "UpdatedBy")
+    private UUID updatedBy;
 }
