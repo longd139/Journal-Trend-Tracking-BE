@@ -13,8 +13,6 @@ import com.sra.journal_tracking.dto.user.UpdateProfileRequest;
 import com.sra.journal_tracking.dto.user.UserDTO;
 import com.sra.journal_tracking.entity.jpa.Role;
 import com.sra.journal_tracking.entity.jpa.User;
-import com.sra.journal_tracking.exception.AppException;
-import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.repository.jpa.RoleRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.service.UserService;
@@ -32,7 +30,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserDTO getCurrentUser(String email) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+                .orElseThrow(() -> new RuntimeException("User not found"));
         return mapToDTO(user);
     }
 
@@ -40,10 +38,14 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserDTO updateProfile(String email, UpdateProfileRequest request) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
         if (request.getFullName() != null) user.setFullName(request.getFullName());
+<<<<<<< HEAD
         if (request.getInstitution() != null) user.setInstitution(request.getInstitution());
+=======
+        if (request.getOrganization() != null) user.setInstitution(request.getOrganization());
+>>>>>>> cf2b0f1614b982ada326ffe183c770852f2b77bf
 
         return mapToDTO(userRepository.save(user));
     }
@@ -52,10 +54,10 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public void changePassword(String email, ChangePasswordRequest request) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
         if (!passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash())) {
-            throw new AppException(ErrorCode.INVALID_OLD_PASSWORD);
+            throw new RuntimeException("Incorrect old password");
         }
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
@@ -66,10 +68,10 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public void upgradeAccount(String email) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        Role researcherRole = roleRepository.findByRoleName("researcher")
-                .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
+        Role researcherRole = roleRepository.findByRoleNameIgnoreCase("researcher")
+                .orElseThrow(() -> new RuntimeException("Role researcher not found"));
 
         user.setRole(researcherRole);
 
@@ -87,14 +89,14 @@ public class UserServiceImpl implements UserService {
     public UserDTO getUserById(UUID userId) {
         return userRepository.findById(userId)
                 .map(this::mapToDTO)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+                .orElseThrow(() -> new RuntimeException("User not found"));
     }
 
     @Override
     @Transactional
     public UserDTO changeUserStatus(UUID userId, boolean status) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+                .orElseThrow(() -> new RuntimeException("User not found"));
         user.setIsActive(status);
         return mapToDTO(userRepository.save(user));
     }
@@ -103,9 +105,9 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserDTO changeUserRole(UUID userId, String roleName) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
-        Role role = roleRepository.findByRoleName(roleName)
-                .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Role role = roleRepository.findByRoleNameIgnoreCase(roleName)
+                .orElseThrow(() -> new RuntimeException("Role not found: " + roleName));
         
         user.setRole(role);
 

@@ -2,6 +2,7 @@ package com.sra.journal_tracking.security;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Locale;
 
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -23,7 +24,7 @@ public class CustomUserDetails implements UserDetails {
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         if (user.getRole() != null) {
-            return Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + user.getRole().getRoleName()));
+            return Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + user.getRole().getRoleName().toUpperCase(Locale.ROOT)));
         }
         return Collections.emptyList();
     }

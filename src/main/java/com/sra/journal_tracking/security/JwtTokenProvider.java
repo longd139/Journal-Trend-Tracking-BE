@@ -1,7 +1,5 @@
 package com.sra.journal_tracking.security;
 
-import com.sra.journal_tracking.exception.AppException;
-import com.sra.journal_tracking.exception.ErrorCode;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -21,9 +19,6 @@ public class JwtTokenProvider {
     @Value("${app.jwtExpirationInMs:86400000}") // 1 day default
     private int jwtExpirationInMs;
 
-    @Value("${app.reset-token-expiration-ms:900000}") // 15 minutes default
-    private int resetTokenExpirationInMs;
-
     private SecretKey getSigningKey() {
         byte[] keyBytes = Decoders.BASE64.decode(jwtSecret);
         return Keys.hmacShaKeyFor(keyBytes);
@@ -38,19 +33,6 @@ public class JwtTokenProvider {
                 .subject(userDetails.getUsername())
                 .issuedAt(new Date())
                 .expiration(expiryDate)
-                .signWith(getSigningKey())
-                .compact();
-    }
-
-    public String generateResetToken(String email) {
-        Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + resetTokenExpirationInMs);
-
-        return Jwts.builder()
-                .subject(email)
-                .issuedAt(now)
-                .expiration(expiryDate)
-                .claim("purpose", "password-reset")
                 .signWith(getSigningKey())
                 .compact();
     }
@@ -77,7 +59,7 @@ public class JwtTokenProvider {
             }
             return hexString.toString();
         } catch (java.security.NoSuchAlgorithmException e) {
-            throw new AppException(ErrorCode.TOKEN_HASH_ERROR);
+            throw new RuntimeException("Error hashing token", e);
         }
     }
 
