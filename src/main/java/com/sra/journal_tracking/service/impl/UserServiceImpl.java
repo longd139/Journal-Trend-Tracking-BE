@@ -41,11 +41,7 @@ public class UserServiceImpl implements UserService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         if (request.getFullName() != null) user.setFullName(request.getFullName());
-<<<<<<< HEAD
         if (request.getInstitution() != null) user.setInstitution(request.getInstitution());
-=======
-        if (request.getOrganization() != null) user.setInstitution(request.getOrganization());
->>>>>>> cf2b0f1614b982ada326ffe183c770852f2b77bf
 
         return mapToDTO(userRepository.save(user));
     }
