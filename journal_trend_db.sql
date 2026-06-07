@@ -22,6 +22,7 @@ GO
 -- ============================================================
 --  XOA CAC BANG CU (thu tu nguoc FK dependency)
 -- ============================================================
+DROP TABLE IF EXISTS VERIFICATION_TOKEN;
 DROP TABLE IF EXISTS AUDIT_LOG;
 DROP TABLE IF EXISTS USER_USAGE;
 DROP TABLE IF EXISTS SYSTEM_CONFIG;
@@ -96,6 +97,26 @@ CREATE TABLE USER_SESSION (
     CONSTRAINT PK_USER_SESSION  PRIMARY KEY (SessionID),
     CONSTRAINT FK_SESSION_User  FOREIGN KEY (UserID) REFERENCES [USER](UserID)
                                 ON DELETE CASCADE
+);
+GO
+
+-- ── VERIFICATION_TOKEN ──────────────────────────────────────────
+-- Token xac thuc email va reset mat khau.
+-- TokenType: EMAIL_VERIFICATION | PASSWORD_RESET
+CREATE TABLE VERIFICATION_TOKEN (
+    TokenID     UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    UserID      UNIQUEIDENTIFIER    NOT NULL,
+    Token       NVARCHAR(255)       NOT NULL,
+    TokenType   NVARCHAR(20)        NOT NULL
+                    CHECK (TokenType IN ('EMAIL_VERIFICATION','PASSWORD_RESET')),
+    ExpiresAt   DATETIME2(0)        NOT NULL,
+    CreatedAt   DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+    IsUsed      BIT                 NOT NULL  DEFAULT 0,
+
+    CONSTRAINT PK_VERIFICATION_TOKEN    PRIMARY KEY (TokenID),
+    CONSTRAINT UK_VT_Token              UNIQUE      (Token),
+    CONSTRAINT FK_VT_User               FOREIGN KEY (UserID) REFERENCES [USER](UserID)
+                                        ON DELETE CASCADE
 );
 GO
 
@@ -542,6 +563,11 @@ CREATE INDEX IX_USER_IsActive       ON [USER](IsActive);
 -- USER_SESSION
 CREATE INDEX IX_SESSION_UserID      ON USER_SESSION(UserID);
 CREATE INDEX IX_SESSION_ExpiresAt   ON USER_SESSION(ExpiresAt);
+
+-- VERIFICATION_TOKEN
+CREATE INDEX IX_VT_UserID           ON VERIFICATION_TOKEN(UserID);
+CREATE INDEX IX_VT_Token            ON VERIFICATION_TOKEN(Token);
+CREATE INDEX IX_VT_ExpiresAt        ON VERIFICATION_TOKEN(ExpiresAt);
 
 -- SYNC_LOG
 CREATE INDEX IX_SYNC_SourceID       ON SYNC_LOG(SourceID);

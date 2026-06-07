@@ -46,7 +46,7 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return user.getIsActive() != null ? user.getIsActive() : true;
+        return true; // Không dùng isActive để khóa account — isActive dùng cho email verification
     }
 
     @Override
@@ -56,6 +56,6 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return user.getIsActive() != null ? user.getIsActive() : true;
+        return true; // Không dùng isActive để disable account — isActive dùng cho email verification
     }
 }

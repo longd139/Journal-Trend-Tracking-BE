@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.controller;
 
+import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.entity.jpa.SyncLog;
 import com.sra.journal_tracking.service.DataSyncService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -12,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/v1/admin/sync")
 @RequiredArgsConstructor
@@ -23,28 +26,28 @@ public class DataSyncController {
 
     @Operation(summary = "Manual trigger OpenAlex Sync", description = "Fetch papers from OpenAlex based on keyword")
     @PostMapping("/openalex")
-    public ResponseEntity<String> triggerOpenAlexSync(
+    public ResponseEntity<AppResponse<Map<String, Object>>> triggerOpenAlexSync(
             @RequestParam(defaultValue = "machine learning") String query,
             @RequestParam(defaultValue = "10") int limit) {
         SyncLog syncLog = dataSyncService.syncFromOpenAlex(query, limit);
         return buildSyncResponse("OpenAlex", query, syncLog);
     }
 
-    private ResponseEntity<String> buildSyncResponse(String sourceName, String query, SyncLog syncLog) {
-        String message = String.format(
-                "%s sync %s for query: %s. Fetched: %d, Inserted: %d%s",
-                sourceName,
-                syncLog.getStatus(),
-                query,
-                syncLog.getPapersFetched(),
-                syncLog.getPapersInserted(),
-                syncLog.getErrorMessage() != null ? ". Error: " + syncLog.getErrorMessage() : ""
+    private ResponseEntity<AppResponse<Map<String, Object>>> buildSyncResponse(String sourceName, String query, SyncLog syncLog) {
+        Map<String, Object> data = Map.of(
+                "source", sourceName,
+                "query", query,
+                "status", syncLog.getStatus(),
+                "papersFetched", syncLog.getPapersFetched() != null ? syncLog.getPapersFetched() : 0,
+                "papersInserted", syncLog.getPapersInserted() != null ? syncLog.getPapersInserted() : 0,
+                "errorMessage", syncLog.getErrorMessage() != null ? syncLog.getErrorMessage() : ""
         );
 
         if ("failed".equalsIgnoreCase(syncLog.getStatus())) {
-            return ResponseEntity.internalServerError().body(message);
+            return ResponseEntity.internalServerError()
+                    .body(AppResponse.of(500, sourceName + " sync failed for query: " + query, data));
         }
 
-        return ResponseEntity.ok(message);
+        return ResponseEntity.ok(AppResponse.success(sourceName + " sync completed for query: " + query, data));
     }
 }
