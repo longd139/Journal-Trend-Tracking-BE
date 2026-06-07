@@ -19,6 +19,24 @@ public enum ErrorCode {
     // ---- CÁC LỖI KHÁC THÊM SAU NÀY ----
     // INVALID_ROLE(HttpStatus.BAD_REQUEST, "Role không hợp lệ!"),
 
+    // ---- LỖI BOOKMARK ----
+    BOOKMARK_ALREADY_EXISTS(HttpStatus.CONFLICT, "You have already bookmarked this item!"),
+    BOOKMARK_NOT_FOUND(HttpStatus.NOT_FOUND, "Bookmark not found!"),
+    BOOKMARK_LIMIT_EXCEEDED(HttpStatus.FORBIDDEN, "You have reached the bookmark limit. Upgrade to Researcher for unlimited bookmarks."),
+    BOOKMARK_INVALID_TARGET(HttpStatus.BAD_REQUEST, "Exactly one of paperId or keywordId must be provided."),
+
+    // ---- LỖI FOLLOW ----
+    FOLLOW_ALREADY_EXISTS(HttpStatus.CONFLICT, "You are already following this target!"),
+    FOLLOW_NOT_FOUND(HttpStatus.NOT_FOUND, "Follow not found!"),
+    FOLLOW_LIMIT_EXCEEDED(HttpStatus.FORBIDDEN, "You have reached the follow limit. Upgrade to Researcher for unlimited follows."),
+    FOLLOW_INVALID_TARGET(HttpStatus.BAD_REQUEST, "Exactly one of journalId, topicId, or keywordId must be provided."),
+
+    // ---- LỖI TOPIC ----
+    TOPIC_NOT_FOUND(HttpStatus.NOT_FOUND, "Research topic not found!"),
+
+    // ---- LỖI CHUNG ----
+    RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found!"),
+
     // ---- LỖI HỆ THỐNG (Fallback) ----
     UNCATEGORIZED_EXCEPTION(HttpStatus.INTERNAL_SERVER_ERROR, "Đã xảy ra lỗi hệ thống không xác định.");
 
