@@ -354,8 +354,6 @@ CREATE TABLE BOOKMARK (
         (PaperID IS NOT NULL AND KeywordID IS NULL) OR
         (PaperID IS NULL     AND KeywordID IS NOT NULL)
     ),
-    CONSTRAINT UK_BOOKMARK_Paper        UNIQUE (UserID, PaperID),
-    CONSTRAINT UK_BOOKMARK_Keyword      UNIQUE (UserID, KeywordID),
     CONSTRAINT FK_BM_User               FOREIGN KEY (UserID)    REFERENCES [USER](UserID)
                                         ON DELETE CASCADE,
     CONSTRAINT FK_BM_Paper              FOREIGN KEY (PaperID)   REFERENCES RESEARCH_PAPER(PaperID),
@@ -381,9 +379,6 @@ CREATE TABLE FOLLOW (
         (JournalID IS NULL     AND TopicID IS NOT NULL AND KeywordID IS NULL) OR
         (JournalID IS NULL     AND TopicID IS NULL     AND KeywordID IS NOT NULL)
     ),
-    CONSTRAINT UK_FOLLOW_Journal        UNIQUE (UserID, JournalID),
-    CONSTRAINT UK_FOLLOW_Topic          UNIQUE (UserID, TopicID),
-    CONSTRAINT UK_FOLLOW_Keyword        UNIQUE (UserID, KeywordID),
     CONSTRAINT FK_FOLLOW_User           FOREIGN KEY (UserID)    REFERENCES [USER](UserID)
                                         ON DELETE CASCADE,
     CONSTRAINT FK_FOLLOW_Journal        FOREIGN KEY (JournalID) REFERENCES JOURNAL(JournalID),
@@ -602,12 +597,16 @@ CREATE INDEX IX_TREND_Full          ON PUBLICATION_TREND(TrendTarget, TargetID, 
 
 -- BOOKMARK
 CREATE INDEX IX_BOOKMARK_UserID     ON BOOKMARK(UserID);
+-- Filtered unique: chi enforce unique khi target khac NULL (SQL Server UNIQUE constraint chi cho phep 1 NULL)
+CREATE UNIQUE INDEX UK_BOOKMARK_Paper   ON BOOKMARK(UserID, PaperID)   WHERE PaperID   IS NOT NULL;
+CREATE UNIQUE INDEX UK_BOOKMARK_Keyword ON BOOKMARK(UserID, KeywordID) WHERE KeywordID IS NOT NULL;
 
 -- FOLLOW
 CREATE INDEX IX_FOLLOW_UserID       ON FOLLOW(UserID);
-CREATE INDEX IX_FOLLOW_JournalID    ON FOLLOW(JournalID) WHERE JournalID IS NOT NULL;
-CREATE INDEX IX_FOLLOW_TopicID      ON FOLLOW(TopicID)   WHERE TopicID   IS NOT NULL;
-CREATE INDEX IX_FOLLOW_KeywordID    ON FOLLOW(KeywordID) WHERE KeywordID IS NOT NULL;
+-- Filtered unique: chi enforce unique khi target khac NULL
+CREATE UNIQUE INDEX UK_FOLLOW_Journal   ON FOLLOW(UserID, JournalID) WHERE JournalID IS NOT NULL;
+CREATE UNIQUE INDEX UK_FOLLOW_Topic     ON FOLLOW(UserID, TopicID)   WHERE TopicID   IS NOT NULL;
+CREATE UNIQUE INDEX UK_FOLLOW_Keyword   ON FOLLOW(UserID, KeywordID) WHERE KeywordID IS NOT NULL;
 
 -- NOTIFICATION
 CREATE INDEX IX_NOTIF_UserUnread    ON NOTIFICATION(UserID, IsRead, CreatedAt DESC);
