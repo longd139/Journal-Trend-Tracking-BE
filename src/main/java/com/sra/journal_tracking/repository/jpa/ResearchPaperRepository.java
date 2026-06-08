@@ -77,4 +77,11 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
     Optional<ResearchPaper> findByIdWithDetails(@Param("paperId") UUID paperId);
 
     Optional<ResearchPaper> findByDoi(String doi);
+
+    /**
+     * Sum all citation counts across all research papers.
+     * Returns 0 if no papers exist (COALESCE).
+     */
+    @Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p")
+    Long sumTotalCitations();
 }

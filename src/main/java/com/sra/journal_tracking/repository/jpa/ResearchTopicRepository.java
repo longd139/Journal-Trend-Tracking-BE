@@ -9,4 +9,9 @@ import com.sra.journal_tracking.entity.jpa.ResearchTopic;
 
 @Repository
 public interface ResearchTopicRepository extends JpaRepository<ResearchTopic, UUID> {
+
+    /**
+     * Count topics currently marked as trending.
+     */
+    long countByIsTrendingTrue();
 }
