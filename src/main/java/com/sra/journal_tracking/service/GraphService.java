@@ -60,7 +60,10 @@ public class GraphService {
 
             log.info("Neo4j search for '{}': found {} papers", keyword, paperIds.size());
         } catch (Exception e) {
-            log.warn("Neo4j search failed for keyword '{}': {}. Returning empty list.", keyword, e.getMessage());
+            Throwable root = e;
+            while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+            log.warn("Neo4j search failed for keyword '{}': {}. Root cause: {}", keyword, e.getMessage(), root.toString());
+            log.warn("Full stack trace:", e);
             // Không throw exception — để fallback xuống OpenAlex
         }
 
@@ -120,6 +123,7 @@ public class GraphService {
                 log.debug("Neo4j: merged Paper({}) -[:HAS_KEYWORD]-> Keyword({})", paperId, normalized);
             } catch (Exception e) {
                 log.error("Neo4j save failed for paper {} keyword '{}': {}", paperId, kw, e.getMessage());
+                log.error("Full stack trace:", e);
             }
         }
 
@@ -127,14 +131,16 @@ public class GraphService {
     }
 
     // ============================================
-    //  FORWARD: Paper → Keywords (giữ nguyên)
+    //  FORWARD: Paper → Keywords (with sizing)
     // ============================================
 
     public GraphResponse getPaperKeywordGraph(String paperId) {
         String cypherQuery =
                 "MATCH (p:Paper {paperId: $paperId})-[r:HAS_KEYWORD]->(k:Keyword) " +
+                "OPTIONAL MATCH (k)<-[:HAS_KEYWORD]-(otherP:Paper) " +
                 "RETURN p.paperId AS pId, p.title AS pTitle, " +
-                "k.keywordId AS kId, k.text AS kText";
+                "k.keywordId AS kId, k.text AS kText, " +
+                "COUNT(DISTINCT otherP) AS keywordSize";
 
         Map<String, GraphNode> nodeMap = new HashMap<>();
         List<GraphLink> links = new ArrayList<>();
@@ -145,15 +151,86 @@ public class GraphService {
                 .all()
                 .forEach(record -> {
                     String pId = record.get("pId").toString();
-                    String pTitle = record.get("pTitle").toString();
+                    String pTitle = record.get("pTitle") != null ? record.get("pTitle").toString() : "Untitled";
                     String kId = record.get("kId").toString();
-                    String kText = record.get("kText").toString();
+                    String kText = record.get("kText") != null ? record.get("kText").toString() : "";
+                    int kwSize = record.get("keywordSize") != null ? ((Number) record.get("keywordSize")).intValue() : 0;
 
-                    nodeMap.put(pId, new GraphNode(pId, pTitle, "PAPER"));
-                    nodeMap.put(kId, new GraphNode(kId, kText, "KEYWORD"));
+                    nodeMap.put(pId, GraphNode.builder()
+                            .id(pId).label(pTitle).group("PAPER").size(1).build());
+                    nodeMap.put(kId, GraphNode.builder()
+                            .id(kId).label(kText).group("KEYWORD").size(kwSize).build());
 
                     links.add(new GraphLink(pId, kId, "HAS_KEYWORD"));
                 });
+
+        return new GraphResponse(new ArrayList<>(nodeMap.values()), links);
+    }
+
+    // ============================================
+    //  KEYWORD GRAPH: Keyword → Papers + Keywords (with sizing)
+    // ============================================
+
+    /**
+     * Build a graph visualization for a keyword search.
+     * Returns Paper and Keyword nodes related to the searched keyword.
+     * Keyword node sizes = number of connected Paper nodes (global frequency).
+     * Paper node sizes = 1 (default).
+     *
+     * @param keyword the search keyword
+     * @return GraphResponse with sized nodes and HAS_KEYWORD links
+     */
+    public GraphResponse getKeywordGraph(String keyword) {
+        String normalizedKeyword = keyword.toLowerCase().trim();
+
+        String cypherQuery = """
+                MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
+                WHERE k.normalizedText CONTAINS $keyword
+                WITH p, k
+                OPTIONAL MATCH (k)<-[:HAS_KEYWORD]-(otherP:Paper)
+                WITH p, k, COUNT(DISTINCT otherP) AS keywordSize
+                RETURN p.paperId AS paperId, p.title AS paperTitle,
+                       k.keywordId AS keywordId, k.text AS keywordText,
+                       keywordSize
+                LIMIT 200
+                """;
+
+        Map<String, GraphNode> nodeMap = new HashMap<>();
+        List<GraphLink> links = new ArrayList<>();
+
+        try {
+            neo4jClient.query(cypherQuery)
+                    .bind(normalizedKeyword).to("keyword")
+                    .fetch()
+                    .all()
+                    .forEach(record -> {
+                        String pId = record.get("paperId").toString();
+                        String pTitle = record.get("paperTitle") != null ? record.get("paperTitle").toString() : "Untitled";
+                        String kId = record.get("keywordId").toString();
+                        String kText = record.get("keywordText") != null ? record.get("keywordText").toString() : "";
+                        int kwSize = record.get("keywordSize") != null ? ((Number) record.get("keywordSize")).intValue() : 0;
+
+                        // Paper nodes: default size 1 (could later use citationCount)
+                        nodeMap.putIfAbsent(pId, GraphNode.builder()
+                                .id(pId).label(pTitle).group("PAPER").size(1).build());
+
+                        // Keyword nodes: size = global paper count
+                        if (!nodeMap.containsKey(kId)) {
+                            nodeMap.put(kId, GraphNode.builder()
+                                    .id(kId).label(kText).group("KEYWORD").size(kwSize).build());
+                        }
+
+                        links.add(new GraphLink(pId, kId, "HAS_KEYWORD"));
+                    });
+
+            log.info("Keyword graph for '{}': {} nodes, {} links", keyword, nodeMap.size(), links.size());
+        } catch (Exception e) {
+            Throwable root = e;
+            while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+            log.warn("Keyword graph search failed for '{}': {}. Root cause: {}", keyword, e.getMessage(), root.toString());
+            log.warn("Full stack trace:", e);
+            // Return empty graph on failure — don't throw
+        }
 
         return new GraphResponse(new ArrayList<>(nodeMap.values()), links);
     }

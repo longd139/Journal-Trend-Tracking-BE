@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.controller;
 
+import com.sra.journal_tracking.constants.KeywordConstants;
 import com.sra.journal_tracking.dto.paper.PaperAdvancedFilterRequestDTO;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.paper.PaperSearchRequestDTO;
@@ -106,6 +107,10 @@ public class PaperSearchController {
     public ResponseEntity<AppResponse<PaperSearchResultDTO>> graphSearch(
             @RequestParam("keyword") String keyword,
             Authentication authentication) {
+        // Truncate keyword if too long (defense in depth)
+        if (keyword.length() > KeywordConstants.MAX_KEYWORD_LENGTH) {
+            keyword = keyword.substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
+        }
         PaperSearchResultDTO result = paperSearchOrchestrator.searchByKeyword(keyword, authentication.getName());
         return ResponseEntity.ok(AppResponse.success("Papers retrieved via graph search", result));
     }

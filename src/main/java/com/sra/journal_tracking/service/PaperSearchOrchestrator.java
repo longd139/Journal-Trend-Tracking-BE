@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.service;
 
+import com.sra.journal_tracking.constants.KeywordConstants;
 import com.sra.journal_tracking.dto.paper.AuthorDTO;
 import com.sra.journal_tracking.dto.paper.KeywordDTO;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
@@ -33,6 +34,7 @@ public class PaperSearchOrchestrator {
 
     private final GraphService graphService;
     private final DataSyncService dataSyncService;
+    private final SearchKeywordService searchKeywordService;
     private final ResearchPaperRepository researchPaperRepository;
     private final UserRepository userRepository;
 
@@ -50,7 +52,20 @@ public class PaperSearchOrchestrator {
             throw new IllegalArgumentException("Keyword cannot be empty");
         }
 
+        // Truncate keyword to max allowed length
+        if (trimmedKeyword.length() > KeywordConstants.MAX_KEYWORD_LENGTH) {
+            log.warn("Keyword truncated from {} chars to {} chars", trimmedKeyword.length(), KeywordConstants.MAX_KEYWORD_LENGTH);
+            trimmedKeyword = trimmedKeyword.substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
+        }
+
         log.info("Graph search: keyword='{}', user='{}'", trimmedKeyword, userEmail);
+
+        // Record the search keyword for hot-keywords tracking (non-blocking)
+        try {
+            searchKeywordService.recordSearch(trimmedKeyword);
+        } catch (Exception e) {
+            log.warn("Failed to record search keyword '{}': {}", trimmedKeyword, e.getMessage());
+        }
 
         // ── BƯỚC 1: Tìm trong Neo4j ──────────────────────────
         List<String> neo4jPaperIds = graphService.searchPapersByKeyword(trimmedKeyword);
@@ -137,6 +152,7 @@ public class PaperSearchOrchestrator {
                 );
             } catch (Exception e) {
                 log.warn("Failed to save paper {} to Neo4j: {}", paper.getPaperId(), e.getMessage());
+                log.warn("Full stack trace:", e);
             }
         }
 

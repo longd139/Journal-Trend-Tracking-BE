@@ -359,6 +359,7 @@ public class DataSyncServiceImpl implements DataSyncService {
             );
         } catch (Exception e) {
             log.warn("Neo4j save skipped for paper {}: {}", paper.getPaperId(), e.getMessage());
+            log.warn("Full stack trace:", e);
         }
     }
 
