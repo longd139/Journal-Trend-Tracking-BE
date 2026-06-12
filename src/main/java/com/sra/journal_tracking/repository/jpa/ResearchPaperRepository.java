@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.repository.jpa;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -77,4 +78,15 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
     Optional<ResearchPaper> findByIdWithDetails(@Param("paperId") UUID paperId);
 
     Optional<ResearchPaper> findByDoi(String doi);
+
+    // ---- Overview Statistics Queries ----
+
+    @Query("SELECT COUNT(p) FROM ResearchPaper p WHERE p.createdAt >= :start AND p.createdAt < :end")
+    long countByCreatedAtBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p")
+    long sumAllCitationCounts();
+
+    @Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p WHERE p.createdAt >= :start AND p.createdAt < :end")
+    long sumCitationCountsByCreatedAtBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 }
