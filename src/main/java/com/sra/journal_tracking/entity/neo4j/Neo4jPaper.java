@@ -10,10 +10,13 @@ import lombok.Setter;
 @Getter
 @Setter
 public class Neo4jPaper {
+
     @Id
-    private String paperId; // Khớp với UUID bên SQL Server nhưng lưu dạng String cho dễ vẽ
+    private String paperId; // Khớp với UUID bên SQL Server nhưng lưu dạng String
+
     private String title;
-    
-    // Getters, Setters...
-    
+
+    private String doi; // DOI để deduplicate khi sync
+
+    private Integer pubYear; // Năm xuất bản
 }

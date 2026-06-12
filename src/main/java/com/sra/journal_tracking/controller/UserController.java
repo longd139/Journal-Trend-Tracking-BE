@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.controller;
 
+import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.dto.user.ChangePasswordRequest;
 import com.sra.journal_tracking.dto.user.UpdateProfileRequest;
 import com.sra.journal_tracking.dto.user.UserDTO;
@@ -21,58 +22,58 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping("/me")
-    public ResponseEntity<UserDTO> getCurrentUser(Authentication authentication) {
-        return ResponseEntity.ok(userService.getCurrentUser(authentication.getName()));
+    public ResponseEntity<AppResponse<UserDTO>> getCurrentUser(Authentication authentication) {
+        return ResponseEntity.ok(AppResponse.success("User profile retrieved", userService.getCurrentUser(authentication.getName())));
     }
 
     @PutMapping("/me")
-    public ResponseEntity<UserDTO> updateProfile(
+    public ResponseEntity<AppResponse<UserDTO>> updateProfile(
             Authentication authentication,
             @RequestBody UpdateProfileRequest request) {
-        return ResponseEntity.ok(userService.updateProfile(authentication.getName(), request));
+        return ResponseEntity.ok(AppResponse.success("Profile updated", userService.updateProfile(authentication.getName(), request)));
     }
 
     @PutMapping("/me/password")
-    public ResponseEntity<String> changePassword(
+    public ResponseEntity<AppResponse<Void>> changePassword(
             Authentication authentication,
             @RequestBody ChangePasswordRequest request) {
         userService.changePassword(authentication.getName(), request);
-        return ResponseEntity.ok("Password updated successfully");
+        return ResponseEntity.ok(AppResponse.success("Password updated successfully"));
     }
 
     @PostMapping("/me/upgrade")
     @PreAuthorize("hasRole('ACADEMIC_USER')")
-    public ResponseEntity<String> upgradeAccount(Authentication authentication) {
+    public ResponseEntity<AppResponse<Void>> upgradeAccount(Authentication authentication) {
         userService.upgradeAccount(authentication.getName());
-        return ResponseEntity.ok("Account upgraded to RESEARCHER");
+        return ResponseEntity.ok(AppResponse.success("Account upgraded to RESEARCHER"));
     }
 
     // Admin endpoints
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<UserDTO>> getAllUsers() {
-        return ResponseEntity.ok(userService.getAllUsers());
+    public ResponseEntity<AppResponse<List<UserDTO>>> getAllUsers() {
+        return ResponseEntity.ok(AppResponse.success("Users retrieved", userService.getAllUsers()));
     }
 
     @GetMapping("/{userId}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<UserDTO> getUserById(@PathVariable UUID userId) {
-        return ResponseEntity.ok(userService.getUserById(userId));
+    public ResponseEntity<AppResponse<UserDTO>> getUserById(@PathVariable UUID userId) {
+        return ResponseEntity.ok(AppResponse.success("User retrieved", userService.getUserById(userId)));
     }
 
     @PutMapping("/{userId}/status")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<UserDTO> changeUserStatus(
+    public ResponseEntity<AppResponse<UserDTO>> changeUserStatus(
             @PathVariable UUID userId,
             @RequestParam boolean status) {
-        return ResponseEntity.ok(userService.changeUserStatus(userId, status));
+        return ResponseEntity.ok(AppResponse.success("User status updated", userService.changeUserStatus(userId, status)));
     }
 
     @PutMapping("/{userId}/role")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<UserDTO> changeUserRole(
+    public ResponseEntity<AppResponse<UserDTO>> changeUserRole(
             @PathVariable UUID userId,
             @RequestParam String roleName) {
-        return ResponseEntity.ok(userService.changeUserRole(userId, roleName));
+        return ResponseEntity.ok(AppResponse.success("User role updated", userService.changeUserRole(userId, roleName)));
     }
 }

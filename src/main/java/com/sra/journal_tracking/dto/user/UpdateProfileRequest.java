@@ -1,3 +1,4 @@
+
 package com.sra.journal_tracking.dto.user;
 
 import lombok.AllArgsConstructor;
@@ -10,7 +11,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UpdateProfileRequest {
-    private String username;
-    private String organization;
+    private String fullName;
+    private String institution;
     private String avatarUrl;
 }

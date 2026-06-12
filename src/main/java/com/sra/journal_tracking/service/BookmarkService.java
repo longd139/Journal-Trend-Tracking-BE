@@ -4,15 +4,17 @@ import java.util.List;
 import java.util.UUID;
 
 import com.sra.journal_tracking.dto.bookmark.BookmarkRequest;
-import com.sra.journal_tracking.entity.jpa.Bookmark;
+import com.sra.journal_tracking.dto.bookmark.BookmarkResponse;
 
 public interface BookmarkService {
 
-    Bookmark createBookmark(BookmarkRequest request);
+    BookmarkResponse addBookmark(String email, BookmarkRequest request);
 
-    List<Bookmark> getBookmarks();
+    List<BookmarkResponse> getMyBookmarks(String email, int page, int size);
 
-    Bookmark updateNote(UUID bookmarkId, String note);
+    void deleteBookmark(String email, UUID bookmarkId);
 
-    void deleteBookmark(UUID bookmarkId);
+    void deleteBookmarkByPaper(String email, UUID paperId);
+
+    void deleteBookmarkByKeyword(String email, UUID keywordId);
 }

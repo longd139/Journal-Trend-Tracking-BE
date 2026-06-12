@@ -11,4 +11,5 @@ import com.sra.journal_tracking.entity.jpa.Role;
 @Repository
 public interface RoleRepository extends JpaRepository<Role, UUID> {
     Optional<Role> findByRoleName(String roleName);
+    Optional<Role> findByRoleNameIgnoreCase(String roleName);
 }

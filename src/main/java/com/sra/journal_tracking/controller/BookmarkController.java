@@ -1,56 +1,81 @@
 package com.sra.journal_tracking.controller;
 
-import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 
+import jakarta.validation.Valid;
+
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import com.sra.journal_tracking.dto.bookmark.BookmarkRequest;
+import com.sra.journal_tracking.dto.bookmark.BookmarkResponse;
+import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.service.BookmarkService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 
 @RestController
-@RequestMapping("/api/bookmarks")
+@RequestMapping("/api/v1/bookmarks")
 @RequiredArgsConstructor
+@SecurityRequirement(name = "Bearer Authentication")
 public class BookmarkController {
 
     private final BookmarkService bookmarkService;
 
+    @Operation(summary = "Add bookmark", description = "Bookmark a paper or keyword. Only one target allowed per request.")
     @PostMapping
-    public ResponseEntity<?> createBookmark(
-            @RequestBody BookmarkRequest request) {
-
-        return ResponseEntity.ok(
-                bookmarkService.createBookmark(request));
+    public ResponseEntity<AppResponse<BookmarkResponse>> addBookmark(
+            Authentication authentication,
+            @Valid @RequestBody BookmarkRequest request) {
+        BookmarkResponse response = bookmarkService.addBookmark(authentication.getName(), request);
+        return ResponseEntity.ok(AppResponse.success("Bookmark added successfully", response));
     }
 
+    @Operation(summary = "Get my bookmarks", description = "List all bookmarks for the current user with pagination.")
     @GetMapping
-    public ResponseEntity<?> getBookmarks() {
-
-        return ResponseEntity.ok(
-                bookmarkService.getBookmarks());
+    public ResponseEntity<AppResponse<List<BookmarkResponse>>> getMyBookmarks(
+            Authentication authentication,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        List<BookmarkResponse> bookmarks = bookmarkService.getMyBookmarks(authentication.getName(), page, size);
+        return ResponseEntity.ok(AppResponse.success("Bookmarks retrieved", bookmarks));
     }
 
-    @PatchMapping("/{id}")
-    public ResponseEntity<?> updateNote(
-            @PathVariable UUID id,
-            @RequestBody Map<String, String> body) {
-
-        return ResponseEntity.ok(
-                bookmarkService.updateNote(
-                        id,
-                        body.get("note")));
+    @Operation(summary = "Delete bookmark by ID", description = "Delete a bookmark by its ID. Only the owner can delete.")
+    @DeleteMapping("/{bookmarkId}")
+    public ResponseEntity<AppResponse<Void>> deleteBookmark(
+            Authentication authentication,
+            @PathVariable UUID bookmarkId) {
+        bookmarkService.deleteBookmark(authentication.getName(), bookmarkId);
+        return ResponseEntity.ok(AppResponse.success("Bookmark removed successfully"));
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteBookmark(
-            @PathVariable UUID id) {
+    @Operation(summary = "Delete bookmark by paper", description = "Delete a bookmark by paper ID. Convenience endpoint.")
+    @DeleteMapping("/paper/{paperId}")
+    public ResponseEntity<AppResponse<Void>> deleteBookmarkByPaper(
+            Authentication authentication,
+            @PathVariable UUID paperId) {
+        bookmarkService.deleteBookmarkByPaper(authentication.getName(), paperId);
+        return ResponseEntity.ok(AppResponse.success("Bookmark removed successfully"));
+    }
 
-        bookmarkService.deleteBookmark(id);
-
-        return ResponseEntity.ok(
-                "Bookmark deleted successfully");
+    @Operation(summary = "Delete bookmark by keyword", description = "Delete a bookmark by keyword ID. Convenience endpoint.")
+    @DeleteMapping("/keyword/{keywordId}")
+    public ResponseEntity<AppResponse<Void>> deleteBookmarkByKeyword(
+            Authentication authentication,
+            @PathVariable UUID keywordId) {
+        bookmarkService.deleteBookmarkByKeyword(authentication.getName(), keywordId);
+        return ResponseEntity.ok(AppResponse.success("Bookmark removed successfully"));
     }
 }

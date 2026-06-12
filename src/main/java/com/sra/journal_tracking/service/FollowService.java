@@ -4,13 +4,15 @@ import java.util.List;
 import java.util.UUID;
 
 import com.sra.journal_tracking.dto.follow.FollowRequest;
-import com.sra.journal_tracking.entity.jpa.Follow;
+import com.sra.journal_tracking.dto.follow.FollowResponse;
 
 public interface FollowService {
 
-    Follow createFollow(FollowRequest request);
+    FollowResponse addFollow(String email, FollowRequest request);
 
-    List<Follow> getFollows();
+    List<FollowResponse> getMyFollows(String email);
 
-    void deleteFollow(UUID followId);
+    FollowResponse updateFollow(String email, UUID followId, boolean notifyEnabled);
+
+    void deleteFollow(String email, UUID followId);
 }

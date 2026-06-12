@@ -1,17 +1,27 @@
 package com.sra.journal_tracking.repository.jpa;
 
-import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
 import com.sra.journal_tracking.entity.jpa.Bookmark;
-import com.sra.journal_tracking.entity.jpa.User;
 
-public interface BookmarkRepository
-        extends JpaRepository<Bookmark, UUID> {
+@Repository
+public interface BookmarkRepository extends JpaRepository<Bookmark, UUID> {
 
-    List<Bookmark> findByUser(User user);
+    Page<Bookmark> findByUser_UserId(UUID userId, Pageable pageable);
 
-    long countByUser(User user);
+    Optional<Bookmark> findByUser_UserIdAndPaper_PaperId(UUID userId, UUID paperId);
+
+    Optional<Bookmark> findByUser_UserIdAndKeyword_KeywordId(UUID userId, UUID keywordId);
+
+    long countByUser_UserId(UUID userId);
+
+    void deleteByUser_UserIdAndPaper_PaperId(UUID userId, UUID paperId);
+
+    void deleteByUser_UserIdAndKeyword_KeywordId(UUID userId, UUID keywordId);
 }
