@@ -3,6 +3,7 @@ package com.sra.journal_tracking.test;
 import java.time.LocalDate;
 
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +19,7 @@ import com.sra.journal_tracking.repository.jpa.RoleRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 
 @Component
+@Profile("dev")
 public class DatabaseTestRunner implements CommandLineRunner {
 
     private final UserRepository userRepository;

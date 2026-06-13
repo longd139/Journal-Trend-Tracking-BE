@@ -63,43 +63,43 @@ public class PaperSearchController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<PaperSearchResultDTO> searchPapers(
+    public ResponseEntity<AppResponse<PaperSearchResultDTO>> searchPapers(
             @ModelAttribute @Valid PaperSearchRequestDTO request,
             Authentication authentication) {
-        return ResponseEntity.ok(paperSearchService.searchPapers(request, authentication.getName()));
+        return ResponseEntity.ok(AppResponse.success("Search completed", paperSearchService.searchPapers(request, authentication.getName())));
     }
 
     @GetMapping("/search/author")
-    public ResponseEntity<PaperSearchResultDTO> searchByAuthor(
+    public ResponseEntity<AppResponse<PaperSearchResultDTO>> searchByAuthor(
             @ModelAttribute @Valid PaperSearchRequestDTO request,
             Authentication authentication) {
-        return ResponseEntity.ok(paperSearchService.searchByAuthor(request, authentication.getName()));
+        return ResponseEntity.ok(AppResponse.success("Author search completed", paperSearchService.searchByAuthor(request, authentication.getName())));
     }
 
     @GetMapping("/search/journal")
-    public ResponseEntity<PaperSearchResultDTO> searchByJournal(
+    public ResponseEntity<AppResponse<PaperSearchResultDTO>> searchByJournal(
             @ModelAttribute @Valid PaperSearchRequestDTO request,
             Authentication authentication) {
-        return ResponseEntity.ok(paperSearchService.searchByJournal(request, authentication.getName()));
+        return ResponseEntity.ok(AppResponse.success("Journal search completed", paperSearchService.searchByJournal(request, authentication.getName())));
     }
 
     @GetMapping("/filter/advanced")
-    public ResponseEntity<PaperSearchResultDTO> advancedFilter(
+    public ResponseEntity<AppResponse<PaperSearchResultDTO>> advancedFilter(
             @ModelAttribute @Valid PaperAdvancedFilterRequestDTO request,
             Authentication authentication) {
-        return ResponseEntity.ok(paperSearchService.advancedFilter(request, authentication.getName()));
+        return ResponseEntity.ok(AppResponse.success("Advanced filter completed", paperSearchService.advancedFilter(request, authentication.getName())));
     }
 
     @GetMapping("/{paperId}")
-    public ResponseEntity<PaperDetailResponseDTO> getPaperDetails(
+    public ResponseEntity<AppResponse<PaperDetailResponseDTO>> getPaperDetails(
             @PathVariable UUID paperId,
             Authentication authentication) {
-        return ResponseEntity.ok(paperSearchService.getPaperDetails(paperId, authentication.getName()));
+        return ResponseEntity.ok(AppResponse.success("Paper details retrieved", paperSearchService.getPaperDetails(paperId, authentication.getName())));
     }
 
     @GetMapping("/usage")
-    public ResponseEntity<UsageLimitResponseDTO> getRemainingUsage(Authentication authentication) {
-        return ResponseEntity.ok(paperSearchService.getRemainingUsage(authentication.getName()));
+    public ResponseEntity<AppResponse<UsageLimitResponseDTO>> getRemainingUsage(Authentication authentication) {
+        return ResponseEntity.ok(AppResponse.success("Usage info retrieved", paperSearchService.getRemainingUsage(authentication.getName())));
     }
 
     @Operation(summary = "Graph-based keyword search", description = "Search papers by keyword using Neo4j graph. Falls back to OpenAlex API if not found locally.")

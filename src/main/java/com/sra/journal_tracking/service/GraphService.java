@@ -161,7 +161,7 @@ public class GraphService {
                     nodeMap.put(kId, GraphNode.builder()
                             .id(kId).label(kText).group("KEYWORD").size(kwSize).build());
 
-                    links.add(new GraphLink(pId, kId, "HAS_KEYWORD"));
+                    links.add(new GraphLink(pId, kId, ""));
                 });
 
         return new GraphResponse(new ArrayList<>(nodeMap.values()), links);
@@ -220,7 +220,7 @@ public class GraphService {
                                     .id(kId).label(kText).group("KEYWORD").size(kwSize).build());
                         }
 
-                        links.add(new GraphLink(pId, kId, "HAS_KEYWORD"));
+                        links.add(new GraphLink(pId, kId, ""));
                     });
 
             log.info("Keyword graph for '{}': {} nodes, {} links", keyword, nodeMap.size(), links.size());

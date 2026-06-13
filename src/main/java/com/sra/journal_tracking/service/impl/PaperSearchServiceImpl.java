@@ -9,6 +9,7 @@ import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserUsageRepository;
+import com.sra.journal_tracking.service.PaperSearchOrchestrator;
 import com.sra.journal_tracking.service.PaperSearchService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
     private final UserRepository userRepository;
     private final UserUsageRepository userUsageRepository;
     private final SystemConfigRepository systemConfigRepository;
+    private final PaperSearchOrchestrator paperSearchOrchestrator;
 
     @Override
     public PaperSearchResultDTO searchPapers(PaperSearchRequestDTO request, String userEmail) {
@@ -46,7 +48,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             throw new IllegalArgumentException("Search query cannot be empty");
         }
 
-        String authorName = request.getAuthorName() != null && !request.getAuthorName().trim().isEmpty() 
+        String authorName = request.getAuthorName() != null && !request.getAuthorName().trim().isEmpty()
                 ? request.getAuthorName().trim() : null;
 
         UUID journalId = null;
@@ -54,8 +56,6 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             try {
                 journalId = UUID.fromString(request.getJournalId().trim());
             } catch (IllegalArgumentException e) {
-                // If it's an invalid UUID format (e.g. "string" from Swagger), ignore or throw error.
-                // We throw IllegalArgumentException to return a 400 Bad Request
                 throw new IllegalArgumentException("Invalid journal ID format");
             }
         }
@@ -72,6 +72,15 @@ public class PaperSearchServiceImpl implements PaperSearchService {
 
         Pageable pageable = PageRequest.of(page, size);
         Page<ResearchPaper> results = researchPaperRepository.searchPapersWithFilters(query, authorName, journalId, pageable);
+
+        // ── Fallback: nếu SQL không có kết quả → sync từ OpenAlex qua orchestrator ──
+        if (results.getTotalElements() == 0 && authorName == null && journalId == null) {
+            log.info("No SQL results for '{}', falling back to OpenAlex sync via orchestrator", query);
+            PaperSearchResultDTO syncedResult = paperSearchOrchestrator.searchByKeyword(query, userEmail);
+            if (syncedResult.getTotalElements() > 0) {
+                return syncedResult;
+            }
+        }
 
         return mapToSearchResultDTO(results);
     }
