@@ -13,9 +13,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
+
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -73,25 +73,25 @@ public class PaperSearchOrchestrator {
         if (!neo4jPaperIds.isEmpty()) {
             log.info("Neo4j HIT: {} papers found for '{}'", neo4jPaperIds.size(), trimmedKeyword);
 
-            // Query SQL xem có thật sự tồn tại không (Neo4j có thể bị stale)
-            List<ResearchPaper> sqlPapers = fetchPapersFromSql(neo4jPaperIds);
+            // Dùng findByIdsWithDetails (có JOIN FETCH) thay vì findAllById (N+1)
+            List<ResearchPaper> sqlPapers = fetchPapersFromSqlWithDetails(neo4jPaperIds);
 
             if (!sqlPapers.isEmpty()) {
                 log.info("SQL MATCH: {} papers valid in SQL", sqlPapers.size());
                 return mapToSearchResultDTO(sqlPapers);
             }
 
-            // Neo4j có nhưng SQL không có → data stale → dọn dẹp + fallback OpenAlex
-            log.warn("Neo4j STALE: {} IDs found in Neo4j but 0 in SQL. Cleaning up & falling back to OpenAlex.",
+            // Neo4j có nhưng SQL không có → data stale → dọn dẹp + fallback
+            log.warn("Neo4j STALE: {} IDs found in Neo4j but 0 in SQL. Cleaning up & falling back.",
                     neo4jPaperIds.size());
             graphService.deleteStalePapers(neo4jPaperIds);
         } else {
             log.info("Neo4j MISS for '{}'", trimmedKeyword);
         }
 
-        // ── BƯỚC 2: Gọi OpenAlex ──────────────────────────
-        log.info("Calling OpenAlex API for '{}'", trimmedKeyword);
-        return syncAndReturn(trimmedKeyword);
+        // ── BƯỚC 2: Fallback — dùng regular search (đã có cache + tối ưu) rồi sync Neo4j ──
+        log.info("Falling back to regular search for '{}'", trimmedKeyword);
+        return fallbackToRegularSearch(trimmedKeyword);
     }
 
     // ============================================
@@ -99,31 +99,49 @@ public class PaperSearchOrchestrator {
     // ============================================
 
     /**
-     * Lấy papers từ SQL theo danh sách ID từ Neo4j.
-     * Trả về list rỗng nếu không tìm thấy paper nào (Neo4j stale).
+     * Lấy papers từ SQL theo danh sách ID từ Neo4j, dùng JOIN FETCH để load authors.
      */
-    private List<ResearchPaper> fetchPapersFromSql(List<String> paperIdStrings) {
+    private List<ResearchPaper> fetchPapersFromSqlWithDetails(List<String> paperIdStrings) {
         List<UUID> uuids = paperIdStrings.stream()
                 .map(UUID::fromString)
                 .collect(Collectors.toList());
 
-        List<ResearchPaper> papers = researchPaperRepository.findAllById(uuids);
+        if (uuids.isEmpty()) {
+            return List.of();
+        }
+
+        // Dùng findByIdsWithDetails (JOIN FETCH) thay vì findAllById (N+1)
+        List<ResearchPaper> papers = researchPaperRepository.findByIdsWithDetails(uuids);
 
         // Sắp xếp theo thứ tự từ Neo4j
-        papers.sort((a, b) -> {
-            int idxA = uuids.indexOf(a.getPaperId());
-            int idxB = uuids.indexOf(b.getPaperId());
-            return Integer.compare(idxA, idxB);
-        });
-
-        return papers;
+        Map<UUID, ResearchPaper> paperMap = papers.stream()
+                .collect(Collectors.toMap(ResearchPaper::getPaperId, java.util.function.Function.identity()));
+        return uuids.stream()
+                .map(paperMap::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
     /**
-     * Sync từ OpenAlex, lưu vào Neo4j, rồi query SQL trả kết quả.
-     * Được gọi nội bộ từ searchByKeyword() → transaction do method cha quản lý.
+     * Fallback khi Neo4j miss: dùng regular search (đã có cache + simple query).
+     * Nếu SQL không có → gọi OpenAlex sync → trả kết quả.
      */
-    private PaperSearchResultDTO syncAndReturn(String keyword) {
+    private PaperSearchResultDTO fallbackToRegularSearch(String keyword) {
+        // Thử search trong SQL trước (dùng cache nếu có từ regular search trước đó)
+        List<UUID> paperIds = researchPaperRepository
+                .searchPaperIdsByKeyword(keyword, PageRequest.of(0, 20))
+                .getContent();
+
+        if (!paperIds.isEmpty()) {
+            List<ResearchPaper> papers = researchPaperRepository.findByIdsWithDetails(paperIds);
+            log.info("Fallback SQL HIT: {} papers for '{}'", papers.size(), keyword);
+            // Sync vào Neo4j cho lần sau
+            syncToNeo4j(papers, keyword);
+            return mapToSearchResultDTO(papers);
+        }
+
+        // SQL cũng không có → gọi OpenAlex
+        log.info("SQL MISS for '{}', calling OpenAlex API", keyword);
         try {
             dataSyncService.syncFromOpenAlex(keyword, 20);
         } catch (Exception e) {
@@ -131,15 +149,23 @@ public class PaperSearchOrchestrator {
             return buildEmptyResult();
         }
 
-        // Query SQL papers vừa sync
-        List<ResearchPaper> papers = researchPaperRepository
-                .searchByTitleOrAbstractOrKeywords(keyword,
-                        org.springframework.data.domain.PageRequest.of(0, 20))
+        // Query papers vừa sync về
+        List<UUID> syncedIds = researchPaperRepository
+                .searchPaperIdsByKeyword(keyword, PageRequest.of(0, 20))
                 .getContent();
 
-        log.info("SQL query after sync: found {} papers for keyword '{}'", papers.size(), keyword);
+        if (syncedIds.isEmpty()) {
+            return buildEmptyResult();
+        }
 
-        // Lưu vào Neo4j cho lần sau
+        List<ResearchPaper> papers = researchPaperRepository.findByIdsWithDetails(syncedIds);
+        log.info("OpenAlex sync + SQL query: {} papers for '{}'", papers.size(), keyword);
+
+        syncToNeo4j(papers, keyword);
+        return mapToSearchResultDTO(papers);
+    }
+
+    private void syncToNeo4j(List<ResearchPaper> papers, String keyword) {
         for (ResearchPaper paper : papers) {
             try {
                 List<String> keywords = extractKeywords(paper);
@@ -152,13 +178,8 @@ public class PaperSearchOrchestrator {
                 );
             } catch (Exception e) {
                 log.warn("Failed to save paper {} to Neo4j: {}", paper.getPaperId(), e.getMessage());
-                log.warn("Full stack trace:", e);
             }
         }
-
-        PaperSearchResultDTO result = mapToSearchResultDTO(papers);
-        log.info("Graph search result for '{}': {} papers returned", keyword, result.getTotalElements());
-        return result;
     }
 
     private PaperSearchResultDTO mapToSearchResultDTO(List<ResearchPaper> papers) {

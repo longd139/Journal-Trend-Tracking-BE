@@ -11,9 +11,14 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class HotKeywordResponse {
 
-    /** The keyword text as originally entered */
+    /** The keyword text */
     private String keywordText;
 
-    /** Number of times this keyword has been searched */
-    private Integer searchCount;
+    /** Number of times this keyword has been searched (only populated for Internal source) */
+    @Builder.Default
+    private Integer searchCount = 0;
+
+    /** Source of the keyword: "AI" for Groq/Gemini generated, "Internal" for DB fallback */
+    @Builder.Default
+    private String source = "AI";
 }

@@ -21,6 +21,7 @@ import java.util.Optional;
 public class SearchKeywordService {
 
     private final SearchKeywordRepository searchKeywordRepository;
+    private final GroqService groqService;
 
     /**
      * Record a search keyword for hot-keywords tracking.
@@ -63,18 +64,39 @@ public class SearchKeywordService {
     }
 
     /**
-     * Get the most searched keywords ordered by search count descending.
+     * Get the most trending/hot keywords.
+     * First tries to fetch from Groq AI (external trending keywords).
+     * Falls back to internal DB search history if Groq is unavailable.
      *
      * @param limit maximum number of hot keywords to return
      * @return list of HotKeywordResponse DTOs
      */
     public List<HotKeywordResponse> getHotKeywords(int limit) {
+        // Try Groq AI first for real trending research keywords
+        try {
+            List<String> aiKeywords = groqService.getHotKeywords(limit);
+            if (aiKeywords != null && !aiKeywords.isEmpty()) {
+                log.info("Returning {} hot keywords from Groq AI", aiKeywords.size());
+                return aiKeywords.stream()
+                        .map(k -> HotKeywordResponse.builder()
+                                .keywordText(k)
+                                .source("AI")
+                                .build())
+                        .toList();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch hot keywords from Groq AI, falling back to DB: {}", e.getMessage());
+        }
+
+        // Fallback: return most-searched keywords from internal DB
+        log.info("Falling back to internal DB for hot keywords");
         return searchKeywordRepository
                 .findAllByOrderBySearchCountDesc(PageRequest.of(0, limit))
                 .stream()
                 .map(sk -> HotKeywordResponse.builder()
                         .keywordText(sk.getKeywordText())
                         .searchCount(sk.getSearchCount())
+                        .source("Internal")
                         .build())
                 .toList();
     }

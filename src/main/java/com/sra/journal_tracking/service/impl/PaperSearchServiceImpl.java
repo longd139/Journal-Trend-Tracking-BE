@@ -9,22 +9,22 @@ import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserUsageRepository;
-import com.sra.journal_tracking.service.PaperSearchOrchestrator;
+import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.PaperSearchService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -37,7 +37,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
     private final UserRepository userRepository;
     private final UserUsageRepository userUsageRepository;
     private final SystemConfigRepository systemConfigRepository;
-    private final PaperSearchOrchestrator paperSearchOrchestrator;
+    private final DataSyncService dataSyncService;
 
     @Override
     public PaperSearchResultDTO searchPapers(PaperSearchRequestDTO request, String userEmail) {
@@ -70,19 +70,30 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             checkAndIncrementUsage(user.getUserId(), "search");
         }
 
-        Pageable pageable = PageRequest.of(page, size);
-        Page<ResearchPaper> results = researchPaperRepository.searchPapersWithFilters(query, authorName, journalId, pageable);
+        // Phase 1: Fast ID query — SQL pagination thực sự, không FETCH JOIN
+        // Keyword-only search → dùng query đơn giản (chỉ Title + Abstract, 0 JOIN, có cache)
+        // Có author/journal filter → dùng query đầy đủ (JOIN 5 bảng)
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<UUID> idPage;
+        if (authorName == null && journalId == null) {
+            idPage = researchPaperRepository.searchPaperIdsByKeyword(query, pageable);
+        } else {
+            idPage = researchPaperRepository.searchPaperIdsWithFilters(query, authorName, journalId, pageable);
+        }
 
-        // ── Fallback: nếu SQL không có kết quả → sync từ OpenAlex qua orchestrator ──
-        if (results.getTotalElements() == 0 && authorName == null && journalId == null) {
-            log.info("No SQL results for '{}', falling back to OpenAlex sync via orchestrator", query);
-            PaperSearchResultDTO syncedResult = paperSearchOrchestrator.searchByKeyword(query, userEmail);
-            if (syncedResult.getTotalElements() > 0) {
-                return syncedResult;
+        // Fallback: nếu SQL không có kết quả → sync trực tiếp từ OpenAlex
+        if (idPage.getTotalElements() == 0 && authorName == null && journalId == null) {
+            log.info("No SQL results for '{}', syncing directly from OpenAlex", query);
+            List<ResearchPaper> syncedPapers = dataSyncService.syncFromOpenAlexAndReturnPapers(query, size);
+            if (!syncedPapers.isEmpty()) {
+                return mapToSearchResultDTOFromList(syncedPapers);
             }
         }
 
-        return mapToSearchResultDTO(results);
+        // Phase 2: Load full details chỉ cho N papers của trang hiện tại (có JOIN FETCH)
+        List<ResearchPaper> papers = fetchPapersInOrder(idPage.getContent());
+
+        return buildSearchResult(papers, idPage);
     }
 
     @Override
@@ -103,9 +114,13 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         int size = Math.min(50, Math.max(1, request.getSize()));
         Pageable pageable = PageRequest.of(page, size);
 
-        Page<ResearchPaper> results = researchPaperRepository.searchByAuthorName(authorName, pageable);
+        // Phase 1: Fast ID query
+        Page<UUID> idPage = researchPaperRepository.searchAuthorPaperIds(authorName.trim(), pageable);
 
-        return mapToSearchResultDTO(results);
+        // Phase 2: Load full details
+        List<ResearchPaper> papers = fetchPapersInOrder(idPage.getContent());
+
+        return buildSearchResult(papers, idPage);
     }
 
     @Override
@@ -128,9 +143,13 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         int size = Math.min(50, Math.max(1, request.getSize()));
         Pageable pageable = PageRequest.of(page, size);
 
-        Page<ResearchPaper> results = researchPaperRepository.findByJournal_JournalId(journalId, pageable);
+        // Phase 1: Fast ID query
+        Page<UUID> idPage = researchPaperRepository.findPaperIdsByJournalId(journalId, pageable);
 
-        return mapToSearchResultDTO(results);
+        // Phase 2: Load full details
+        List<ResearchPaper> papers = fetchPapersInOrder(idPage.getContent());
+
+        return buildSearchResult(papers, idPage);
     }
 
     @Override
@@ -139,7 +158,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
 
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userEmail));
-        
+
         String roleName = user.getRole().getRoleName();
         if (!"RESEARCHER".equalsIgnoreCase(roleName) && !"ADMIN".equalsIgnoreCase(roleName)) {
             throw new UnauthorizedAccessException("Advanced filtering is available for Researcher or Admin users only");
@@ -155,7 +174,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         int size = Math.min(50, Math.max(1, filterRequest.getSize()));
         Pageable pageable = PageRequest.of(page, size);
 
-        Page<ResearchPaper> results = researchPaperRepository.advancedFilter(
+        // Phase 1: Fast ID query
+        Page<UUID> idPage = researchPaperRepository.advancedFilterIds(
                 pubYearFrom,
                 pubYearTo,
                 filterRequest.getFieldId() != null ? UUID.fromString(filterRequest.getFieldId()) : null,
@@ -165,7 +185,10 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 pageable
         );
 
-        return mapToSearchResultDTO(results);
+        // Phase 2: Load full details
+        List<ResearchPaper> papers = fetchPapersInOrder(idPage.getContent());
+
+        return buildSearchResult(papers, idPage);
     }
 
     @Override
@@ -277,19 +300,56 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 .orElse("search".equals(usageType) ? 30 : 20);
     }
 
-    private PaperSearchResultDTO mapToSearchResultDTO(Page<ResearchPaper> paperPage) {
-        List<PaperDetailResponseDTO> dtos = paperPage.getContent().stream()
+    /**
+     * Load full paper details (với authors, keywords, journal) theo đúng thứ tự ID.
+     * Chỉ gọi cho N papers của trang hiện tại → rất nhanh.
+     */
+    private List<ResearchPaper> fetchPapersInOrder(List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<ResearchPaper> papers = researchPaperRepository.findByIdsWithDetails(ids);
+        Map<UUID, ResearchPaper> paperMap = papers.stream()
+                .collect(Collectors.toMap(ResearchPaper::getPaperId, Function.identity()));
+        return ids.stream()
+                .map(paperMap::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    private PaperSearchResultDTO buildSearchResult(List<ResearchPaper> papers, Page<UUID> idPage) {
+        List<PaperDetailResponseDTO> dtos = papers.stream()
                 .map(this::mapToDetailDTO)
                 .collect(Collectors.toList());
 
         return PaperSearchResultDTO.builder()
                 .papers(dtos)
-                .totalElements(paperPage.getTotalElements())
-                .totalPages(paperPage.getTotalPages())
-                .currentPage(paperPage.getNumber())
-                .pageSize(paperPage.getSize())
-                .hasNext(paperPage.hasNext())
-                .hasPrev(paperPage.hasPrevious())
+                .totalElements(idPage.getTotalElements())
+                .totalPages(idPage.getTotalPages())
+                .currentPage(idPage.getNumber())
+                .pageSize(idPage.getSize())
+                .hasNext(idPage.hasNext())
+                .hasPrev(idPage.hasPrevious())
+                .build();
+    }
+
+    /**
+     * Map a plain List of ResearchPaper to search result DTO (used after OpenAlex sync).
+     * Papers are already sorted by createdAt DESC from the sync order (newest first).
+     */
+    private PaperSearchResultDTO mapToSearchResultDTOFromList(List<ResearchPaper> papers) {
+        List<PaperDetailResponseDTO> dtos = papers.stream()
+                .map(this::mapToDetailDTO)
+                .collect(Collectors.toList());
+
+        return PaperSearchResultDTO.builder()
+                .papers(dtos)
+                .totalElements((long) dtos.size())
+                .totalPages(dtos.isEmpty() ? 0 : 1)
+                .currentPage(0)
+                .pageSize(dtos.size())
+                .hasNext(false)
+                .hasPrev(false)
                 .build();
     }
 

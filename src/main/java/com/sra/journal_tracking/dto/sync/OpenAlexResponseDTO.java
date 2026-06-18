@@ -45,6 +45,19 @@ public class OpenAlexResponseDTO {
         private OpenAccess openAccess;
 
         private List<Authorship> authorships;
+
+        private List<Concept> concepts;
+    }
+
+    @Data
+    public static class Concept {
+        private String id;
+
+        @JsonProperty("display_name")
+        private String displayName;
+
+        private Double score;
+        private Integer level;
     }
 
     @Data

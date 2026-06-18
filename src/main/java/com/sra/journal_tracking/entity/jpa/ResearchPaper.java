@@ -2,6 +2,7 @@ package com.sra.journal_tracking.entity.jpa;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Set;
 import java.util.UUID;
 
 // import org.springframework.data.neo4j.core.schema.Id;
@@ -81,7 +82,7 @@ public class ResearchPaper {
     private java.util.List<PaperAuthor> authors;
 
     @OneToMany(mappedBy = "paper", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private java.util.List<PaperKeyword> keywords;
+    private Set<PaperKeyword> keywords;
 
     @PrePersist
     protected void onCreate() {
