@@ -31,8 +31,8 @@ public class AuthController {
 
     private final AuthService authService;
 
-    @Operation(summary = "Register new account", description = "Create a new user account. Email verification required before login.")
-    @ApiResponse(responseCode = "200", description = "Register successful. Check email to verify.")
+    @Operation(summary = "Register new account", description = "Create a new user account and return a JWT token.")
+    @ApiResponse(responseCode = "200", description = "Register successful")
     @PostMapping("/register")
     public ResponseEntity<AppResponse<AuthResponse>> register(
             @Valid @RequestBody RegisterRequest request) {
@@ -40,7 +40,7 @@ public class AuthController {
         return ResponseEntity.ok(AppResponse.success("Register successful", authResponse));
     }
 
-    @Operation(summary = "Login", description = "Authenticate user and return JWT token. Email must be verified.")
+    @Operation(summary = "Login", description = "Authenticate user and return JWT token.")
     @ApiResponse(responseCode = "200", description = "Login successful")
     @PostMapping("/login")
     public ResponseEntity<AppResponse<AuthResponse>> login(

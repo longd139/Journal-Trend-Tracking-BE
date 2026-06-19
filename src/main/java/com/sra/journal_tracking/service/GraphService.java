@@ -42,7 +42,10 @@ public class GraphService {
 
         String cypherQuery = """
                 MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
-                WHERE k.normalizedText CONTAINS $keyword
+                WHERE k.normalizedText = $keyword
+                   OR k.normalizedText STARTS WITH $keyword + ' '
+                   OR k.normalizedText ENDS WITH ' ' + $keyword
+                   OR k.normalizedText CONTAINS ' ' + $keyword + ' '
                 RETURN DISTINCT p.paperId AS paperId, p.title AS title
                 LIMIT 50
                 """;
@@ -185,7 +188,10 @@ public class GraphService {
 
         String cypherQuery = """
                 MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
-                WHERE k.normalizedText CONTAINS $keyword
+                WHERE k.normalizedText = $keyword
+                   OR k.normalizedText STARTS WITH $keyword + ' '
+                   OR k.normalizedText ENDS WITH ' ' + $keyword
+                   OR k.normalizedText CONTAINS ' ' + $keyword + ' '
                 WITH p, k
                 OPTIONAL MATCH (k)<-[:HAS_KEYWORD]-(otherP:Paper)
                 WITH p, k, COUNT(DISTINCT otherP) AS keywordSize

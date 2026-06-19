@@ -5,52 +5,51 @@ import com.sra.journal_tracking.dto.paper.AuthorDTO;
 import com.sra.journal_tracking.dto.paper.KeywordDTO;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.paper.PaperSearchResultDTO;
+import com.sra.journal_tracking.entity.jpa.PaperKeyword;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
-import com.sra.journal_tracking.repository.jpa.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Year;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Orchestrator cho flow tìm kiếm paper theo keyword:
- * Neo4j (graph cache) → SQL (full data) → OpenAlex API (external fallback)
- *
- * Flow:
- * 1. Query Neo4j graph để tìm paper IDs liên quan đến keyword
- * 2. Nếu có → lấy full data từ SQL Server
- * 3. Nếu không → gọi OpenAlex API → lưu SQL + Neo4j → trả kết quả
+ * Graph-based paper search flow.
+ * Neo4j provides cached paper IDs, SQL Server provides full paper data, and
+ * OpenAlex is queued as a background fallback when no cached result exists.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaperSearchOrchestrator {
+    private static final int RECENT_PUBLICATION_YEAR_WINDOW = 3;
+    private static final int DEFAULT_FALLBACK_LIMIT = 10;
+    private static final double MIN_PRIMARY_KEYWORD_SCORE = 0.55d;
 
     private final GraphService graphService;
     private final DataSyncService dataSyncService;
     private final SearchKeywordService searchKeywordService;
+    private final KeywordExpansionService keywordExpansionService;
     private final ResearchPaperRepository researchPaperRepository;
-    private final UserRepository userRepository;
 
-    /**
-     * Tìm paper theo keyword, ưu tiên Neo4j trước, fallback ra OpenAlex.
-     *
-     * @param keyword   từ khóa tìm kiếm
-     * @param userEmail email user hiện tại (để check usage limit)
-     * @return PaperSearchResultDTO chứa danh sách papers
-     */
     @Transactional
     public PaperSearchResultDTO searchByKeyword(String keyword, String userEmail) {
+        return searchByKeyword(keyword, userEmail, DEFAULT_FALLBACK_LIMIT);
+    }
+
+    @Transactional
+    public PaperSearchResultDTO searchByKeyword(String keyword, String userEmail, int resultLimit) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) {
             throw new IllegalArgumentException("Keyword cannot be empty");
         }
+        int safeLimit = Math.max(1, Math.min(resultLimit, DEFAULT_FALLBACK_LIMIT));
 
         // Truncate keyword to max allowed length
         if (trimmedKeyword.length() > KeywordConstants.MAX_KEYWORD_LENGTH) {
@@ -67,21 +66,18 @@ public class PaperSearchOrchestrator {
             log.warn("Failed to record search keyword '{}': {}", trimmedKeyword, e.getMessage());
         }
 
-        // ── BƯỚC 1: Tìm trong Neo4j ──────────────────────────
         List<String> neo4jPaperIds = graphService.searchPapersByKeyword(trimmedKeyword);
 
         if (!neo4jPaperIds.isEmpty()) {
             log.info("Neo4j HIT: {} papers found for '{}'", neo4jPaperIds.size(), trimmedKeyword);
 
-            // Query SQL xem có thật sự tồn tại không (Neo4j có thể bị stale)
-            List<ResearchPaper> sqlPapers = fetchPapersFromSql(neo4jPaperIds);
+            List<ResearchPaper> sqlPapers = filterRelevantPapers(fetchPapersFromSql(neo4jPaperIds), trimmedKeyword);
 
             if (!sqlPapers.isEmpty()) {
                 log.info("SQL MATCH: {} papers valid in SQL", sqlPapers.size());
                 return mapToSearchResultDTO(sqlPapers);
             }
 
-            // Neo4j có nhưng SQL không có → data stale → dọn dẹp + fallback OpenAlex
             log.warn("Neo4j STALE: {} IDs found in Neo4j but 0 in SQL. Cleaning up & falling back to OpenAlex.",
                     neo4jPaperIds.size());
             graphService.deleteStalePapers(neo4jPaperIds);
@@ -89,27 +85,25 @@ public class PaperSearchOrchestrator {
             log.info("Neo4j MISS for '{}'", trimmedKeyword);
         }
 
-        // ── BƯỚC 2: Gọi OpenAlex ──────────────────────────
         log.info("Calling OpenAlex API for '{}'", trimmedKeyword);
-        return syncAndReturn(trimmedKeyword);
+        return syncAndReturn(trimmedKeyword, safeLimit);
     }
 
     // ============================================
     //  PRIVATE HELPERS
     // ============================================
 
-    /**
-     * Lấy papers từ SQL theo danh sách ID từ Neo4j.
-     * Trả về list rỗng nếu không tìm thấy paper nào (Neo4j stale).
-     */
     private List<ResearchPaper> fetchPapersFromSql(List<String> paperIdStrings) {
         List<UUID> uuids = paperIdStrings.stream()
                 .map(UUID::fromString)
                 .collect(Collectors.toList());
 
-        List<ResearchPaper> papers = researchPaperRepository.findAllById(uuids);
+        short startYear = recentStartYear();
+        short endYear = currentYear();
+        List<ResearchPaper> papers = researchPaperRepository.findAllById(uuids).stream()
+                .filter(paper -> isRecentPublication(paper.getPubYear(), startYear, endYear))
+                .collect(Collectors.toList());
 
-        // Sắp xếp theo thứ tự từ Neo4j
         papers.sort((a, b) -> {
             int idxA = uuids.indexOf(a.getPaperId());
             int idxB = uuids.indexOf(b.getPaperId());
@@ -119,46 +113,13 @@ public class PaperSearchOrchestrator {
         return papers;
     }
 
-    /**
-     * Sync từ OpenAlex, lưu vào Neo4j, rồi query SQL trả kết quả.
-     * Được gọi nội bộ từ searchByKeyword() → transaction do method cha quản lý.
-     */
-    private PaperSearchResultDTO syncAndReturn(String keyword) {
-        try {
-            dataSyncService.syncFromOpenAlex(keyword, 20);
-        } catch (Exception e) {
-            log.error("OpenAlex sync failed for '{}': {}", keyword, e.getMessage());
-            return buildEmptyResult();
-        }
+    private PaperSearchResultDTO syncAndReturn(String keyword, int limit) {
+        keywordExpansionService.expand(keyword, 3)
+                .forEach(term -> dataSyncService.syncFromOpenAlexAsync(term, Math.min(limit, DEFAULT_FALLBACK_LIMIT)));
 
-        // Query SQL papers vừa sync
-        List<ResearchPaper> papers = researchPaperRepository
-                .searchByTitleOrAbstractOrKeywords(keyword,
-                        org.springframework.data.domain.PageRequest.of(0, 20))
-                .getContent();
+        log.info("No cached papers for '{}'; background OpenAlex sync started", keyword);
 
-        log.info("SQL query after sync: found {} papers for keyword '{}'", papers.size(), keyword);
-
-        // Lưu vào Neo4j cho lần sau
-        for (ResearchPaper paper : papers) {
-            try {
-                List<String> keywords = extractKeywords(paper);
-                graphService.savePaperWithKeywords(
-                        paper.getPaperId().toString(),
-                        paper.getTitle(),
-                        paper.getDoi(),
-                        paper.getPubYear() != null ? paper.getPubYear().intValue() : null,
-                        keywords.isEmpty() ? List.of(keyword) : keywords
-                );
-            } catch (Exception e) {
-                log.warn("Failed to save paper {} to Neo4j: {}", paper.getPaperId(), e.getMessage());
-                log.warn("Full stack trace:", e);
-            }
-        }
-
-        PaperSearchResultDTO result = mapToSearchResultDTO(papers);
-        log.info("Graph search result for '{}': {} papers returned", keyword, result.getTotalElements());
-        return result;
+        return buildEmptyResult();
     }
 
     private PaperSearchResultDTO mapToSearchResultDTO(List<ResearchPaper> papers) {
@@ -189,6 +150,7 @@ public class PaperSearchOrchestrator {
                 .collect(Collectors.toList()) : new ArrayList<>();
 
         List<KeywordDTO> keywords = paper.getKeywords() != null ? paper.getKeywords().stream()
+                .filter(pk -> !isSyntheticKeyword(pk))
                 .map(pk -> KeywordDTO.builder()
                         .keywordText(pk.getKeyword().getKeywordText())
                         .relevanceScore(pk.getRelevanceScore())
@@ -223,16 +185,6 @@ public class PaperSearchOrchestrator {
                 .build();
     }
 
-    private List<String> extractKeywords(ResearchPaper paper) {
-        if (paper.getKeywords() == null || paper.getKeywords().isEmpty()) {
-            return List.of();
-        }
-        return paper.getKeywords().stream()
-                .map(pk -> pk.getKeyword().getKeywordText())
-                .filter(k -> k != null && !k.isBlank())
-                .collect(Collectors.toList());
-    }
-
     private PaperSearchResultDTO buildEmptyResult() {
         return PaperSearchResultDTO.builder()
                 .papers(List.of())
@@ -243,5 +195,156 @@ public class PaperSearchOrchestrator {
                 .hasNext(false)
                 .hasPrev(false)
                 .build();
+    }
+
+    private List<ResearchPaper> filterRelevantPapers(List<ResearchPaper> papers, String query) {
+        List<String> tokens = extractSearchTokens(query);
+        if (tokens.isEmpty()) {
+            return papers;
+        }
+        String normalizedQuery = normalizeSearchText(query);
+        return papers.stream()
+                .filter(paper -> matchesAllTokens(paper, tokens, normalizedQuery))
+                .collect(Collectors.toList());
+    }
+
+    private boolean matchesAllTokens(ResearchPaper paper, List<String> tokens, String normalizedQuery) {
+        String primaryText = buildPrimarySearchableText(paper, normalizedQuery);
+        if (tokens.size() == 1) {
+            return containsTokenVariant(primaryText, tokens.get(0));
+        }
+
+        String fullText = buildFullSearchableText(paper, normalizedQuery);
+        return tokens.stream().allMatch(token -> containsTokenVariant(fullText, token))
+                && tokens.stream().anyMatch(token -> containsTokenVariant(primaryText, token));
+    }
+
+    private String buildPrimarySearchableText(ResearchPaper paper, String normalizedQuery) {
+        StringBuilder text = new StringBuilder();
+        append(text, paper.getTitle());
+        if (paper.getJournal() != null) {
+            append(text, paper.getJournal().getJournalName());
+        }
+        if (paper.getField() != null) {
+            append(text, paper.getField().getFieldName());
+        }
+        if (paper.getKeywords() != null) {
+            paper.getKeywords().forEach(pk -> {
+                if (pk.getKeyword() != null && isPrimaryKeyword(pk)) {
+                    String keywordText = pk.getKeyword().getKeywordText();
+                    if (!normalizeSearchText(keywordText).equals(normalizedQuery)) {
+                        append(text, keywordText);
+                    }
+                }
+            });
+        }
+        return normalizeSearchText(text.toString());
+    }
+
+    private String buildFullSearchableText(ResearchPaper paper, String normalizedQuery) {
+        StringBuilder text = new StringBuilder(buildPrimarySearchableText(paper, normalizedQuery));
+        append(text, paper.getAbstractText());
+        append(text, paper.getDoi());
+        if (paper.getAuthors() != null) {
+            paper.getAuthors().forEach(pa -> {
+                if (pa.getAuthor() != null) {
+                    append(text, pa.getAuthor().getFullName());
+                }
+            });
+        }
+        return normalizeSearchText(text.toString());
+    }
+
+    private List<String> extractSearchTokens(String query) {
+        String normalized = normalizeSearchText(query);
+        if (normalized.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(normalized.split(" "))
+                .filter(token -> token.length() >= 2)
+                .filter(token -> !isSearchStopWord(token))
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private boolean isSearchStopWord(String token) {
+        return token.equals("and") || token.equals("or") || token.equals("the") || token.equals("of")
+                || token.equals("in") || token.equals("on") || token.equals("for") || token.equals("to")
+                || token.equals("a") || token.equals("an");
+    }
+
+    private boolean containsTokenVariant(String text, String token) {
+        return tokenVariants(token).stream().anyMatch(variant -> containsNormalizedTerm(text, variant));
+    }
+
+    private boolean containsNormalizedTerm(String text, String term) {
+        String normalizedText = normalizeSearchText(text);
+        String normalizedTerm = normalizeSearchText(term);
+        if (normalizedText.isBlank() || normalizedTerm.isBlank()) {
+            return false;
+        }
+        return (" " + normalizedText + " ").contains(" " + normalizedTerm + " ");
+    }
+
+    private List<String> tokenVariants(String token) {
+        List<String> variants = new ArrayList<>();
+        variants.add(token);
+        if ("phenomenon".equals(token)) {
+            variants.add("phenomena");
+        } else if ("phenomena".equals(token)) {
+            variants.add("phenomenon");
+        }
+        if (token.endsWith("y") && token.length() > 3) {
+            variants.add(token.substring(0, token.length() - 1) + "ies");
+        } else if (token.endsWith("ies") && token.length() > 4) {
+            variants.add(token.substring(0, token.length() - 3) + "y");
+        } else if (token.endsWith("s") && token.length() > 3) {
+            variants.add(token.substring(0, token.length() - 1));
+        } else if (token.length() > 3) {
+            variants.add(token + "s");
+        }
+        return variants.stream().distinct().collect(Collectors.toList());
+    }
+
+    private String normalizeSearchText(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.toLowerCase()
+                .replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}]+", " ")
+                .trim()
+                .replaceAll("\\s+", " ");
+    }
+
+    private void append(StringBuilder text, String value) {
+        if (value != null && !value.isBlank()) {
+            text.append(' ').append(value);
+        }
+    }
+
+    private boolean isSyntheticKeyword(PaperKeyword paperKeyword) {
+        return paperKeyword.getRelevanceScore() != null
+                && Double.compare(paperKeyword.getRelevanceScore(), 1.0d) == 0;
+    }
+
+    private boolean isPrimaryKeyword(PaperKeyword paperKeyword) {
+        return !isSyntheticKeyword(paperKeyword)
+                && paperKeyword.getRelevanceScore() != null
+                && paperKeyword.getRelevanceScore() >= MIN_PRIMARY_KEYWORD_SCORE;
+    }
+
+    private short currentYear() {
+        return (short) Year.now().getValue();
+    }
+
+    private short recentStartYear() {
+        return (short) (currentYear() - RECENT_PUBLICATION_YEAR_WINDOW + 1);
+    }
+
+    private boolean isRecentPublication(Short publicationYear, short startYear, short endYear) {
+        if (publicationYear == null) {
+            return false;
+        }
+        return publicationYear >= startYear && publicationYear <= endYear;
     }
 }

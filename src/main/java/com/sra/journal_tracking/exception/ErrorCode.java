@@ -7,14 +7,14 @@ import org.springframework.http.HttpStatus;
 public enum ErrorCode {
     // ---- LỖI AUTHENTICATION (ĐĂNG NHẬP / ĐĂNG KÝ) ----
     USER_EXISTED(HttpStatus.BAD_REQUEST, "Email is already in use!"),
-    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng này!"),
-    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không chính xác!"),
-    USER_NOT_ACTIVE(HttpStatus.FORBIDDEN, "Tài khoản chưa được xác thực email. Vui lòng kiểm tra email để xác thực."),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found."),
+    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect."),
+    USER_NOT_ACTIVE(HttpStatus.FORBIDDEN, "Your account has not been verified. Please verify your email before continuing."),
 
     // ---- LỖI VERIFICATION TOKEN ----
-    VERIFICATION_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "Token không hợp lệ hoặc đã được sử dụng!"),
-    VERIFICATION_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "Token đã hết hạn! Vui lòng yêu cầu gửi lại."),
-    EMAIL_ALREADY_VERIFIED(HttpStatus.BAD_REQUEST, "Email đã được xác thực rồi!"),
+    VERIFICATION_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "The token is invalid or has already been used."),
+    VERIFICATION_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "The token has expired. Please request a new one."),
+    EMAIL_ALREADY_VERIFIED(HttpStatus.BAD_REQUEST, "Email has already been verified."),
 
     // ---- CÁC LỖI KHÁC THÊM SAU NÀY ----
     // INVALID_ROLE(HttpStatus.BAD_REQUEST, "Role không hợp lệ!"),
@@ -38,7 +38,7 @@ public enum ErrorCode {
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found!"),
 
     // ---- LỖI HỆ THỐNG (Fallback) ----
-    UNCATEGORIZED_EXCEPTION(HttpStatus.INTERNAL_SERVER_ERROR, "Đã xảy ra lỗi hệ thống không xác định.");
+    UNCATEGORIZED_EXCEPTION(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected system error occurred.");
 
     private final HttpStatus statusCode;
     private final String message;

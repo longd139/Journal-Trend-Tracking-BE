@@ -37,7 +37,7 @@ public class GlobalExceptionHandler {
         // Thay vì trả về chuỗi String, hãy dùng ErrorResponse cho đồng bộ
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.UNAUTHORIZED.value(),
-                "Email or password incorrect !",
+                "Email or password is incorrect.",
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.UNAUTHORIZED);
     }
@@ -47,7 +47,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleDisabledException(DisabledException ex) {
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.FORBIDDEN.value(),
-                "Tài khoản chưa được xác thực email. Vui lòng kiểm tra email để xác thực.",
+                "Your account has not been verified. Please verify your email before continuing.",
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
     }
@@ -64,7 +64,7 @@ public class GlobalExceptionHandler {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
-                "Dữ liệu đầu vào không hợp lệ",
+                "Invalid input data.",
                 fieldErrors);
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
@@ -123,7 +123,7 @@ public class GlobalExceptionHandler {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "Đã xảy ra lỗi hệ thống",
+                "A system error occurred.",
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
     }

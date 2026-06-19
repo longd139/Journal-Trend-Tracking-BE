@@ -29,8 +29,4 @@ public class RegisterRequest {
 
     @Schema(description = "institution", example = "FPT University")
     private String institution;
-    // Default role would be ACADEMIC_USER or requested role.
-
-    @Schema(description = "role", example = "admin")
-    private String role;
 }
