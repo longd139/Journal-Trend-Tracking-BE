@@ -99,14 +99,17 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
             Pageable pageable
     );
 
-    @Query("SELECT DISTINCT p FROM ResearchPaper p " +
-           "LEFT JOIN p.keywords k " +
-           "LEFT JOIN k.keyword kw " +
+    @Query("SELECT p FROM ResearchPaper p " +
            "LEFT JOIN p.field f " +
            "WHERE p.pubYear BETWEEN :startYear AND :endYear " +
            "  AND (LOWER(p.title) LIKE LOWER(CONCAT('%', :query, '%')) " +
-           "   OR LOWER(kw.keywordText) LIKE LOWER(CONCAT('%', :query, '%')) " +
-           "   OR LOWER(f.fieldName) LIKE LOWER(CONCAT('%', :query, '%')))")
+           "   OR LOWER(f.fieldName) LIKE LOWER(CONCAT('%', :query, '%')) " +
+           "   OR EXISTS (" +
+           "      SELECT 1 FROM PaperKeyword pk " +
+           "      JOIN pk.keyword kw " +
+           "      WHERE pk.paper = p " +
+           "        AND LOWER(kw.keywordText) LIKE LOWER(CONCAT('%', :query, '%'))" +
+           "   ))")
     List<ResearchPaper> findPrimaryCandidatesWithoutFilters(
             @Param("query") String query,
             @Param("startYear") Short startYear,

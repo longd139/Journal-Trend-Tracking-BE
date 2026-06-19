@@ -94,13 +94,15 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 size);
 
         if (rankedResults.totalElements() == 0 && authorName == null && journalId == null) {
-            log.info("No local results for '{}'; searching OpenAlex fallback and starting background backfill", query);
-            searchBackfillService.requestBackfill(query, size);
+            log.info("No local results for '{}'; searching OpenAlex fallback", query);
             if (page == 0) {
                 List<PaperDetailResponseDTO> fallbackPapers = openAlexFallbackSearchService.search(query, size);
+                searchBackfillService.requestBackfill(query, size);
                 if (!fallbackPapers.isEmpty()) {
                     return mapFallbackSearchResultDTO(fallbackPapers, page, size);
                 }
+            } else {
+                searchBackfillService.requestBackfill(query, size);
             }
         }
 
@@ -340,8 +342,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             int size) {
 
         Map<UUID, ResearchPaper> candidates = new LinkedHashMap<>();
-        int candidatePageSize = Math.min(Math.max((page + 1) * size * 3, 25), 200);
         List<String> localSearchTerms = selectLocalSearchTerms(query, expandedTerms);
+        int candidatePageSize = candidatePageSize(query, page, size);
 
         for (String term : localSearchTerms) {
             findCandidatePapers(term, authorName, journalId, startYear, endYear, PageRequest.of(0, candidatePageSize))
@@ -362,6 +364,12 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 .collect(Collectors.toList());
 
         return new RankedSearchResult(pagePapers, scoredPapers.size());
+    }
+
+    private int candidatePageSize(String query, int page, int size) {
+        int multiplier = extractSearchTokens(query).size() > 1 ? 2 : 3;
+        int upperBound = extractSearchTokens(query).size() > 1 ? 50 : 100;
+        return Math.min(Math.max((page + 1) * size * multiplier, 15), upperBound);
     }
 
     private List<String> selectLocalSearchTerms(String query, List<String> expandedTerms) {
