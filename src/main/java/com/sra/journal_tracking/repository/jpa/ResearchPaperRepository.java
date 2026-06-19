@@ -174,4 +174,11 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 
     @Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p WHERE p.createdAt >= :start AND p.createdAt < :end")
     long sumCitationCountsByCreatedAtBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    /**
+     * Sum all citation counts across all research papers.
+     * Returns 0 if no papers exist (COALESCE).
+     */
+    @Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p")
+    Long sumTotalCitations();
 }
