@@ -22,7 +22,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 
 import jakarta.validation.Valid;
-import java.util.ArrayList;
+import java.time.Year;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @SecurityRequirement(name = "Bearer Authentication")
 public class PaperSearchController {
+    private static final int RECENT_PUBLICATION_YEAR_WINDOW = 3;
 
     private final PaperSearchService paperSearchService;
     private final PaperSearchOrchestrator paperSearchOrchestrator;
@@ -42,8 +43,14 @@ public class PaperSearchController {
     public ResponseEntity<AppResponse<PaperSearchResultDTO>> browsePapers(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        Page<ResearchPaper> paperPage = researchPaperRepository.findAll(
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(50, Math.max(1, size));
+        short endYear = (short) Year.now().getValue();
+        short startYear = (short) (endYear - RECENT_PUBLICATION_YEAR_WINDOW + 1);
+        Page<ResearchPaper> paperPage = researchPaperRepository.findByPubYearBetween(
+                startYear,
+                endYear,
+                PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt")));
 
         List<PaperDetailResponseDTO> dtos = paperPage.getContent().stream()
                 .map(this::toSummaryDTO)

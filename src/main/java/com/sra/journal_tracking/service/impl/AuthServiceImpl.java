@@ -63,8 +63,7 @@ public class AuthServiceImpl implements AuthService {
                         throw new AppException(ErrorCode.USER_EXISTED);
                 }
 
-                String roleName = request.getRole() != null ? request.getRole() : "academic_user";
-                Role role = roleRepository.findByRoleNameIgnoreCase(roleName)
+                Role role = roleRepository.findByRoleNameIgnoreCase("academic_user")
                                 .orElseThrow(() -> new RuntimeException("Role not found."));
 
                 User user = User.builder()
@@ -73,15 +72,12 @@ public class AuthServiceImpl implements AuthService {
                                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                                 .institution(request.getInstitution())
                                 .role(role)
-                                .isActive(false) // Email chưa verify
+                                .isActive(true)
                                 .build();
 
                 userRepository.save(user);
 
                 // Tạo verification token và log link ra terminal
-                createAndLogVerificationToken(user);
-
-                // Authenticate và trả JWT ngay để user vào app, xác thực email sau
                 Authentication authentication = authenticationManager.authenticate(
                                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
 
@@ -104,7 +100,6 @@ public class AuthServiceImpl implements AuthService {
                                 .orElseThrow(() -> new RuntimeException("User not found"));
 
                 saveUserSession(user, jwt);
-
                 return buildAuthResponse(jwt, user);
         }
 
@@ -174,11 +169,11 @@ public class AuthServiceImpl implements AuthService {
                 // ============================================
                 String resetLink = frontendUrl + "/reset-password?token=" + tokenValue;
                 log.info("============================================");
-                log.info("📧 PASSWORD RESET LINK (copy link bên dưới):");
+                log.info("📧 PASSWORD RESET LINK (copy the link below):");
                 log.info("   {}", resetLink);
                 log.info("   Token: {}", tokenValue);
                 log.info("   Email: {}", email);
-                log.info("   Hết hạn: {}", expiresAt);
+                log.info("   Expires at: {}", expiresAt);
                 log.info("============================================");
         }
 
@@ -236,11 +231,11 @@ public class AuthServiceImpl implements AuthService {
                 // ============================================
                 String verificationLink = frontendUrl + "/verify-email?token=" + tokenValue;
                 log.info("============================================");
-                log.info("📧 EMAIL VERIFICATION LINK (copy link bên dưới):");
+                log.info("📧 EMAIL VERIFICATION LINK (copy the link below):");
                 log.info("   {}", verificationLink);
                 log.info("   Token: {}", tokenValue);
                 log.info("   Email: {}", user.getEmail());
-                log.info("   Hết hạn: {}", expiresAt);
+                log.info("   Expires at: {}", expiresAt);
                 log.info("============================================");
         }
 
@@ -267,7 +262,7 @@ public class AuthServiceImpl implements AuthService {
         private AuthResponse buildAuthResponse(String token, User user) {
                 return AuthResponse.builder()
                                 .accessToken(token)
-                                .tokenType("Bearer")
+                                .tokenType(token != null ? "Bearer" : null)
                                 .user(AuthResponse.UserAuthInfo.builder()
                                                 .id(user.getUserId().toString())
                                                 .fullName(user.getFullName())

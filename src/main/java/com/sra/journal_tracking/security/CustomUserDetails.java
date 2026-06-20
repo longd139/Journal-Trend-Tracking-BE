@@ -56,6 +56,6 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return true; // Không dùng isActive để disable account — isActive dùng cho email verification
+        return true;
     }
 }

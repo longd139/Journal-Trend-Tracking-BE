@@ -14,6 +14,9 @@ import com.sra.journal_tracking.entity.jpa.ResearchTopic;
 @Repository
 public interface ResearchTopicRepository extends JpaRepository<ResearchTopic, UUID> {
 
+    /**
+     * Count topics currently marked as trending.
+     */
     long countByIsTrendingTrue();
 
     @Query("SELECT COUNT(t) FROM ResearchTopic t WHERE t.isTrending = true AND t.updatedAt >= :start AND t.updatedAt < :end")

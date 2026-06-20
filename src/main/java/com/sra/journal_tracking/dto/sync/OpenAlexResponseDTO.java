@@ -44,6 +44,11 @@ public class OpenAlexResponseDTO {
         @JsonProperty("open_access")
         private OpenAccess openAccess;
 
+        @JsonProperty("primary_location")
+        private PrimaryLocation primaryLocation;
+
+        private List<Topic> topics;
+        private List<Keyword> keywords;
         private List<Authorship> authorships;
     }
 
@@ -51,6 +56,57 @@ public class OpenAlexResponseDTO {
     public static class OpenAccess {
         @JsonProperty("is_oa")
         private Boolean isOa;
+    }
+
+    @Data
+    public static class PrimaryLocation {
+        private Source source;
+    }
+
+    @Data
+    public static class Source {
+        private String id;
+
+        @JsonProperty("display_name")
+        private String displayName;
+
+        @JsonProperty("issn_l")
+        private String issnL;
+
+        private String publisher;
+
+        @JsonProperty("host_organization_name")
+        private String hostOrganizationName;
+    }
+
+    @Data
+    public static class Topic {
+        private String id;
+
+        @JsonProperty("display_name")
+        private String displayName;
+
+        private Double score;
+        private TopicField field;
+        private TopicField domain;
+    }
+
+    @Data
+    public static class TopicField {
+        private String id;
+
+        @JsonProperty("display_name")
+        private String displayName;
+    }
+
+    @Data
+    public static class Keyword {
+        private String id;
+
+        @JsonProperty("display_name")
+        private String displayName;
+
+        private Double score;
     }
 
     @Data
