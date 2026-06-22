@@ -635,7 +635,10 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 .collect(Collectors.toList()) : new ArrayList<>();
 
         String sourceUrl = paper.getDoi() != null ? "https://doi.org/" + paper.getDoi() : null;
-        Boolean pdfAvailable = Boolean.TRUE.equals(paper.getIsOpenAccess()) || paper.getDoi() != null;
+        Boolean pdfAvailable = Boolean.TRUE.equals(paper.getIsOpenAccess())
+                || (paper.getPdfUrl() != null && !paper.getPdfUrl().isBlank());
+        String downloadUrl = (paper.getPdfUrl() != null && !paper.getPdfUrl().isBlank())
+                ? paper.getPdfUrl() : sourceUrl;
 
         return PaperDetailResponseDTO.builder()
                 .paperId(paper.getPaperId())
@@ -654,7 +657,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 .keywords(keywords)
                 .sourceUrl(sourceUrl)
                 .pdfAvailable(pdfAvailable)
-                .downloadUrl(sourceUrl)
+                .downloadUrl(downloadUrl)
+                .pdfUrl(paper.getPdfUrl())
                 .rating(0.0)
                 .downloadCount(0)
                 .commentCount(0)

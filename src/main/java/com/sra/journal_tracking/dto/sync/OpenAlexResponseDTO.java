@@ -18,6 +18,9 @@ public class OpenAlexResponseDTO {
 
         @JsonProperty("per_page")
         private Integer perPage;
+
+        @JsonProperty("next_cursor")
+        private String nextCursor;
     }
 
     @Data
@@ -50,17 +53,44 @@ public class OpenAlexResponseDTO {
         private List<Topic> topics;
         private List<Keyword> keywords;
         private List<Authorship> authorships;
+
+        @JsonProperty("best_oa_location")
+        private BestOaLocation bestOaLocation;
     }
 
     @Data
     public static class OpenAccess {
         @JsonProperty("is_oa")
         private Boolean isOa;
+
+        @JsonProperty("oa_url")
+        private String oaUrl;
+
+        @JsonProperty("any_repository_has_fulltext")
+        private Boolean anyRepositoryHasFulltext;
     }
 
     @Data
     public static class PrimaryLocation {
         private Source source;
+
+        @JsonProperty("pdf_url")
+        private String pdfUrl;
+
+        @JsonProperty("landing_page_url")
+        private String landingPageUrl;
+    }
+
+    @Data
+    public static class BestOaLocation {
+        @JsonProperty("is_oa")
+        private Boolean isOa;
+
+        @JsonProperty("pdf_url")
+        private String pdfUrl;
+
+        @JsonProperty("landing_page_url")
+        private String landingPageUrl;
     }
 
     @Data

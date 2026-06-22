@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.dto.paper;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -27,11 +28,15 @@ public class PaperDetailResponseDTO {
     private UUID journalId;
     private String fieldName;
     private UUID fieldId;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<AuthorDTO> authors;
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<KeywordDTO> keywords;
     private String sourceUrl;
     private Boolean pdfAvailable;
     private String downloadUrl;
+    private String pdfUrl;
     private Double rating;
     private Integer downloadCount;
     private Integer commentCount;

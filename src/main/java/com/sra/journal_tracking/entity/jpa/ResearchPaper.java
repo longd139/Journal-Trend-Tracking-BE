@@ -74,6 +74,9 @@ public class ResearchPaper {
     @Builder.Default
     private Boolean isOpenAccess = false;
 
+    @Column(name = "PdfUrl", length = 500)
+    private String pdfUrl;
+
     @Column(name = "CreatedAt", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

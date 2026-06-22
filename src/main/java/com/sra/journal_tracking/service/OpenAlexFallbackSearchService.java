@@ -50,7 +50,7 @@ public class OpenAlexFallbackSearchService {
                 .queryParam("filter", "from_publication_date:" + startYear + "-01-01,to_publication_date:" + today)
                 .queryParam("sort", "relevance_score:desc")
                 .queryParam("per-page", perPage)
-                .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,cited_by_count,abstract_inverted_index,open_access,primary_location,topics,keywords,authorships")
+                .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,cited_by_count,abstract_inverted_index,open_access,primary_location,best_oa_location,topics,keywords,authorships")
                 .build()
                 .encode()
                 .toUriString();
@@ -155,6 +155,7 @@ public class OpenAlexFallbackSearchService {
                 .sourceUrl(sourceUrl)
                 .pdfAvailable(work.getOpenAccess() != null && Boolean.TRUE.equals(work.getOpenAccess().getIsOa()))
                 .downloadUrl(sourceUrl)
+                .pdfUrl(resolvePdfUrl(work))
                 .rating(0.0d)
                 .downloadCount(0)
                 .commentCount(0)
@@ -342,6 +343,22 @@ public class OpenAlexFallbackSearchService {
         if (value != null && !value.isBlank()) {
             text.append(' ').append(value);
         }
+    }
+
+    private String resolvePdfUrl(OpenAlexResponseDTO.OpenAlexWorkDTO work) {
+        if (work.getBestOaLocation() != null && work.getBestOaLocation().getPdfUrl() != null
+                && !work.getBestOaLocation().getPdfUrl().isBlank()) {
+            return work.getBestOaLocation().getPdfUrl();
+        }
+        if (work.getPrimaryLocation() != null && work.getPrimaryLocation().getPdfUrl() != null
+                && !work.getPrimaryLocation().getPdfUrl().isBlank()) {
+            return work.getPrimaryLocation().getPdfUrl();
+        }
+        if (work.getOpenAccess() != null && work.getOpenAccess().getOaUrl() != null
+                && !work.getOpenAccess().getOaUrl().isBlank()) {
+            return work.getOpenAccess().getOaUrl();
+        }
+        return null;
     }
 
     private record WorkWithAbstract(OpenAlexResponseDTO.OpenAlexWorkDTO work, String abstractText) {

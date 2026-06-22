@@ -283,6 +283,30 @@ public class GraphService {
         }
     }
 
+    /**
+     * Get Neo4j graph statistics.
+     */
+    public java.util.Map<String, Long> getStats() {
+        java.util.Map<String, Long> stats = new java.util.LinkedHashMap<>();
+        try {
+            Long papers = neo4jClient.query("MATCH (p:Paper) RETURN COUNT(p) AS cnt")
+                    .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
+            Long keywords = neo4jClient.query("MATCH (k:Keyword) RETURN COUNT(k) AS cnt")
+                    .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
+            Long rels = neo4jClient.query("MATCH ()-[r:HAS_KEYWORD]->() RETURN COUNT(r) AS cnt")
+                    .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
+            stats.put("paperNodes", papers);
+            stats.put("keywordNodes", keywords);
+            stats.put("relationships", rels);
+        } catch (Exception e) {
+            log.debug("Neo4j stats unavailable: {}", e.getMessage());
+            stats.putIfAbsent("paperNodes", 0L);
+            stats.putIfAbsent("keywordNodes", 0L);
+            stats.putIfAbsent("relationships", 0L);
+        }
+        return stats;
+    }
+
     // ============================================
     //  PRIVATE HELPERS
     // ============================================

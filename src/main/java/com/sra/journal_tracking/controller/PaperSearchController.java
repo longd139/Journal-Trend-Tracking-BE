@@ -135,6 +135,9 @@ public class PaperSearchController {
                 .isOpenAccess(paper.getIsOpenAccess())
                 .journalName(paper.getJournal() != null ? paper.getJournal().getJournalName() : null)
                 .sourceUrl(paper.getDoi() != null ? "https://doi.org/" + paper.getDoi() : null)
+                .pdfAvailable(Boolean.TRUE.equals(paper.getIsOpenAccess())
+                        || (paper.getPdfUrl() != null && !paper.getPdfUrl().isBlank()))
+                .pdfUrl(paper.getPdfUrl())
                 .createdAt(paper.getCreatedAt())
                 .build();
     }
