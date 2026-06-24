@@ -9,21 +9,107 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.neo4j.core.Neo4jClient;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class GraphService {
 
     private static final Logger log = LoggerFactory.getLogger(GraphService.class);
 
+    // ── Manual in-memory cache: 1 hour TTL ──
+    private static final long CACHE_TTL_MS = 60 * 60 * 1000; // 1 giờ
+
+    private static class CacheEntry<T> {
+        final T data;
+        final long expiryTime;
+        CacheEntry(T data) { this.data = data; this.expiryTime = System.currentTimeMillis() + CACHE_TTL_MS; }
+        boolean isExpired() { return System.currentTimeMillis() > expiryTime; }
+    }
+
+    private final ConcurrentHashMap<String, CacheEntry<GraphResponse>> keywordGraphCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CacheEntry<List<String>>> paperSearchCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CacheEntry<Boolean>> keywordExistsCache = new ConcurrentHashMap<>();
+
     private final Neo4jClient neo4jClient;
 
     public GraphService(Neo4jClient neo4jClient) {
         this.neo4jClient = neo4jClient;
+    }
+
+    // ── Neo4j index creation ──
+
+    @PostConstruct
+    public void createIndexes() {
+        try {
+            neo4jClient.query(
+                    "CREATE INDEX keyword_norm_text IF NOT EXISTS FOR (k:Keyword) ON (k.normalizedText)"
+            ).run();
+            log.info("Neo4j index on Keyword.normalizedText ensured");
+        } catch (Exception e) {
+            log.warn("Could not create Neo4j index: {}", e.getMessage());
+        }
+    }
+
+    // ============================================
+    //  KEYWORD EXISTS: Lightweight check (cached)
+    // ============================================
+
+    /**
+     * Lightweight check whether a keyword exists in Neo4j.
+     * Uses a simple COUNT instead of building a full graph response.
+     * Result cached for 1 hour.
+     */
+    public boolean keywordExists(String keyword) {
+        String cacheKey = keyword.toLowerCase().trim();
+
+        // ── Cache hit? ──
+        CacheEntry<Boolean> cached = keywordExistsCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            log.info("CACHE HIT: keywordExists '{}' → {} (from cache)", keyword, cached.data);
+            return cached.data;
+        }
+        if (cached != null) {
+            keywordExistsCache.remove(cacheKey);
+        }
+
+        String normalizedKeyword = keyword.toLowerCase().trim();
+        String cypherQuery = """
+                MATCH (k:Keyword)
+                WHERE k.normalizedText = $keyword
+                   OR k.normalizedText CONTAINS $keyword
+                RETURN COUNT(k) AS cnt
+                LIMIT 1
+                """;
+
+        boolean exists = false;
+        try {
+            Long count = neo4jClient.query(cypherQuery)
+                    .bind(normalizedKeyword).to("keyword")
+                    .fetch()
+                    .one()
+                    .map(record -> {
+                        Object cnt = record.get("cnt");
+                        return cnt instanceof Number ? ((Number) cnt).longValue() : 0L;
+                    })
+                    .orElse(0L);
+            exists = count > 0;
+            log.info("keywordExists '{}': {}", keyword, exists);
+        } catch (Exception e) {
+            log.warn("keywordExists failed for '{}': {}", keyword, e.getMessage());
+        }
+
+        // ── Store in cache ──
+        keywordExistsCache.put(cacheKey, new CacheEntry<>(exists));
+        log.info("CACHE STORE: keywordExists '{}' → {} (TTL=1h)", keyword, exists);
+
+        return exists;
     }
 
     // ============================================
@@ -33,11 +119,25 @@ public class GraphService {
     /**
      * Tìm paper IDs từ Neo4j dựa trên keyword text.
      * Dùng CONTAINS để match gần đúng (không cần chính xác tuyệt đối).
+     * Kết quả được cache 1 giờ — tìm lại cùng keyword sẽ trả về ngay lập tức.
      *
      * @param keyword từ khóa người dùng nhập
      * @return danh sách paperId (UUID string) tìm thấy trong Neo4j
      */
     public List<String> searchPapersByKeyword(String keyword) {
+        String cacheKey = keyword.toLowerCase().trim();
+
+        // ── Cache hit? ──
+        CacheEntry<List<String>> cached = paperSearchCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            log.info("CACHE HIT: paperSearch '{}' → {} papers (from cache)", keyword, cached.data.size());
+            return cached.data;
+        }
+        if (cached != null) {
+            paperSearchCache.remove(cacheKey); // expired → remove
+        }
+
+        // ── Cache miss: query Neo4j ──
         String normalizedKeyword = keyword.toLowerCase().trim();
 
         String cypherQuery = """
@@ -70,6 +170,13 @@ public class GraphService {
             // Không throw exception — để fallback xuống OpenAlex
         }
 
+        // ── Store in cache (chỉ cache khi có kết quả) ──
+        if (!paperIds.isEmpty()) {
+            paperSearchCache.put(cacheKey, new CacheEntry<>(paperIds));
+            log.info("CACHE STORE: paperSearch '{}' → {} papers (TTL=1h)", keyword, paperIds.size());
+        } else {
+            log.info("CACHE SKIP: paperSearch '{}' empty — not cached (will retry Neo4j next time)", keyword);
+        }
         return paperIds;
     }
 
@@ -95,42 +202,62 @@ public class GraphService {
             return;
         }
 
-        // MERGE từng keyword và tạo relationship
+        // Invalidate cache cho các keyword được lưu
         for (String kw : keywords) {
             if (kw == null || kw.isBlank()) continue;
-
-            String normalized = kw.toLowerCase().trim();
-            String keywordId = generateKeywordId(normalized);
-
-            String cypherQuery = """
-                    MERGE (p:Paper {paperId: $paperId})
-                    ON CREATE SET p.title = $title, p.doi = $doi, p.pubYear = $pubYear
-                    ON MATCH SET p.title = $title, p.doi = $doi, p.pubYear = $pubYear
-                    MERGE (k:Keyword {keywordId: $keywordId})
-                    ON CREATE SET k.text = $keywordText, k.normalizedText = $normalizedText
-                    ON MATCH SET k.text = $keywordText
-                    MERGE (p)-[:HAS_KEYWORD]->(k)
-                    """;
-
-            try {
-                neo4jClient.query(cypherQuery)
-                        .bind(paperId).to("paperId")
-                        .bind(title).to("title")
-                        .bind(doi != null ? doi : "").to("doi")
-                        .bind(pubYear != null ? pubYear : 0).to("pubYear")
-                        .bind(keywordId).to("keywordId")
-                        .bind(kw.trim()).to("keywordText")
-                        .bind(normalized).to("normalizedText")
-                        .run();
-
-                log.debug("Neo4j: merged Paper({}) -[:HAS_KEYWORD]-> Keyword({})", paperId, normalized);
-            } catch (Exception e) {
-                log.error("Neo4j save failed for paper {} keyword '{}': {}", paperId, kw, e.getMessage());
-                log.error("Full stack trace:", e);
-            }
+            String cacheKey = kw.toLowerCase().trim();
+            keywordGraphCache.remove(cacheKey);
+            paperSearchCache.remove(cacheKey);
+            keywordExistsCache.remove(cacheKey);
         }
 
-        log.info("Neo4j: saved paper '{}' with {} keywords", title, keywords.size());
+        // Build keyword list for UNWIND (deduplicated by normalizedText)
+        Map<String, Map<String, String>> uniqueKws = new LinkedHashMap<>();
+        for (String kw : keywords) {
+            if (kw == null || kw.isBlank()) continue;
+            String normalized = kw.toLowerCase().trim();
+            String keywordId = generateKeywordId(normalized);
+            uniqueKws.putIfAbsent(normalized, Map.of(
+                    "keywordId", keywordId,
+                    "keywordText", kw.trim(),
+                    "normalizedText", normalized
+            ));
+        }
+
+        if (uniqueKws.isEmpty()) {
+            mergePaperOnly(paperId, title, doi, pubYear);
+            return;
+        }
+
+        List<Map<String, String>> kwList = new ArrayList<>(uniqueKws.values());
+
+        // Single Cypher query with UNWIND — batches all keywords for one paper
+        String cypherQuery = """
+                MERGE (p:Paper {paperId: $paperId})
+                ON CREATE SET p.title = $title, p.doi = $doi, p.pubYear = $pubYear
+                ON MATCH SET p.title = $title, p.doi = $doi, p.pubYear = $pubYear
+                WITH p
+                UNWIND $keywords AS kw
+                MERGE (k:Keyword {keywordId: kw.keywordId})
+                ON CREATE SET k.text = kw.keywordText, k.normalizedText = kw.normalizedText
+                ON MATCH SET k.text = kw.keywordText
+                MERGE (p)-[:HAS_KEYWORD]->(k)
+                """;
+
+        try {
+            neo4jClient.query(cypherQuery)
+                    .bind(paperId).to("paperId")
+                    .bind(title).to("title")
+                    .bind(doi != null ? doi : "").to("doi")
+                    .bind(pubYear != null ? pubYear : 0).to("pubYear")
+                    .bind(kwList).to("keywords")
+                    .run();
+
+            log.info("Neo4j: saved paper '{}' with {} keywords (batched UNWIND)", title, kwList.size());
+        } catch (Exception e) {
+            log.error("Neo4j batch save failed for paper {}: {}", paperId, e.getMessage());
+            log.error("Full stack trace:", e);
+        }
     }
 
     // ============================================
@@ -179,11 +306,29 @@ public class GraphService {
      * Returns Paper and Keyword nodes related to the searched keyword.
      * Keyword node sizes = number of connected Paper nodes (global frequency).
      * Paper node sizes = 1 (default).
+     * Kết quả được cache 1 giờ — tìm lại cùng keyword sẽ trả về ngay lập tức.
      *
      * @param keyword the search keyword
      * @return GraphResponse with sized nodes and HAS_KEYWORD links
      */
     public GraphResponse getKeywordGraph(String keyword) {
+        String cacheKey = keyword.toLowerCase().trim();
+
+        // ── Cache hit? ──
+        CacheEntry<GraphResponse> cached = keywordGraphCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            GraphResponse resp = cached.data;
+            log.info("CACHE HIT: keywordGraph '{}' → {} nodes, {} links (from cache)",
+                    keyword,
+                    resp.getNodes() != null ? resp.getNodes().size() : 0,
+                    resp.getLinks() != null ? resp.getLinks().size() : 0);
+            return resp;
+        }
+        if (cached != null) {
+            keywordGraphCache.remove(cacheKey); // expired → remove
+        }
+
+        // ── Cache miss: query Neo4j ──
         String normalizedKeyword = keyword.toLowerCase().trim();
 
         String cypherQuery = """
@@ -192,13 +337,13 @@ public class GraphService {
                    OR k.normalizedText STARTS WITH $keyword + ' '
                    OR k.normalizedText ENDS WITH ' ' + $keyword
                    OR k.normalizedText CONTAINS ' ' + $keyword + ' '
-                WITH p, k
-                OPTIONAL MATCH (k)<-[:HAS_KEYWORD]-(otherP:Paper)
-                WITH p, k, COUNT(DISTINCT otherP) AS keywordSize
+                WITH DISTINCT p, k
+                LIMIT 200
+                MATCH (k)<-[:HAS_KEYWORD]-(otherP:Paper)
+                WITH p, k, COUNT(otherP) AS keywordSize
                 RETURN p.paperId AS paperId, p.title AS paperTitle,
                        k.keywordId AS keywordId, k.text AS keywordText,
                        keywordSize
-                LIMIT 200
                 """;
 
         Map<String, GraphNode> nodeMap = new HashMap<>();
@@ -238,7 +383,18 @@ public class GraphService {
             // Return empty graph on failure — don't throw
         }
 
-        return new GraphResponse(new ArrayList<>(nodeMap.values()), links);
+        GraphResponse result = new GraphResponse(new ArrayList<>(nodeMap.values()), links);
+
+        // ── Store in cache (chỉ cache khi có nodes — đừng cache empty!) ──
+        if (!nodeMap.isEmpty()) {
+            keywordGraphCache.put(cacheKey, new CacheEntry<>(result));
+            log.info("CACHE STORE: keywordGraph '{}' → {} nodes, {} links (TTL=1h)",
+                    keyword, nodeMap.size(), links.size());
+        } else {
+            log.info("CACHE SKIP: keywordGraph '{}' empty — not cached (will retry Neo4j next time)", keyword);
+        }
+
+        return result;
     }
 
     // ============================================
@@ -278,6 +434,11 @@ public class GraphService {
         try {
             neo4jClient.query("MATCH (n) DETACH DELETE n").run();
             log.info("Neo4j: cleared all nodes and relationships");
+            // Clear all caches too
+            keywordGraphCache.clear();
+            paperSearchCache.clear();
+            keywordExistsCache.clear();
+            log.info("GraphService: cleared all caches");
         } catch (Exception e) {
             log.warn("Failed to clear Neo4j: {}", e.getMessage());
         }

@@ -172,7 +172,7 @@ public class DataSyncServiceImpl implements DataSyncService {
                     insertedCount++;
 
                     // Cache paper-keyword links in Neo4j for graph search.
-                    savePaperToNeo4j(savedPaper, List.of(query.trim()));
+                    savePaperToNeo4j(savedPaper, List.of(), query);
 
                     if (paperDTO.getAuthors() != null) {
                         int order = 1;
@@ -262,7 +262,7 @@ public class DataSyncServiceImpl implements DataSyncService {
 
                     // Cache paper-keyword links in Neo4j for graph search.
                     List<String> keywords = saveOpenAlexKeywords(savedPaper, work, query);
-                    savePaperToNeo4j(savedPaper, keywords);
+                    savePaperToNeo4j(savedPaper, keywords, query);
 
                     if (work.getAuthorships() != null) {
                         int order = 1;
@@ -351,7 +351,7 @@ public class DataSyncServiceImpl implements DataSyncService {
                 insertedCount++;
 
                 List<String> keywords = extractKeywordsFromTitle(pp.title());
-                savePaperToNeo4j(savedPaper, keywords);
+                savePaperToNeo4j(savedPaper, keywords, query);
 
                 if (pp.authors() != null) {
                     int order = 1;
@@ -462,7 +462,7 @@ public class DataSyncServiceImpl implements DataSyncService {
                 insertedCount++;
 
                 List<String> kws = extractKeywordsFromTitle(title);
-                savePaperToNeo4j(savedPaper, kws);
+                savePaperToNeo4j(savedPaper, kws, query);
 
                 @SuppressWarnings("unchecked")
                 List<Map<String, Object>> authors = (List<Map<String, Object>>) work.get("authors");
@@ -725,7 +725,7 @@ public class DataSyncServiceImpl implements DataSyncService {
                         kwInserted++;
 
                         List<String> kws = saveOpenAlexKeywords(savedPaper, work, keyword);
-                        savePaperToNeo4j(savedPaper, kws);
+                        savePaperToNeo4j(savedPaper, kws, keyword);
 
                         if (work.getAuthorships() != null) {
                             int order = 1;
@@ -874,7 +874,7 @@ public class DataSyncServiceImpl implements DataSyncService {
                         kwInserted++;
 
                         List<String> kws = saveOpenAlexKeywords(savedPaper, work, keyword);
-                        savePaperToNeo4j(savedPaper, kws);
+                        savePaperToNeo4j(savedPaper, kws, keyword);
 
                         if (work.getAuthorships() != null) {
                             int order = 1;
@@ -1152,7 +1152,11 @@ public class DataSyncServiceImpl implements DataSyncService {
 
         String normalizedPrimaryText = normalizeSearchText(primaryText.toString());
         if (tokens.size() == 1) {
-            return containsTokenVariant(normalizedPrimaryText, tokens.get(0));
+            // Single-token: check both primary text AND abstract to avoid
+            // filtering out papers that use synonyms (e.g., "automobile" vs "car")
+            StringBuilder fullText = new StringBuilder(normalizedPrimaryText);
+            append(fullText, abstractText);
+            return containsTokenVariant(normalizeSearchText(fullText.toString()), tokens.get(0));
         }
 
         StringBuilder fullText = new StringBuilder(normalizedPrimaryText);
@@ -1594,9 +1598,26 @@ public class DataSyncServiceImpl implements DataSyncService {
                 .orElse(null);
     }
 
-    private void savePaperToNeo4j(ResearchPaper paper, List<String> keywords) {
+    /**
+     * Save paper and its keywords to Neo4j for graph search.
+     * Always includes the search query as a keyword so the paper
+     * is discoverable via the exact term the user searched for.
+     */
+    private void savePaperToNeo4j(ResearchPaper paper, List<String> keywords, String searchQuery) {
         try {
-            List<String> graphKeywords = keywords == null || keywords.isEmpty() ? List.of(paper.getTitle()) : keywords;
+            List<String> graphKeywords = new ArrayList<>();
+            // Always add the search query first so graph search finds it
+            if (searchQuery != null && !searchQuery.isBlank()) {
+                graphKeywords.add(searchQuery.trim());
+            }
+            if (keywords != null) {
+                keywords.stream()
+                        .filter(kw -> kw != null && !kw.isBlank())
+                        .forEach(graphKeywords::add);
+            }
+            if (graphKeywords.isEmpty()) {
+                graphKeywords.add(paper.getTitle() != null ? paper.getTitle() : "Untitled");
+            }
             graphService.savePaperWithKeywords(
                     paper.getPaperId().toString(),
                     paper.getTitle(),
