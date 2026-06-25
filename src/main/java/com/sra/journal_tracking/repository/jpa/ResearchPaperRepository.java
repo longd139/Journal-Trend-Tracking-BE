@@ -199,4 +199,83 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
      */
     @Query("SELECT COUNT(p) FROM ResearchPaper p WHERE p.paperId IN :ids AND p.pubYear = :year")
     long countByPaperIdsAndPubYear(@Param("ids") List<UUID> ids, @Param("year") Short year);
+
+    /**
+     * Count papers per journal from a list of paper IDs.
+     * Returns [journalName, impactFactor, quartile, publisher, paperCount] tuples,
+     * ordered by paper count descending (top journals first).
+     * Used for the "Top Journals" horizontal bar chart in keyword quick-stats.
+     */
+    @Query("SELECT j.journalName, COALESCE(j.impactFactor, 0), j.quartile, j.publisher, COUNT(p) "
+         + "FROM ResearchPaper p JOIN p.journal j "
+         + "WHERE p.paperId IN :ids "
+         + "GROUP BY j.journalName, j.impactFactor, j.quartile, j.publisher "
+         + "ORDER BY COUNT(p) DESC")
+    List<Object[]> findTopJournalsByPaperIds(@Param("ids") List<UUID> ids, Pageable pageable);
+
+    /**
+     * Find papers by IDs, ordered by citation count descending.
+     * Used for "Top 5 Most Influential Papers" in keyword quick-stats.
+     */
+    @Query("SELECT DISTINCT p FROM ResearchPaper p "
+         + "LEFT JOIN FETCH p.journal "
+         + "LEFT JOIN FETCH p.keywords pk "
+         + "LEFT JOIN FETCH pk.keyword "
+         + "WHERE p.paperId IN :ids "
+         + "ORDER BY p.citationCount DESC")
+    List<ResearchPaper> findTopCitedByIds(@Param("ids") List<UUID> ids, Pageable pageable);
+
+    // ---- Journal Quick Stats Aggregation ----
+
+    /** Count papers published in a specific journal. */
+    long countByJournal_JournalId(@Param("journalId") UUID journalId);
+
+    /** Sum citations for all papers in a specific journal. */
+    @Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p WHERE p.journal.journalId = :journalId")
+    long sumCitationsByJournalId(@Param("journalId") UUID journalId);
+
+    /**
+     * Top keywords published in a specific journal.
+     * Returns [keywordText, paperCount] ordered by frequency DESC.
+     */
+    @Query("SELECT kw.keywordText, COUNT(p) FROM ResearchPaper p "
+         + "JOIN p.keywords pk JOIN pk.keyword kw "
+         + "WHERE p.journal.journalId = :journalId "
+         + "GROUP BY kw.keywordText ORDER BY COUNT(p) DESC")
+    List<Object[]> findTopKeywordsByJournalId(@Param("journalId") UUID journalId, Pageable pageable);
+
+    /**
+     * Yearly paper count and citation sum for a journal (timeline).
+     * Returns [pubYear, paperCount, citationCount] ordered by year ASC.
+     */
+    @Query("SELECT p.pubYear, COUNT(p), COALESCE(SUM(p.citationCount), 0) "
+         + "FROM ResearchPaper p "
+         + "WHERE p.journal.journalId = :journalId AND p.pubYear >= :startYear "
+         + "GROUP BY p.pubYear ORDER BY p.pubYear ASC")
+    List<Object[]> getJournalYearlyStats(@Param("journalId") UUID journalId,
+                                         @Param("startYear") Short startYear);
+
+    /**
+     * Top-cited papers in a journal (no year filter).
+     * Used for "Top 5 Most Cited Papers" in journal detail.
+     */
+    @Query("SELECT p FROM ResearchPaper p "
+         + "LEFT JOIN FETCH p.journal "
+         + "LEFT JOIN FETCH p.keywords pk "
+         + "LEFT JOIN FETCH pk.keyword "
+         + "WHERE p.journal.journalId = :journalId "
+         + "ORDER BY p.citationCount DESC")
+    List<ResearchPaper> findTopCitedByJournalId(@Param("journalId") UUID journalId, Pageable pageable);
+
+    /**
+     * Top contributing authors in a journal.
+     * Returns [authorName, externalAuthorId, paperCount, totalCitations] ordered by paper count DESC.
+     */
+    @Query("SELECT a.fullName, a.externalAuthorId, COUNT(DISTINCT p), COALESCE(SUM(p.citationCount), 0) "
+         + "FROM ResearchPaper p "
+         + "JOIN p.authors pa JOIN pa.author a "
+         + "WHERE p.journal.journalId = :journalId "
+         + "GROUP BY a.fullName, a.externalAuthorId "
+         + "ORDER BY COUNT(DISTINCT p) DESC")
+    List<Object[]> findTopAuthorsByJournalId(@Param("journalId") UUID journalId, Pageable pageable);
 }

@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
  * Quick statistics for a searched keyword.
  * Returned alongside paper search results to give users immediate insight into
@@ -42,4 +44,7 @@ public class KeywordQuickStatsResponse {
 
     /** Auxiliary: Number of papers published last year matching the keyword. */
     private Long papersLastYear;
+
+    /** Top journals publishing this keyword — horizontal bar chart data (top 10). */
+    private List<TopJournalResponse> topJournals;
 }

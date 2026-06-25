@@ -486,6 +486,71 @@ public class GraphService {
     }
 
     // ============================================
+    //  RELATED TRENDS: Keyword Co-occurrence
+    // ============================================
+
+    /**
+     * Find keywords that frequently co-occur with the given keyword
+     * in recent papers (past N years). Uses Neo4j graph traversal
+     * to discover "satellite keywords" for research niche discovery.
+     *
+     * @param keyword   the search keyword (normalized)
+     * @param startYear only consider papers from this year onward
+     * @param limit     max number of related keywords to return
+     * @return list of [normalizedKeyword, originalText, totalCount, thisYearCount, lastYearCount]
+     */
+    public List<java.util.Map<String, Object>> getCooccurringKeywords(
+            String keyword, int startYear, short thisYear, short lastYear, int limit) {
+
+        // Direct traversal: keyword → papers (recent) → all other keywords
+        String cypherQuery = """
+                MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
+                WHERE k.normalizedText = $keyword AND p.pubYear >= $startYear
+                MATCH (p)-[:HAS_KEYWORD]->(other:Keyword)
+                WHERE other.normalizedText <> $keyword
+                WITH other.normalizedText AS normKw, other.text AS origKw,
+                     COLLECT(DISTINCT p) AS papers
+                WITH normKw, origKw,
+                     SIZE(papers) AS totalCount,
+                     SIZE([x IN papers WHERE x.pubYear = $thisYear]) AS thisYearCount,
+                     SIZE([x IN papers WHERE x.pubYear = $lastYear]) AS lastYearCount
+                RETURN normKw, origKw, totalCount, thisYearCount, lastYearCount
+                ORDER BY totalCount DESC
+                LIMIT $limit
+                """;
+
+        List<java.util.Map<String, Object>> results = new ArrayList<>();
+        try {
+            neo4jClient.query(cypherQuery)
+                    .bind(keyword).to("keyword")
+                    .bind(startYear).to("startYear")
+                    .bind(thisYear).to("thisYear")
+                    .bind(lastYear).to("lastYear")
+                    .bind(limit).to("limit")
+                    .fetch()
+                    .all()
+                    .forEach(record -> {
+                        java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+                        row.put("normalizedKeyword", record.get("normKw").toString());
+                        row.put("originalKeyword", record.get("origKw") != null
+                                ? record.get("origKw").toString() : "");
+                        row.put("totalCount", ((Number) record.get("totalCount")).longValue());
+                        row.put("thisYearCount", ((Number) record.get("thisYearCount")).longValue());
+                        row.put("lastYearCount", ((Number) record.get("lastYearCount")).longValue());
+                        results.add(row);
+                    });
+            log.info("Co-occurrence for '{}': {} related keywords found (since {})",
+                    keyword, results.size(), startYear);
+        } catch (Exception e) {
+            Throwable root = e;
+            while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+            log.warn("Co-occurrence query failed for '{}': {}. Root cause: {}",
+                    keyword, e.getMessage(), root.toString());
+        }
+        return results;
+    }
+
+    // ============================================
     //  CLEANUP: Xóa stale Paper nodes
     // ============================================
 

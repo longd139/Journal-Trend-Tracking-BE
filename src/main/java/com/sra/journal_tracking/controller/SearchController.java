@@ -5,9 +5,15 @@ import com.sra.journal_tracking.dto.author.AuthorQuickStatsResponse;
 import com.sra.journal_tracking.dto.author.AuthorResearchFocusResponse;
 import com.sra.journal_tracking.dto.author.AuthorTimelineResponse;
 import com.sra.journal_tracking.dto.author.CoAuthorResponse;
+import com.sra.journal_tracking.dto.journal.JournalAuthorResponse;
+import com.sra.journal_tracking.dto.journal.JournalQuickStatsResponse;
+import com.sra.journal_tracking.dto.journal.JournalTimelineResponse;
 import com.sra.journal_tracking.dto.paper.KeywordQuickStatsResponse;
+import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
+import com.sra.journal_tracking.dto.paper.RelatedKeywordResponse;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.service.AuthorQuickStatsService;
+import com.sra.journal_tracking.service.JournalQuickStatsService;
 import com.sra.journal_tracking.service.KeywordQuickStatsService;
 import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +24,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @Slf4j
 @RestController
 @RequestMapping("/api/search")
@@ -26,6 +34,7 @@ public class SearchController {
 
     private final AuthorQuickStatsService authorQuickStatsService;
     private final KeywordQuickStatsService keywordQuickStatsService;
+    private final JournalQuickStatsService journalQuickStatsService;
 
     @Operation(
             summary = "Quick author statistics lookup",
@@ -135,6 +144,132 @@ public class SearchController {
 
         KeywordQuickStatsResponse stats = keywordQuickStatsService.getStats(keyword.trim());
         return ResponseEntity.ok(AppResponse.success("Quick stats retrieved", stats));
+    }
+
+    @Operation(
+            summary = "Keyword co-occurrence & related trends",
+            description = "Discover 'satellite keywords' that frequently appear together with "
+                        + "the searched keyword in recent papers (last 2 years). Uses Neo4j graph "
+                        + "traversal to find research niches — e.g., searching 'IoT' reveals "
+                        + "'Edge Computing', 'Cybersecurity', '5G' as rising co-occurring topics. "
+                        + "Returns top 10 related keywords ranked by co-occurrence count, "
+                        + "with year-over-year growth rates."
+    )
+    @GetMapping("/keyword/related-trends")
+    public ResponseEntity<AppResponse<List<RelatedKeywordResponse>>> relatedTrends(
+            @RequestParam("keyword") String keyword) {
+
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new IllegalArgumentException("Keyword cannot be empty");
+        }
+
+        log.info("Related trends lookup: keyword={}", keyword);
+
+        List<RelatedKeywordResponse> trends = keywordQuickStatsService.getRelatedTrends(keyword.trim());
+        return ResponseEntity.ok(AppResponse.success("Related trends retrieved", trends));
+    }
+
+    @Operation(
+            summary = "Top 5 most influential papers for a keyword",
+            description = "Returns the 5 most-cited 'foundation papers' for a keyword, "
+                        + "ranked by citation count descending. Anyone starting research "
+                        + "on a new topic should read these papers first. "
+                        + "Uses Neo4j for paper discovery + SQL for citation ranking."
+    )
+    @GetMapping("/keyword/top-papers")
+    public ResponseEntity<AppResponse<List<PaperDetailResponseDTO>>> topPapers(
+            @RequestParam("keyword") String keyword) {
+
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new IllegalArgumentException("Keyword cannot be empty");
+        }
+
+        log.info("Top papers lookup: keyword={}", keyword);
+
+        List<PaperDetailResponseDTO> papers = keywordQuickStatsService.getTopInfluentialPapers(keyword.trim());
+        return ResponseEntity.ok(AppResponse.success("Top papers retrieved", papers));
+    }
+
+    @Operation(
+            summary = "Journal prestige KPIs",
+            description = "Search for a journal by name and return its prestige metrics: "
+                        + "Impact Factor, Quartile (Q1–Q4), total publications, total citations, "
+                        + "calculated CiteScore, average citations per paper, and top keywords. "
+                        + "Quartile is color-coded by frontend: green=Q1, yellow=Q2, orange=Q3, red=Q4."
+    )
+    @GetMapping("/journal/quick-stats")
+    public ResponseEntity<AppResponse<JournalQuickStatsResponse>> journalQuickStats(
+            @RequestParam("keyword") String keyword) {
+
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new IllegalArgumentException("Journal name cannot be empty");
+        }
+
+        log.info("Journal quick stats lookup: journal={}", keyword);
+
+        JournalQuickStatsResponse stats = journalQuickStatsService.getStats(keyword.trim());
+        return ResponseEntity.ok(AppResponse.success("Journal stats retrieved", stats));
+    }
+
+    @Operation(
+            summary = "Journal impact & volume timeline",
+            description = "Year-by-year trend of a journal's prestige: paper count (bar chart) "
+                        + "and average citations per paper (line chart) over the last 10 years. "
+                        + "Shows whether the journal is rising, stable, or declining — helping "
+                        + "researchers decide where to submit their work."
+    )
+    @GetMapping("/journal/quick-stats/timeline")
+    public ResponseEntity<AppResponse<JournalTimelineResponse>> journalTimeline(
+            @RequestParam("keyword") String keyword) {
+
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new IllegalArgumentException("Journal name cannot be empty");
+        }
+
+        log.info("Journal timeline lookup: journal={}", keyword);
+
+        JournalTimelineResponse timeline = journalQuickStatsService.getTimeline(keyword.trim());
+        return ResponseEntity.ok(AppResponse.success("Journal timeline retrieved", timeline));
+    }
+
+    @Operation(
+            summary = "Top 5 most-cited papers in a journal",
+            description = "Returns the 5 papers that have accumulated the most citations "
+                        + "in a specific journal — these are the papers that define the "
+                        + "journal's reputation and impact."
+    )
+    @GetMapping("/journal/top-papers")
+    public ResponseEntity<AppResponse<List<PaperDetailResponseDTO>>> journalTopPapers(
+            @RequestParam("keyword") String keyword) {
+
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new IllegalArgumentException("Journal name cannot be empty");
+        }
+
+        log.info("Journal top papers lookup: journal={}", keyword);
+
+        List<PaperDetailResponseDTO> papers = journalQuickStatsService.getTopPapers(keyword.trim());
+        return ResponseEntity.ok(AppResponse.success("Top papers retrieved", papers));
+    }
+
+    @Operation(
+            summary = "Top contributing authors in a journal",
+            description = "Returns the authors who publish most frequently in a specific "
+                        + "journal — 'Ai đang gánh uy tín cho tạp chí này?'. "
+                        + "Clicking an author name navigates to Search by Author page."
+    )
+    @GetMapping("/journal/top-authors")
+    public ResponseEntity<AppResponse<List<JournalAuthorResponse>>> journalTopAuthors(
+            @RequestParam("keyword") String keyword) {
+
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new IllegalArgumentException("Journal name cannot be empty");
+        }
+
+        log.info("Journal top authors lookup: journal={}", keyword);
+
+        List<JournalAuthorResponse> authors = journalQuickStatsService.getTopAuthors(keyword.trim());
+        return ResponseEntity.ok(AppResponse.success("Top authors retrieved", authors));
     }
 
 }
