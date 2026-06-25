@@ -6,6 +6,7 @@ public interface DataSyncService {
     SyncLog syncFromSemanticScholar(String query, int limit);
     SyncLog syncFromOpenAlex(String query, int limit);
     void syncFromOpenAlexAsync(String query, int limit);
+    void triggerManualSyncAsync(String sourceName, String query, int limit, Integer yearFrom, Integer yearTo);
 
     // ── Year range variants ──
     SyncLog syncFromOpenAlex(String query, int limit, Integer yearFrom, Integer yearTo);
@@ -14,6 +15,17 @@ public interface DataSyncService {
     SyncLog syncFromArxiv(String query, int limit);
     SyncLog syncFromCore(String query, int limit, Integer yearFrom, Integer yearTo);
     SyncLog syncFromCore(String query, int limit);
+
+    /**
+     * Sync papers from OpenAlex filtered by a specific author ID.
+     * Used as fallback when local author search returns empty results.
+     *
+     * @param openAlexAuthorId OpenAlex author ID (e.g. "https://openalex.org/A5023888391")
+     * @param authorName       human-readable author name for logging
+     * @param limit            max papers to fetch
+     * @return SyncLog with sync results
+     */
+    SyncLog syncPapersFromOpenAlexByAuthor(String openAlexAuthorId, String authorName, int limit);
 
     /**
      * Get comprehensive database statistics for admin dashboard.

@@ -3,12 +3,16 @@ package com.sra.journal_tracking.service.impl;
 import com.sra.journal_tracking.dto.paper.*;
 import com.sra.journal_tracking.entity.jpa.*;
 import com.sra.journal_tracking.exception.PaperNotFoundException;
+import com.sra.journal_tracking.exception.AppException;
+import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.exception.UnauthorizedAccessException;
 import com.sra.journal_tracking.exception.UsageLimitExceededException;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserUsageRepository;
+import com.sra.journal_tracking.service.AuthorQuickStatsService;
+import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.KeywordExpansionService;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperSearchService;
@@ -49,6 +53,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
     private final SearchBackfillService searchBackfillService;
     private final KeywordExpansionService keywordExpansionService;
     private final OpenAlexFallbackSearchService openAlexFallbackSearchService;
+    private final AuthorQuickStatsService authorQuickStatsService;
+    private final DataSyncService dataSyncService;
 
     @Override
     public PaperSearchResultDTO searchPapers(PaperSearchRequestDTO request, String userEmail) {
@@ -132,6 +138,50 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 recentStartYear(),
                 currentYear(),
                 pageable);
+
+        // ── OpenAlex fallback: author not in local DB ──
+        if (results.isEmpty() && page == 0) {
+            log.info("No local papers for author '{}', trying OpenAlex fallback", authorName);
+
+            try {
+                var authorStats = authorQuickStatsService.searchAuthor(authorName);
+                // searchAuthor always returns non-null or throws — but check defensively
+                if (authorStats != null && authorStats.getOpenAlexId() != null) {
+                    log.info("Found author on OpenAlex: {} (ID: {}). Syncing papers...",
+                            authorStats.getFullName(), authorStats.getOpenAlexId());
+
+                    // Sync their papers into local DB
+                    dataSyncService.syncPapersFromOpenAlexByAuthor(
+                            authorStats.getOpenAlexId(), authorName, Math.min(size, 25));
+
+                    // Re-query local DB after sync
+                    results = researchPaperRepository.searchByAuthorName(
+                            authorName,
+                            recentStartYear(),
+                            currentYear(),
+                            pageable);
+
+                    log.info("Re-query after sync: {} papers found for author '{}'",
+                            results.getTotalElements(), authorName);
+                }
+            } catch (AppException e) {
+                if (e.getErrorCode() == ErrorCode.AUTHOR_NOT_FOUND) {
+                    log.info("Author '{}' not found on OpenAlex — no match", authorName);
+                } else {
+                    log.warn("OpenAlex API unavailable while searching author '{}': {}", authorName, e.getMessage());
+                }
+            } catch (Exception e) {
+                log.warn("Unexpected error during OpenAlex author fallback for '{}': {}", authorName, e.getMessage());
+            }
+
+            // If still empty after sync, use OpenAlex live preview as last resort
+            if (results.isEmpty()) {
+                List<PaperDetailResponseDTO> fallbackPapers = openAlexFallbackSearchService.search(authorName, size);
+                if (!fallbackPapers.isEmpty()) {
+                    return mapFallbackSearchResultDTO(fallbackPapers, page, size);
+                }
+            }
+        }
 
         return mapToSearchResultDTO(results);
     }

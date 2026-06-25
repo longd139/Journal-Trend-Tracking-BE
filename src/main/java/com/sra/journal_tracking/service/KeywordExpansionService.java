@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -21,6 +22,18 @@ public class KeywordExpansionService {
 
     private static final int DEFAULT_MAX_TERMS = 16;
     private static final double MIN_RELATED_KEYWORD_SCORE = 0.55d;
+
+    // ── In-memory cache: 1 hour TTL ──
+    private static final long CACHE_TTL_MS = 60 * 60 * 1000;
+
+    private static class CacheEntry<T> {
+        final T data;
+        final long expiryTime;
+        CacheEntry(T data) { this.data = data; this.expiryTime = System.currentTimeMillis() + CACHE_TTL_MS; }
+        boolean isExpired() { return System.currentTimeMillis() > expiryTime; }
+    }
+
+    private final ConcurrentHashMap<String, CacheEntry<List<String>>> expansionCache = new ConcurrentHashMap<>();
 
     private static final Set<String> STOP_WORDS = Set.of(
             "and", "or", "the", "of", "in", "on", "for", "to", "a", "an", "with", "by", "from"
@@ -48,6 +61,18 @@ public class KeywordExpansionService {
     }
 
     public List<String> expand(String query, int maxTerms) {
+        String cacheKey = query.toLowerCase().trim() + "_" + maxTerms;
+
+        // ── Cache hit? ──
+        CacheEntry<List<String>> cached = expansionCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            log.info("CACHE HIT: keywordExpansion '{}' → {} terms (from cache)", query, cached.data.size());
+            return cached.data;
+        }
+        if (cached != null) {
+            expansionCache.remove(cacheKey); // expired → remove
+        }
+
         LinkedHashMap<String, String> termsByNormalized = new LinkedHashMap<>();
 
         String normalizedQuery = normalize(query);
@@ -68,9 +93,17 @@ public class KeywordExpansionService {
 
         addLearnedRelatedTerms(termsByNormalized, maxTerms);
 
-        return termsByNormalized.values().stream()
+        List<String> result = termsByNormalized.values().stream()
                 .limit(Math.max(1, maxTerms))
                 .collect(Collectors.toList());
+
+        // ── Store in cache ──
+        if (!result.isEmpty()) {
+            expansionCache.put(cacheKey, new CacheEntry<>(result));
+            log.info("CACHE STORE: keywordExpansion '{}' → {} terms (TTL=1h)", query, result.size());
+        }
+
+        return result;
     }
 
     public List<String> extractTokens(String query) {

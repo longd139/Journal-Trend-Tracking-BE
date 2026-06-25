@@ -42,6 +42,10 @@ public enum ErrorCode {
     // ---- LỖI CHUNG ----
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found!"),
 
+    // ---- LỖI SEARCH QUICK STATS ----
+    AUTHOR_NOT_FOUND(HttpStatus.NOT_FOUND, "No author found matching the given keyword."),
+    EXTERNAL_API_ERROR(HttpStatus.BAD_GATEWAY, "External API is currently unavailable. Please try again later."),
+
     // ---- LỖI HỆ THỐNG (Fallback) ----
     UNCATEGORIZED_EXCEPTION(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected system error occurred.");
 
