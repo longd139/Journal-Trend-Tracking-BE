@@ -6,6 +6,7 @@ public interface DataSyncService {
     SyncLog syncFromSemanticScholar(String query, int limit);
     SyncLog syncFromOpenAlex(String query, int limit);
     void syncFromOpenAlexAsync(String query, int limit);
+    void triggerManualSyncAsync(String sourceName, String query, int limit, Integer yearFrom, Integer yearTo);
 
     // ── Year range variants ──
     SyncLog syncFromOpenAlex(String query, int limit, Integer yearFrom, Integer yearTo);

@@ -46,7 +46,7 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return true; // Không dùng isActive để khóa account — isActive dùng cho email verification
+        return isAdmin() || Boolean.TRUE.equals(user.getIsActive());
     }
 
     @Override
@@ -56,6 +56,10 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return true;
+        return isAdmin() || Boolean.TRUE.equals(user.getIsActive());
+    }
+
+    private boolean isAdmin() {
+        return user.getRole() != null && "admin".equalsIgnoreCase(user.getRole().getRoleName());
     }
 }
