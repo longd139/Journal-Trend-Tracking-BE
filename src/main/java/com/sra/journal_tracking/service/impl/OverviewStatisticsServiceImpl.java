@@ -36,65 +36,61 @@ public class OverviewStatisticsServiceImpl implements OverviewStatisticsService 
         return OverviewStatisticsResponse.builder()
                 .papersTracked(buildPapersTrackedCard(currentMonthStart, previousMonthStart, now))
                 .totalCitations(buildTotalCitationsCard(currentMonthStart, previousMonthStart, now))
-                .topTrendingNow(buildTopTrendingCard(currentMonthStart, previousMonthStart, now))
+                .topTrendingNow(buildTopTrendingCard())
                 .topGrowthTopic(buildTopGrowthTopicCard())
                 .build();
     }
 
+    // Card 1: Papers created this month vs last month
     private StatCard buildPapersTrackedCard(LocalDateTime currentMonthStart,
                                             LocalDateTime previousMonthStart,
                                             LocalDateTime now) {
-        long total = researchPaperRepository.count();
         long currentMonthCount = researchPaperRepository.countByCreatedAtBetween(currentMonthStart, now);
         long previousMonthCount = researchPaperRepository.countByCreatedAtBetween(previousMonthStart, currentMonthStart);
 
         Double growthPercent = calculateGrowthPercent(currentMonthCount, previousMonthCount);
 
         return StatCard.builder()
-                .label("Papers Tracked")
-                .value(total)
+                .label("New Papers")
+                .value(currentMonthCount)
                 .growthPercent(growthPercent)
                 .growthLabel("vs last month")
                 .growthDirection(deriveGrowthDirection(growthPercent))
                 .build();
     }
 
+    // Card 2: Citations of papers created this month vs last month
     private StatCard buildTotalCitationsCard(LocalDateTime currentMonthStart,
                                              LocalDateTime previousMonthStart,
                                              LocalDateTime now) {
-        long totalCitations = researchPaperRepository.sumAllCitationCounts();
         long currentMonthCitations = researchPaperRepository.sumCitationCountsByCreatedAtBetween(currentMonthStart, now);
         long previousMonthCitations = researchPaperRepository.sumCitationCountsByCreatedAtBetween(previousMonthStart, currentMonthStart);
 
         Double growthPercent = calculateGrowthPercent(currentMonthCitations, previousMonthCitations);
 
         return StatCard.builder()
-                .label("Total Citations")
-                .value(totalCitations)
+                .label("New Citations")
+                .value(currentMonthCitations)
                 .growthPercent(growthPercent)
                 .growthLabel("vs last month")
                 .growthDirection(deriveGrowthDirection(growthPercent))
                 .build();
     }
 
-    private StatCard buildTopTrendingCard(LocalDateTime currentMonthStart,
-                                          LocalDateTime previousMonthStart,
-                                          LocalDateTime now) {
+    // Card 3: Currently trending topics count (no growth — ResearchTopic lacks createdAt)
+    private StatCard buildTopTrendingCard() {
         long trendingCount = researchTopicRepository.countByIsTrendingTrue();
-        long currentMonthTrending = researchTopicRepository.countTrendingByUpdatedAtBetween(currentMonthStart, now);
-        long previousMonthTrending = researchTopicRepository.countTrendingByUpdatedAtBetween(previousMonthStart, currentMonthStart);
-
-        Double growthPercent = calculateGrowthPercent(currentMonthTrending, previousMonthTrending);
 
         return StatCard.builder()
-                .label("Top Trending Now")
+                .label("Trending Topics")
                 .value(trendingCount)
-                .growthPercent(growthPercent)
-                .growthLabel("vs last month")
-                .growthDirection(deriveGrowthDirection(growthPercent))
+                .growthPercent(null)
+                .growthLabel("currently active")
+                .growthDirection("neutral")
                 .build();
     }
 
+    // Card 4: Topic with highest trend score
     private StatCard buildTopGrowthTopicCard() {
         return researchTopicRepository.findTopByIsTrendingTrueOrderByTrendScoreDesc()
                 .map(this::mapTopicToStatCard)
@@ -102,7 +98,7 @@ public class OverviewStatisticsServiceImpl implements OverviewStatisticsService 
                         .label("Top Growth Topic")
                         .value(0L)
                         .growthPercent(null)
-                        .growthLabel("highest growth rate")
+                        .growthLabel("no trending topics")
                         .growthDirection("neutral")
                         .build());
     }
@@ -115,7 +111,7 @@ public class OverviewStatisticsServiceImpl implements OverviewStatisticsService 
                 .label("Top Growth Topic")
                 .value(topic.getPaperCount() != null ? topic.getPaperCount().longValue() : 0L)
                 .growthPercent(growthPercent)
-                .growthLabel("highest growth rate")
+                .growthLabel("trend score")
                 .growthDirection(deriveGrowthDirection(growthPercent))
                 .topicName(topic.getTopicName())
                 .build();
@@ -123,7 +119,7 @@ public class OverviewStatisticsServiceImpl implements OverviewStatisticsService 
 
     private Double calculateGrowthPercent(long current, long previous) {
         if (previous == 0) {
-            return current > 0 ? null : 0.0; // null = can't calculate, 0.0 = both zero
+            return current > 0 ? 100.0 : 0.0;
         }
         return ((double) (current - previous) / previous) * 100.0;
     }

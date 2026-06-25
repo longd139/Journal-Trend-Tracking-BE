@@ -32,7 +32,7 @@ public class GraphService {
 
     /**
      * Tìm paper IDs từ Neo4j dựa trên keyword text.
-     * Dùng CONTAINS để match gần đúng (không cần chính xác tuyệt đối).
+     * Thử exact match (index) trước, nếu không có kết quả mới fallback sang pattern match.
      *
      * @param keyword từ khóa người dùng nhập
      * @return danh sách paperId (UUID string) tìm thấy trong Neo4j
@@ -40,36 +40,52 @@ public class GraphService {
     public List<String> searchPapersByKeyword(String keyword) {
         String normalizedKeyword = keyword.toLowerCase().trim();
 
-        String cypherQuery = """
-                MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
-                WHERE k.normalizedText = $keyword
-                   OR k.normalizedText STARTS WITH $keyword + ' '
-                   OR k.normalizedText ENDS WITH ' ' + $keyword
-                   OR k.normalizedText CONTAINS ' ' + $keyword + ' '
-                RETURN DISTINCT p.paperId AS paperId, p.title AS title
-                LIMIT 50
-                """;
+        // Phase 1: Exact match (fast, uses index)
+        List<String> paperIds = queryPaperIds(normalizedKeyword, true);
+        if (!paperIds.isEmpty()) {
+            log.info("Neo4j exact-match for '{}': {} papers", keyword, paperIds.size());
+            return paperIds;
+        }
+
+        // Phase 2: Fallback to pattern match for multi-word or partial matches
+        paperIds = queryPaperIds(normalizedKeyword, false);
+        log.info("Neo4j pattern-match for '{}': {} papers", keyword, paperIds.size());
+        return paperIds;
+    }
+
+    private List<String> queryPaperIds(String normalizedKeyword, boolean exactOnly) {
+        String cypherQuery;
+        if (exactOnly) {
+            cypherQuery = """
+                    MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
+                    WHERE k.normalizedText = $keyword
+                    RETURN DISTINCT p.paperId AS paperId
+                    LIMIT 50
+                    """;
+        } else {
+            cypherQuery = """
+                    MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
+                    WHERE k.normalizedText = $keyword
+                       OR k.normalizedText STARTS WITH $keyword + ' '
+                       OR k.normalizedText ENDS WITH ' ' + $keyword
+                       OR k.normalizedText CONTAINS ' ' + $keyword + ' '
+                    RETURN DISTINCT p.paperId AS paperId
+                    LIMIT 50
+                    """;
+        }
 
         List<String> paperIds = new ArrayList<>();
-
         try {
             neo4jClient.query(cypherQuery)
                     .bind(normalizedKeyword).to("keyword")
                     .fetch()
                     .all()
-                    .forEach(record -> {
-                        paperIds.add(record.get("paperId").toString());
-                    });
-
-            log.info("Neo4j search for '{}': found {} papers", keyword, paperIds.size());
+                    .forEach(record -> paperIds.add(record.get("paperId").toString()));
         } catch (Exception e) {
             Throwable root = e;
             while (root.getCause() != null && root.getCause() != root) root = root.getCause();
             log.warn("Neo4j search failed for keyword '{}': {}. Root cause: {}", keyword, e.getMessage(), root.toString());
-            log.warn("Full stack trace:", e);
-            // Không throw exception — để fallback xuống OpenAlex
         }
-
         return paperIds;
     }
 
@@ -239,6 +255,76 @@ public class GraphService {
         }
 
         return new GraphResponse(new ArrayList<>(nodeMap.values()), links);
+    }
+
+    // ============================================
+    //  QUICK STATS: Aggregation queries for keyword stats
+    // ============================================
+
+    /**
+     * Count the number of Paper nodes connected to a keyword in Neo4j.
+     * Uses exact match + prefix match (index-friendly) for performance.
+     *
+     * @param keyword the search keyword
+     * @return total number of matching Paper nodes
+     */
+    public long countPapersByKeyword(String keyword) {
+        String normalizedKeyword = keyword.toLowerCase().trim();
+
+        // Use index-friendly exact match first, fall back to prefix match only
+        // Avoid CONTAINS which forces a full scan on large graphs
+        String cypherQuery = """
+                MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
+                WHERE k.normalizedText = $keyword
+                RETURN COUNT(DISTINCT p) AS cnt
+                """;
+
+        try {
+            Long count = neo4jClient.query(cypherQuery)
+                    .bind(normalizedKeyword).to("keyword")
+                    .fetch()
+                    .one()
+                    .map(record -> ((Number) record.get("cnt")).longValue())
+                    .orElse(0L);
+            log.info("Neo4j count for '{}': {} papers (exact match)", keyword, count);
+            return count;
+        } catch (Exception e) {
+            log.warn("Neo4j count failed for keyword '{}': {}", keyword, e.getMessage());
+            return 0L;
+        }
+    }
+
+    /**
+     * Get ALL paper IDs for a keyword (up to 300) using index-friendly exact match.
+     *
+     * @param keyword the search keyword
+     * @return list of matching paper UUID strings (max 300)
+     */
+    public List<String> getAllPaperIdsByKeyword(String keyword) {
+        String normalizedKeyword = keyword.toLowerCase().trim();
+
+        // Exact match only — uses Neo4j index on normalizedText for fast lookup
+        String cypherQuery = """
+                MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
+                WHERE k.normalizedText = $keyword
+                RETURN DISTINCT p.paperId AS paperId
+                LIMIT 300
+                """;
+
+        List<String> paperIds = new ArrayList<>();
+
+        try {
+            neo4jClient.query(cypherQuery)
+                    .bind(normalizedKeyword).to("keyword")
+                    .fetch()
+                    .all()
+                    .forEach(record -> paperIds.add(record.get("paperId").toString()));
+            log.info("Neo4j getAll for '{}': {} papers (exact match)", keyword, paperIds.size());
+        } catch (Exception e) {
+            log.warn("Neo4j getAll failed for keyword '{}': {}", keyword, e.getMessage());
+        }
+
+        return paperIds;
     }
 
     // ============================================

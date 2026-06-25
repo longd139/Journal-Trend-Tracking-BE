@@ -1,4 +1,4 @@
-package com.sra.journal_tracking.dto.bookmark;
+package com.sra.journal_tracking.dto.collection;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -12,15 +12,12 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class BookmarkResponse {
+public class BookmarkCollectionResponse {
 
-    private UUID bookmarkId;
-    private UUID paperId;
-    private String paperTitle;
-    private UUID keywordId;
-    private String keywordText;
     private UUID collectionId;
-    private String collectionName;
-    private String notes;
+    private String name;
+    private String description;
+    private long bookmarkCount;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }

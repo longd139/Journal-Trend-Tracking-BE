@@ -34,7 +34,7 @@ public class BookmarkController {
 
     private final BookmarkService bookmarkService;
 
-    @Operation(summary = "Add bookmark", description = "Bookmark a paper or keyword. Only one target allowed per request.")
+    @Operation(summary = "Add bookmark", description = "Bookmark a paper or keyword, optionally into a collection. Only one target (paperId or keywordId) allowed per request.")
     @PostMapping
     public ResponseEntity<AppResponse<BookmarkResponse>> addBookmark(
             Authentication authentication,
@@ -43,13 +43,14 @@ public class BookmarkController {
         return ResponseEntity.ok(AppResponse.success("Bookmark added successfully", response));
     }
 
-    @Operation(summary = "Get my bookmarks", description = "List all bookmarks for the current user with pagination.")
+    @Operation(summary = "Get my bookmarks", description = "List all bookmarks for the current user with pagination. Optionally filter by collection.")
     @GetMapping
     public ResponseEntity<AppResponse<List<BookmarkResponse>>> getMyBookmarks(
             Authentication authentication,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        List<BookmarkResponse> bookmarks = bookmarkService.getMyBookmarks(authentication.getName(), page, size);
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) UUID collectionId) {
+        List<BookmarkResponse> bookmarks = bookmarkService.getMyBookmarks(authentication.getName(), page, size, collectionId);
         return ResponseEntity.ok(AppResponse.success("Bookmarks retrieved", bookmarks));
     }
 

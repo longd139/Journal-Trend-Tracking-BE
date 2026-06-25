@@ -42,4 +42,12 @@ public interface DataSyncService {
      * @param taskId unique task identifier for progress tracking
      */
     void bulkSyncFromOpenAlexAsync(String taskId, java.util.List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo);
+
+    /**
+     * Re-extract keywords for all papers in the database.
+     * Useful after upgrading keyword extraction algorithm.
+     *
+     * @return Map with processed/total counts
+     */
+    java.util.Map<String, Object> reExtractKeywords();
 }

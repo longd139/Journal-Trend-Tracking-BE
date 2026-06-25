@@ -26,8 +26,8 @@ import lombok.ToString;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@EqualsAndHashCode(exclude = {"user", "paper", "keyword"})
-@ToString(exclude = {"user", "paper", "keyword"})
+@EqualsAndHashCode(exclude = {"user", "paper", "keyword", "collection"})
+@ToString(exclude = {"user", "paper", "keyword", "collection"})
 public class Bookmark {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -45,6 +45,10 @@ public class Bookmark {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "KeywordID")
     private Keyword keyword;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "CollectionID")
+    private BookmarkCollection collection;
 
     @Column(name = "Notes", length = 500)
     private String notes;

@@ -34,6 +34,11 @@ public enum ErrorCode {
     // ---- LỖI TOPIC ----
     TOPIC_NOT_FOUND(HttpStatus.NOT_FOUND, "Research topic not found!"),
 
+    // ---- LỖI BOOKMARK COLLECTION ----
+    COLLECTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Bookmark collection not found!"),
+    COLLECTION_NAME_EXISTS(HttpStatus.CONFLICT, "You already have a collection with this name!"),
+    COLLECTION_LIMIT_EXCEEDED(HttpStatus.FORBIDDEN, "You have reached the collection limit. Upgrade to Researcher for unlimited collections."),
+
     // ---- LỖI CHUNG ----
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "Resource not found!"),
 

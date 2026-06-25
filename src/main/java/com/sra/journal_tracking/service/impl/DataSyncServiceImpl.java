@@ -28,6 +28,7 @@ import com.sra.journal_tracking.repository.jpa.SyncLogRepository;
 import com.sra.journal_tracking.service.BulkSyncProgressTracker;
 import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.GraphService;
+import com.sra.journal_tracking.service.KeywordExtractionService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
@@ -79,6 +80,7 @@ public class DataSyncServiceImpl implements DataSyncService {
     private final GraphService graphService;
     private final RestTemplate restTemplate;
     private final BulkSyncProgressTracker bulkSyncProgressTracker;
+    private final KeywordExtractionService keywordExtractionService;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -171,8 +173,11 @@ public class DataSyncServiceImpl implements DataSyncService {
                     ResearchPaper savedPaper = researchPaperRepository.save(newPaper);
                     insertedCount++;
 
-                    // Cache paper-keyword links in Neo4j for graph search.
-                    savePaperToNeo4j(savedPaper, List.of(query.trim()));
+                    // Extract and save keywords from title + abstract
+                    List<String> extractedKeywords = keywordExtractionService.extract(
+                            savedPaper.getTitle(), savedPaper.getAbstractText());
+                    saveExtractedKeywords(savedPaper, extractedKeywords);
+                    savePaperToNeo4j(savedPaper, extractedKeywords);
 
                     if (paperDTO.getAuthors() != null) {
                         int order = 1;
@@ -350,7 +355,8 @@ public class DataSyncServiceImpl implements DataSyncService {
                 ResearchPaper savedPaper = researchPaperRepository.save(paper);
                 insertedCount++;
 
-                List<String> keywords = extractKeywordsFromTitle(pp.title());
+                List<String> keywords = keywordExtractionService.extract(pp.title(), pp.abstractText());
+                saveExtractedKeywords(savedPaper, keywords);
                 savePaperToNeo4j(savedPaper, keywords);
 
                 if (pp.authors() != null) {
@@ -461,7 +467,8 @@ public class DataSyncServiceImpl implements DataSyncService {
                 ResearchPaper savedPaper = researchPaperRepository.save(paper);
                 insertedCount++;
 
-                List<String> kws = extractKeywordsFromTitle(title);
+                List<String> kws = keywordExtractionService.extract(title, abstractText);
+                saveExtractedKeywords(savedPaper, kws);
                 savePaperToNeo4j(savedPaper, kws);
 
                 @SuppressWarnings("unchecked")
@@ -636,6 +643,75 @@ public class DataSyncServiceImpl implements DataSyncService {
                 .keywordNodes(stats.getOrDefault("keywordNodes", 0L))
                 .relationships(stats.getOrDefault("relationships", 0L))
                 .build();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Re-extract keywords for all existing papers
+    // ═══════════════════════════════════════════════════════════
+
+    @Override
+    @Transactional
+    public java.util.Map<String, Object> reExtractKeywords() {
+        log.info("Starting keyword re-extraction for all papers...");
+        long totalPapers = researchPaperRepository.count();
+        long processedCount = 0;
+        long extractedCount = 0;
+
+        int pageSize = 50;
+        int page = 0;
+        boolean hasMore = true;
+
+        while (hasMore) {
+            var paperPage = researchPaperRepository.findAll(
+                    org.springframework.data.domain.PageRequest.of(page, pageSize));
+            var papers = paperPage.getContent();
+
+            if (papers.isEmpty()) {
+                hasMore = false;
+                break;
+            }
+
+            for (ResearchPaper paper : papers) {
+                try {
+                    // Skip papers that already have non-synthetic keywords from OpenAlex
+                    boolean hasOpenAlexKeywords = paper.getKeywords() != null &&
+                            paper.getKeywords().stream().anyMatch(pk ->
+                                    pk.getRelevanceScore() != null && pk.getRelevanceScore() != 1.0);
+                    if (hasOpenAlexKeywords) {
+                        processedCount++;
+                        continue;
+                    }
+
+                    List<String> extracted = keywordExtractionService.extract(
+                            paper.getTitle(), paper.getAbstractText(), 5);
+                    if (!extracted.isEmpty()) {
+                        saveExtractedKeywords(paper, extracted);
+                        // Skip Neo4j — already has keywords from original sync
+                        extractedCount++;
+                    }
+                } catch (Exception e) {
+                    log.warn("Keyword extraction failed for paper {}: {}", paper.getPaperId(), e.getMessage());
+                }
+                processedCount++;
+            }
+
+            page++;
+            if (page >= paperPage.getTotalPages()) {
+                hasMore = false;
+            }
+
+            if (processedCount % 100 == 0) {
+                log.info("Keyword re-extraction progress: {}/{} papers", processedCount, totalPapers);
+            }
+        }
+
+        log.info("Keyword re-extraction done: {} processed, {} papers got new keywords", processedCount, extractedCount);
+
+        return java.util.Map.of(
+                "totalPapers", totalPapers,
+                "processed", processedCount,
+                "extracted", extractedCount
+        );
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -1356,6 +1432,51 @@ public class DataSyncServiceImpl implements DataSyncService {
         return savedKeywordTexts;
     }
 
+    /**
+     * Save extracted keywords to SQL (KEYWORD + PAPER_KEYWORD tables) for
+     * sources that don't provide their own keywords (arXiv, CORE, Semantic Scholar).
+     */
+    private List<String> saveExtractedKeywords(ResearchPaper paper, List<String> keywordTexts) {
+        if (keywordTexts == null || keywordTexts.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> savedTexts = new ArrayList<>();
+        for (String rawText : keywordTexts) {
+            if (savedTexts.size() >= MAX_KEYWORDS_PER_PAPER) break;
+            if (isBlank(rawText)) continue;
+
+            String keywordText = trimToLength(rawText.trim(), 300);
+            String normalizedText = normalizeKeyword(keywordText);
+            if (isBlank(normalizedText)) continue;
+
+            Keyword keyword = keywordRepository.findByNormalizedText(normalizedText)
+                    .orElseGet(() -> keywordRepository.save(Keyword.builder()
+                            .field(paper.getField())
+                            .keywordText(keywordText)
+                            .normalizedText(normalizedText)
+                            .paperCount(0)
+                            .build()));
+
+            keyword.setPaperCount((keyword.getPaperCount() != null ? keyword.getPaperCount() : 0) + 1);
+            keywordRepository.save(keyword);
+
+            PaperKeywordId id = new PaperKeywordId(paper.getPaperId(), keyword.getKeywordId());
+            if (!paperKeywordRepository.existsById(id)) {
+                paperKeywordRepository.save(PaperKeyword.builder()
+                        .id(id)
+                        .paper(paper)
+                        .keyword(keyword)
+                        .relevanceScore(0.75) // extracted keyword, slightly below API-provided
+                        .build());
+            }
+
+            savedTexts.add(keywordText);
+        }
+
+        return savedTexts;
+    }
+
     private String normalizeOpenAlexSearchQuery(String query) {
         if (query == null) {
             return "";
@@ -1539,16 +1660,6 @@ public class DataSyncServiceImpl implements DataSyncService {
             return list.item(0).getTextContent();
         }
         return null;
-    }
-
-    private List<String> extractKeywordsFromTitle(String title) {
-        if (title == null) return List.of();
-        String[] words = title.toLowerCase().replaceAll("[^a-z0-9 ]", " ").trim().split("\\s+");
-        return java.util.Arrays.stream(words)
-                .filter(w -> w.length() > 3)
-                .distinct()
-                .limit(MAX_KEYWORDS_PER_PAPER)
-                .collect(Collectors.toList());
     }
 
     private String truncateTitle(String title) {

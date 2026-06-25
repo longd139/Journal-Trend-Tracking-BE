@@ -159,6 +159,13 @@ public class DataSyncController {
         return ResponseEntity.ok(AppResponse.success("Bulk sync progress retrieved", progress));
     }
 
+    @Operation(summary = "Re-extract keywords for all papers", description = "Run keyword extraction on all existing papers. Skips papers that already have OpenAlex keywords.")
+    @PostMapping("/re-extract-keywords")
+    public ResponseEntity<AppResponse<Map<String, Object>>> reExtractKeywords() {
+        Map<String, Object> result = dataSyncService.reExtractKeywords();
+        return ResponseEntity.ok(AppResponse.success("Keyword re-extraction completed", result));
+    }
+
     @Operation(summary = "Get auto-sync status", description = "Check if auto-sync is enabled, last sync time and papers count")
     @GetMapping("/auto/status")
     public ResponseEntity<AppResponse<Map<String, Object>>> getAutoSyncStatus() {
