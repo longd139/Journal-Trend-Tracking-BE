@@ -26,8 +26,8 @@ public class DashboardController {
     @Operation(
         summary = "Get overview statistics",
         description = "Returns 4 dashboard cards: Papers Tracked, Total Citations, "
-                    + "Top Trending Now (count of trending topics), and Top Growth Topic "
-                    + "(topic with highest GrowthRate). Public endpoint — no auth required."
+                    + "Paper Growth (new papers this month + MoM rate), and Total Authors. "
+                    + "Public endpoint — no auth required."
     )
     @ApiResponse(responseCode = "200", description = "Overview statistics retrieved successfully")
     @GetMapping("/overview")

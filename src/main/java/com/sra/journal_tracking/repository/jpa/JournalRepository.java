@@ -13,4 +13,6 @@ public interface JournalRepository extends JpaRepository<Journal, UUID> {
     Optional<Journal> findByIssn(String issn);
 
     Optional<Journal> findByJournalNameIgnoreCase(String journalName);
+
+    long countByIsActiveTrue();
 }

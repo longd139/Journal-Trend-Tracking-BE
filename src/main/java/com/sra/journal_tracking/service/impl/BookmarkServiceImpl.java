@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -12,9 +13,11 @@ import org.springframework.transaction.annotation.Transactional;
 import com.sra.journal_tracking.dto.bookmark.BookmarkRequest;
 import com.sra.journal_tracking.dto.bookmark.BookmarkResponse;
 import com.sra.journal_tracking.entity.jpa.Bookmark;
+import com.sra.journal_tracking.entity.jpa.BookmarkCollection;
 import com.sra.journal_tracking.entity.jpa.User;
 import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
+import com.sra.journal_tracking.repository.jpa.BookmarkCollectionRepository;
 import com.sra.journal_tracking.repository.jpa.BookmarkRepository;
 import com.sra.journal_tracking.repository.jpa.KeywordRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
@@ -29,6 +32,7 @@ import lombok.RequiredArgsConstructor;
 public class BookmarkServiceImpl implements BookmarkService {
 
     private final BookmarkRepository bookmarkRepository;
+    private final BookmarkCollectionRepository collectionRepository;
     private final UserRepository userRepository;
     private final ResearchPaperRepository researchPaperRepository;
     private final KeywordRepository keywordRepository;
@@ -39,6 +43,17 @@ public class BookmarkServiceImpl implements BookmarkService {
     public BookmarkResponse addBookmark(String email, BookmarkRequest request) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        // Validate collection exists and belongs to user (if provided)
+        BookmarkCollection collection = null;
+        if (request.getCollectionId() != null) {
+            collection = collectionRepository.findById(request.getCollectionId())
+                    .orElseThrow(() -> new AppException(ErrorCode.COLLECTION_NOT_FOUND));
+
+            if (!collection.getUser().getUserId().equals(user.getUserId())) {
+                throw new AppException(ErrorCode.COLLECTION_NOT_FOUND);
+            }
+        }
 
         // Validate XOR: exactly one target must be set
         if (request.getPaperId() == null && request.getKeywordId() == null) {
@@ -74,6 +89,7 @@ public class BookmarkServiceImpl implements BookmarkService {
                 .user(user)
                 .paper(request.getPaperId() != null ? researchPaperRepository.getReferenceById(request.getPaperId()) : null)
                 .keyword(request.getKeywordId() != null ? keywordRepository.getReferenceById(request.getKeywordId()) : null)
+                .collection(collection)
                 .notes(request.getNotes())
                 .build();
 
@@ -82,14 +98,22 @@ public class BookmarkServiceImpl implements BookmarkService {
     }
 
     @Override
-    public List<BookmarkResponse> getMyBookmarks(String email, int page, int size) {
+    @Transactional(readOnly = true)
+    public List<BookmarkResponse> getMyBookmarks(String email, int page, int size, UUID collectionId) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
-        return bookmarkRepository
-                .findByUser_UserId(user.getUserId(),
-                        PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")))
-                .stream()
+        Page<Bookmark> bookmarkPage;
+        if (collectionId != null) {
+            bookmarkPage = bookmarkRepository.findByUser_UserIdAndCollection_CollectionId(
+                    user.getUserId(), collectionId,
+                    PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+        } else {
+            bookmarkPage = bookmarkRepository.findByUser_UserId(user.getUserId(),
+                    PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+        }
+
+        return bookmarkPage.stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -141,10 +165,10 @@ public class BookmarkServiceImpl implements BookmarkService {
                     try {
                         return Integer.parseInt(config.getConfigValue());
                     } catch (NumberFormatException e) {
-                        return 50;
+                        return 5;
                     }
                 })
-                .orElse(50);
+                .orElse(5);
 
         if (count >= limit) {
             throw new AppException(ErrorCode.BOOKMARK_LIMIT_EXCEEDED);
@@ -158,6 +182,8 @@ public class BookmarkServiceImpl implements BookmarkService {
                 .paperTitle(bookmark.getPaper() != null ? bookmark.getPaper().getTitle() : null)
                 .keywordId(bookmark.getKeyword() != null ? bookmark.getKeyword().getKeywordId() : null)
                 .keywordText(bookmark.getKeyword() != null ? bookmark.getKeyword().getKeywordText() : null)
+                .collectionId(bookmark.getCollection() != null ? bookmark.getCollection().getCollectionId() : null)
+                .collectionName(bookmark.getCollection() != null ? bookmark.getCollection().getName() : null)
                 .notes(bookmark.getNotes())
                 .createdAt(bookmark.getCreatedAt())
                 .build();

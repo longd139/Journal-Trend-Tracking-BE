@@ -21,7 +21,7 @@ public class OverviewController {
 
     private final OverviewStatisticsService overviewStatisticsService;
 
-    @Operation(summary = "Get overview statistics", description = "Returns 4 stats cards: papers tracked, total citations, top trending now, and top growth topic with growth percentages.")
+    @Operation(summary = "Get overview statistics", description = "Returns 4 stat cards: New Papers (papers created this month vs last month), New Citations (citations from new papers this month vs last month), Trending Topics (currently trending topic count), and Top Growth Topic (topic with highest trend score).")
     @GetMapping("/statistics")
     public ResponseEntity<AppResponse<OverviewStatisticsResponse>> getStatistics() {
         OverviewStatisticsResponse response = overviewStatisticsService.getStatistics();

@@ -15,11 +15,15 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, UUID> {
 
     Page<Bookmark> findByUser_UserId(UUID userId, Pageable pageable);
 
+    Page<Bookmark> findByUser_UserIdAndCollection_CollectionId(UUID userId, UUID collectionId, Pageable pageable);
+
     Optional<Bookmark> findByUser_UserIdAndPaper_PaperId(UUID userId, UUID paperId);
 
     Optional<Bookmark> findByUser_UserIdAndKeyword_KeywordId(UUID userId, UUID keywordId);
 
     long countByUser_UserId(UUID userId);
+
+    long countByCollection_CollectionId(UUID collectionId);
 
     void deleteByUser_UserIdAndPaper_PaperId(UUID userId, UUID paperId);
 

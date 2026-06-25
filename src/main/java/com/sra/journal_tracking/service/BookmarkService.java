@@ -10,7 +10,7 @@ public interface BookmarkService {
 
     BookmarkResponse addBookmark(String email, BookmarkRequest request);
 
-    List<BookmarkResponse> getMyBookmarks(String email, int page, int size);
+    List<BookmarkResponse> getMyBookmarks(String email, int page, int size, UUID collectionId);
 
     void deleteBookmark(String email, UUID bookmarkId);
 

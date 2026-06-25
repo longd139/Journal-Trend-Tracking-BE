@@ -184,4 +184,19 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
      */
     @Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p")
     Long sumTotalCitations();
+
+    // ---- Quick Stats Aggregation Queries ----
+
+    /**
+     * Sum citation counts for a specific list of paper IDs.
+     * Returns 0 if no papers match or no IDs provided.
+     */
+    @Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p WHERE p.paperId IN :ids")
+    long sumCitationCountByIds(@Param("ids") List<UUID> ids);
+
+    /**
+     * Count papers from a list of IDs that were published in a given year.
+     */
+    @Query("SELECT COUNT(p) FROM ResearchPaper p WHERE p.paperId IN :ids AND p.pubYear = :year")
+    long countByPaperIdsAndPubYear(@Param("ids") List<UUID> ids, @Param("year") Short year);
 }

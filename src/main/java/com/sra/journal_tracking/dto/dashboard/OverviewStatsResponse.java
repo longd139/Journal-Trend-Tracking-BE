@@ -23,20 +23,39 @@ public class OverviewStatsResponse {
     private Long papersTracked;
 
     /**
+     * Card 1 (auxiliary): Month-over-month growth rate of papers tracked (percentage).
+     */
+    private Double papersTrackedGrowthRate;
+
+    /**
      * Card 2: Sum of all citation counts across all papers.
      */
     private Long totalCitations;
 
     /**
-     * Card 3: Number of research topics currently marked as trending.
+     * Card 2 (auxiliary): Month-over-month growth rate of citations (percentage).
      */
-    private Long topTrendingNow;
+    private Double totalCitationsGrowthRate;
 
     /**
-     * Card 4: The topic with the highest GrowthRate from PUBLICATION_TREND.
-     * Populated via GrowthTopicInfo sub-object.
+     * Card 3: Number of new papers added in the current month.
      */
-    private GrowthTopicInfo topGrowthTopic;
+    private Long paperGrowth;
+
+    /**
+     * Card 3 (auxiliary): Month-over-month growth rate as percentage.
+     */
+    private Double paperGrowthRate;
+
+    /**
+     * Card 4: Total number of unique authors in the system.
+     */
+    private Long totalAuthors;
+
+    /**
+     * Card 4 (auxiliary): Month-over-month growth rate of authors (percentage).
+     */
+    private Double totalAuthorsGrowthRate;
 
     @Data
     @Builder
