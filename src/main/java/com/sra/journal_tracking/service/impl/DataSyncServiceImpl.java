@@ -1847,4 +1847,12 @@ public class DataSyncServiceImpl implements DataSyncService {
         return trimToLength(normalized, 200);
     }
 
+    /**
+     * Extract keywords from paper title using {@link KeywordExtractionService}.
+     * Delegates to the shared NLP-based extraction with empty abstract.
+     */
+    private List<String> extractKeywordsFromTitle(String title) {
+        return keywordExtractionService.extract(title, "");
+    }
+
 }

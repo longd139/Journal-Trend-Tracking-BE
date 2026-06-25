@@ -2,7 +2,6 @@ package com.sra.journal_tracking.controller;
 
 import com.sra.journal_tracking.constants.KeywordConstants;
 import com.sra.journal_tracking.dto.paper.KeywordDTO;
-import com.sra.journal_tracking.dto.paper.KeywordQuickStatsResponse;
 import com.sra.journal_tracking.dto.paper.PaperAdvancedFilterRequestDTO;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.paper.PaperSearchRequestDTO;
@@ -11,7 +10,6 @@ import com.sra.journal_tracking.dto.paper.UsageLimitResponseDTO;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
-import com.sra.journal_tracking.service.KeywordQuickStatsService;
 import com.sra.journal_tracking.service.PaperSearchOrchestrator;
 import com.sra.journal_tracking.service.PaperSearchService;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +39,6 @@ public class PaperSearchController {
 
     private final PaperSearchService paperSearchService;
     private final PaperSearchOrchestrator paperSearchOrchestrator;
-    private final KeywordQuickStatsService keywordQuickStatsService;
     private final ResearchPaperRepository researchPaperRepository;
 
     @Operation(summary = "Browse all papers", description = "Get all papers in database with pagination. No search required.")
@@ -144,24 +141,6 @@ public class PaperSearchController {
         }
         PaperSearchResultDTO result = paperSearchOrchestrator.searchByKeyword(keyword, authentication.getName());
         return ResponseEntity.ok(AppResponse.success("Papers retrieved via graph search", result));
-    }
-
-    @Operation(
-        summary = "Get quick stats for a keyword",
-        description = "Returns 4 stat cards for a keyword: total papers, total citations, "
-                    + "YoY growth rate (this year vs last year with direction arrow), "
-                    + "and average citations per paper (quality indicator). "
-                    + "Uses Neo4j for paper discovery and SQL for aggregation."
-    )
-    @GetMapping("/search/quick-stats")
-    public ResponseEntity<AppResponse<KeywordQuickStatsResponse>> getQuickStats(
-            @RequestParam("keyword") String keyword) {
-        // Truncate keyword if too long (defense in depth)
-        if (keyword.length() > KeywordConstants.MAX_KEYWORD_LENGTH) {
-            keyword = keyword.substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
-        }
-        KeywordQuickStatsResponse stats = keywordQuickStatsService.getStats(keyword);
-        return ResponseEntity.ok(AppResponse.success("Quick stats retrieved", stats));
     }
 
     // ── Quick summary DTO (bỏ qua authors cho list view để nhẹ) ──

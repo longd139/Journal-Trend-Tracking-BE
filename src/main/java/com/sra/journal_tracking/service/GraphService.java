@@ -91,7 +91,7 @@ public class GraphService {
         boolean exists = false;
         try {
             Long count = neo4jClient.query(cypherQuery)
-                    .bind(normalizedKeyword).to("keyword")
+                    .bind(keyword).to("keyword")
                     .fetch()
                     .one()
                     .map(record -> {
@@ -153,7 +153,8 @@ public class GraphService {
         return paperIds;
     }
 
-    private List<String> queryPaperIds(String normalizedKeyword, boolean exactOnly) {
+    private List<String> queryPaperIds(String keyword, boolean exactOnly) {
+        String cacheKey = keyword.toLowerCase().trim();
         String cypherQuery;
         if (exactOnly) {
             cypherQuery = """
@@ -177,7 +178,7 @@ public class GraphService {
         List<String> paperIds = new ArrayList<>();
         try {
             neo4jClient.query(cypherQuery)
-                    .bind(normalizedKeyword).to("keyword")
+                    .bind(keyword).to("keyword")
                     .fetch()
                     .all()
                     .forEach(record -> paperIds.add(record.get("paperId").toString()));
@@ -368,7 +369,7 @@ public class GraphService {
 
         try {
             neo4jClient.query(cypherQuery)
-                    .bind(normalizedKeyword).to("keyword")
+                    .bind(keyword).to("keyword")
                     .fetch()
                     .all()
                     .forEach(record -> {
@@ -438,7 +439,7 @@ public class GraphService {
 
         try {
             Long count = neo4jClient.query(cypherQuery)
-                    .bind(normalizedKeyword).to("keyword")
+                    .bind(keyword).to("keyword")
                     .fetch()
                     .one()
                     .map(record -> ((Number) record.get("cnt")).longValue())
@@ -472,7 +473,7 @@ public class GraphService {
 
         try {
             neo4jClient.query(cypherQuery)
-                    .bind(normalizedKeyword).to("keyword")
+                    .bind(keyword).to("keyword")
                     .fetch()
                     .all()
                     .forEach(record -> paperIds.add(record.get("paperId").toString()));
