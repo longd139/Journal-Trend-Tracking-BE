@@ -55,6 +55,52 @@ public class OpenAlexAuthorResponseDTO {
         private Institution lastKnownInstitution;
 
         private String orcid;
+
+        @JsonProperty("counts_by_year")
+        private List<YearlyCount> countsByYear;
+
+        private List<TopicEntry> topics;
+    }
+
+    @Data
+    public static class YearlyCount {
+        private Integer year;
+
+        @JsonProperty("works_count")
+        private Integer worksCount;
+
+        @JsonProperty("oa_works_count")
+        private Integer oaWorksCount;
+
+        @JsonProperty("cited_by_count")
+        private Integer citedByCount;
+    }
+
+    @Data
+    public static class TopicEntry {
+        private String id;
+
+        @JsonProperty("display_name")
+        private String displayName;
+
+        private Integer count;
+
+        @JsonProperty("subfield")
+        private TopicLevel subfield;
+
+        @JsonProperty("field")
+        private TopicLevel field;
+
+        @JsonProperty("domain")
+        private TopicLevel domain;
+    }
+
+    @Data
+    public static class TopicLevel {
+        private String id;
+
+        @JsonProperty("display_name")
+        private String displayName;
     }
 
     @Data
