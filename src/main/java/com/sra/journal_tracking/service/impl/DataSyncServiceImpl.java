@@ -304,6 +304,27 @@ public class DataSyncServiceImpl implements DataSyncService {
     // ═══════════════════════════════════════════════════════════
 
     @Override
+    @Async("taskExecutor")
+    public void triggerManualSyncAsync(String sourceName, String query, int limit, Integer yearFrom, Integer yearTo) {
+        try {
+            SyncLog syncLog = switch (sourceName.toLowerCase()) {
+                case "openalex" -> syncFromOpenAlex(query, limit, yearFrom, yearTo);
+                case "semantic_scholar" -> syncFromSemanticScholar(query, limit, yearFrom, yearTo);
+                case "arxiv" -> syncFromArxiv(query, limit, yearFrom, yearTo);
+                case "core" -> syncFromCore(query, limit, yearFrom, yearTo);
+                default -> throw new IllegalArgumentException("Unsupported sync source: " + sourceName);
+            };
+            if (!Boolean.TRUE.equals(syncLog.getIsManual())) {
+                syncLog.setIsManual(true);
+                syncLogRepository.save(syncLog);
+            }
+        } catch (Exception e) {
+            log.warn("Manual background sync failed for source '{}' and query '{}': {}",
+                    sourceName, query, e.getMessage());
+        }
+    }
+
+    @Override
     public SyncLog syncFromArxiv(String query, int limit, Integer yearFrom, Integer yearTo) {
         log.info("Starting arXiv sync for query: {}", query);
 

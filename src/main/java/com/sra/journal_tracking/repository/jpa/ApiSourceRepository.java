@@ -11,4 +11,6 @@ import com.sra.journal_tracking.entity.jpa.ApiSource;
 @Repository
 public interface ApiSourceRepository extends JpaRepository<ApiSource, UUID> {
     Optional<ApiSource> findBySourceName(String sourceName);
+    Optional<ApiSource> findBySourceNameIgnoreCase(String sourceName);
+    boolean existsBySourceNameIgnoreCase(String sourceName);
 }

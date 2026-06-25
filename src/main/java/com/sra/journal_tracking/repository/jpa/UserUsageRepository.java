@@ -1,5 +1,7 @@
 package com.sra.journal_tracking.repository.jpa;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,6 +17,8 @@ import com.sra.journal_tracking.entity.jpa.UserUsage;
 public interface UserUsageRepository extends JpaRepository<UserUsage, UUID> {
 
     Optional<UserUsage> findByUser_UserIdAndUsageMonth(UUID userId, String month);
+
+    List<UserUsage> findByUser_UserIdInAndUsageMonth(Collection<UUID> userIds, String usageMonth);
 
     @Modifying
     @Query("DELETE FROM UserUsage u WHERE u.usageMonth < :usageMonth")
