@@ -16,6 +16,17 @@ public interface DataSyncService {
     SyncLog syncFromCore(String query, int limit);
 
     /**
+     * Sync papers from OpenAlex filtered by a specific author ID.
+     * Used as fallback when local author search returns empty results.
+     *
+     * @param openAlexAuthorId OpenAlex author ID (e.g. "https://openalex.org/A5023888391")
+     * @param authorName       human-readable author name for logging
+     * @param limit            max papers to fetch
+     * @return SyncLog with sync results
+     */
+    SyncLog syncPapersFromOpenAlexByAuthor(String openAlexAuthorId, String authorName, int limit);
+
+    /**
      * Get comprehensive database statistics for admin dashboard.
      */
     com.sra.journal_tracking.dto.dashboard.DatabaseStatsResponse getDatabaseStats();

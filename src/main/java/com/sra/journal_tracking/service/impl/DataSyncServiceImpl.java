@@ -227,52 +227,9 @@ public class DataSyncServiceImpl implements DataSyncService {
                 syncLog.setPapersFetched(response.getResults().size());
 
                 for (OpenAlexResponseDTO.OpenAlexWorkDTO work : response.getResults()) {
-                    if (!isRecentPublication(work.getPublicationYear(), work.getPublicationDate(), startYear, endYear, today)) {
-                        continue;
-                    }
-                    String abstractText = rebuildAbstract(work.getAbstractInvertedIndex());
-                    if (!isOpenAlexWorkRelevant(work, abstractText, query)) {
-                        continue;
-                    }
-
-                    String doi = normalizeDoi(work.getDoi());
-                    String title = trimToLength(resolveTitle(work), 1000);
-                    if (isDuplicatePaper(doi, title, work.getPublicationYear())) {
-                        continue;
-                    }
-                    ResearchField field = resolveResearchField(work);
-
-                    ResearchPaper newPaper = ResearchPaper.builder()
-                            .source(source)
-                            .title(title)
-                            .abstractText(abstractText)
-                            .doi(doi)
-                            .journal(resolveJournal(work, source, field))
-                            .field(field)
-                            .pubYear(work.getPublicationYear())
-                            .citationCount(work.getCitedByCount() != null ? work.getCitedByCount() : 0)
-                            .isOpenAccess(work.getOpenAccess() != null && Boolean.TRUE.equals(work.getOpenAccess().getIsOa()))
-                            .pdfUrl(resolvePdfUrl(work))
-                            .build();
-
-                    setPublicationDate(newPaper, work.getPublicationDate());
-
-                    ResearchPaper savedPaper = researchPaperRepository.save(newPaper);
-                    insertedCount++;
-
-                    // Cache paper-keyword links in Neo4j for graph search.
-                    List<String> keywords = saveOpenAlexKeywords(savedPaper, work, query);
-                    savePaperToNeo4j(savedPaper, keywords, query);
-
-                    if (work.getAuthorships() != null) {
-                        int order = 1;
-                        for (OpenAlexResponseDTO.Authorship authorship : work.getAuthorships()) {
-                            if (order > MAX_AUTHORS_PER_PAPER) {
-                                break;
-                            }
-                            Author author = getOrCreateOpenAlexAuthor(authorship, source);
-                            savePaperAuthor(savedPaper, author, order++);
-                        }
+                    ResearchPaper savedPaper = saveOpenAlexWork(work, source, query, startYear, endYear, today, false);
+                    if (savedPaper != null) {
+                        insertedCount++;
                     }
                 }
 
@@ -297,6 +254,124 @@ public class DataSyncServiceImpl implements DataSyncService {
         } catch (Exception e) {
             log.warn("Background OpenAlex sync failed for '{}': {}", query, e.getMessage());
         }
+    }
+
+    @Override
+    public SyncLog syncPapersFromOpenAlexByAuthor(String openAlexAuthorId, String authorName, int limit) {
+        log.info("Starting OpenAlex sync by author ID: {} ({})", authorName, openAlexAuthorId);
+
+        ApiSource source = getOrCreateOpenAlexSource();
+        SyncLog syncLog = createRunningSyncLog(source, true);
+
+        try {
+            int perPage = Math.min(100, Math.max(1, limit));
+            int startYear = Year.now().getValue() - RECENT_PUBLICATION_YEAR_WINDOW + 1;
+            int endYear = Year.now().getValue();
+            LocalDate today = LocalDate.now();
+
+            // Filter by author ID — no text search needed
+            String url = withOpenAlexMailto(
+                    UriComponentsBuilder
+                            .fromHttpUrl(source.getBaseUrl() + "/works")
+                            .queryParam("filter", "authorships.author.id:" + openAlexAuthorId
+                                    + ",from_publication_date:" + startYear + "-01-01,to_publication_date:" + today)
+                            .queryParam("sort", "publication_date:desc")
+                            .queryParam("per-page", perPage)
+                            .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,cited_by_count,abstract_inverted_index,open_access,primary_location,best_oa_location,topics,keywords,authorships")
+            ).build().encode().toUriString();
+
+            OpenAlexResponseDTO response = fetchOpenAlexWithRetry(url, OpenAlexResponseDTO.class, authorName);
+
+            if (response != null && response.getResults() != null) {
+                int insertedCount = 0;
+                syncLog.setPapersFetched(response.getResults().size());
+
+                for (OpenAlexResponseDTO.OpenAlexWorkDTO work : response.getResults()) {
+                    // Use authorName as "query" for keyword/Neo4j indexing
+                    ResearchPaper savedPaper = saveOpenAlexWork(work, source, authorName, startYear, endYear, today, true);
+                    if (savedPaper != null) {
+                        insertedCount++;
+                    }
+                }
+
+                markSyncCompleted(syncLog, insertedCount);
+                log.info("OpenAlex author sync completed for '{}'. Fetched: {}, Inserted: {}",
+                        authorName, syncLog.getPapersFetched(), insertedCount);
+            }
+        } catch (Exception e) {
+            markSyncFailed(syncLog, e);
+        } finally {
+            syncLog = finishSync(syncLog, source);
+        }
+
+        return syncLog;
+    }
+
+    /**
+     * Save a single OpenAlex work to the local database.
+     * Extracted from syncFromOpenAlex so it can be reused by syncPapersFromOpenAlexByAuthor.
+     *
+     * @return the saved ResearchPaper, or null if the work was skipped (not recent, duplicate, etc.)
+     */
+    private ResearchPaper saveOpenAlexWork(OpenAlexResponseDTO.OpenAlexWorkDTO work,
+                                           ApiSource source,
+                                           String query,
+                                           int startYear,
+                                           int endYear,
+                                           LocalDate today,
+                                           boolean skipRelevance) {
+        if (!isRecentPublication(work.getPublicationYear(), work.getPublicationDate(), startYear, endYear, today)) {
+            return null;
+        }
+
+        String abstractText = rebuildAbstract(work.getAbstractInvertedIndex());
+
+        // Skip relevance when filtering by author ID (author name won't appear in paper text)
+        if (!skipRelevance && !isOpenAlexWorkRelevant(work, abstractText, query)) {
+            return null;
+        }
+
+        String doi = normalizeDoi(work.getDoi());
+        String title = trimToLength(resolveTitle(work), 1000);
+        if (isDuplicatePaper(doi, title, work.getPublicationYear())) {
+            return null;
+        }
+
+        ResearchField field = resolveResearchField(work);
+
+        ResearchPaper newPaper = ResearchPaper.builder()
+                .source(source)
+                .title(title)
+                .abstractText(abstractText)
+                .doi(doi)
+                .journal(resolveJournal(work, source, field))
+                .field(field)
+                .pubYear(work.getPublicationYear())
+                .citationCount(work.getCitedByCount() != null ? work.getCitedByCount() : 0)
+                .isOpenAccess(work.getOpenAccess() != null && Boolean.TRUE.equals(work.getOpenAccess().getIsOa()))
+                .pdfUrl(resolvePdfUrl(work))
+                .build();
+
+        setPublicationDate(newPaper, work.getPublicationDate());
+
+        ResearchPaper savedPaper = researchPaperRepository.save(newPaper);
+
+        // Cache paper-keyword links in Neo4j for graph search.
+        List<String> keywords = saveOpenAlexKeywords(savedPaper, work, query);
+        savePaperToNeo4j(savedPaper, keywords, query);
+
+        if (work.getAuthorships() != null) {
+            int order = 1;
+            for (OpenAlexResponseDTO.Authorship authorship : work.getAuthorships()) {
+                if (order > MAX_AUTHORS_PER_PAPER) {
+                    break;
+                }
+                Author author = getOrCreateOpenAlexAuthor(authorship, source);
+                savePaperAuthor(savedPaper, author, order++);
+            }
+        }
+
+        return savedPaper;
     }
 
     // ═══════════════════════════════════════════════════════════
