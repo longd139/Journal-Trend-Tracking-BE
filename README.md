@@ -1,234 +1,316 @@
-# Scientific Journal Publication Trend Tracking System - Backend
+# SCITRACK — Backend
 
-Backend cho hệ thống **Scientific Journal Publication Trend Tracking System**.
-
----
-
-## Công nghệ sử dụng
-
-- Java 21
-- Spring Boot 3.5.14
-- Spring Data JPA
-- SQL Server 2022 (chạy qua Docker)
-- Maven
-- Lombok
+> **AI-Powered Academic Research Analytics**
+>
+> Backend cho hệ thống theo dõi xu hướng nghiên cứu khoa học — tìm kiếm, phân tích và trực quan hóa bài báo học thuật với đồ thị từ khóa.
 
 ---
 
-## Yêu cầu môi trường
+## 🧱 Công nghệ
 
-| Công cụ        | Phiên bản |
-| -------------- | --------- |
-| JDK            | 21+       |
-| Maven          | 3.x       |
-| Docker Desktop | Mới nhất  |
-| SSMS           | Bất kỳ    |
-
-> ⚠️ **QUAN TRỌNG:** Không dùng SQL Server cài sẵn trên máy. Team thống nhất dùng SQL Server 2022 qua Docker để tránh lỗi tương thích.
+| Lĩnh vực | Công nghệ |
+|----------|-----------|
+| Ngôn ngữ | Java 21 |
+| Framework | Spring Boot 3.5.14 |
+| Build Tool | Maven |
+| Database chính | SQL Server 2022 (JPA / Hibernate) |
+| Graph Database | Neo4j (AuraDB — cloud-hosted) |
+| Auth | Spring Security + JWT (stateless) |
+| API Docs | OpenAPI 3 (Swagger UI) |
+| Real-time Sync | OpenAlex API + Semantic Scholar API |
+| AI | Google Gemini (tùy chọn) |
 
 ---
-## Cấu hình JDK 21
-### Bước 1 — Cài đặt JDK 21 & Cấu hình IDE
-1. Cài đặt trên máy tính (Bắt buộc để chạy được lệnh mvn):
 
-- Tải và cài đặt JDK 21 (khuyên dùng Eclipse Temurin 21 hoặc Oracle JDK).
+## ⚙️ Yêu cầu môi trường
 
-- Mở Environment Variables của Windows.
+| Công cụ | Phiên bản | Bắt buộc |
+|---------|-----------|:--------:|
+| JDK | 21+ | ✅ |
+| Maven | 3.x | ✅ |
 
-- Tạo biến JAVA_HOME trỏ tới thư mục cài đặt JDK 21 (VD: C:\Program Files\Java\jdk-21).
-
-- Thêm %JAVA_HOME%\bin vào biến Path.
-
-- Mở Terminal gõ java -version và mvn -version, nếu hiện 21.x là thành công.
-
-2. Cấu hình trên IntelliJ IDEA:
-
-- Mở File > Project Structure (Ctrl + Alt + Shift + S): Ở mục Project, chỉnh SDK và Language level thành 21.
-
-- Mở File > Settings (Ctrl + Alt + S): Tìm đến Build, Execution, Deployment > Build Tools > Maven > Runner. Ở mục JRE, chọn 21 (hoặc Project JDK).
 ---
 
-## Cài đặt và chạy project
+## 🚀 Cài đặt & Chạy
 
-### Bước 1 — Clone project
+### 1. Clone & JDK
 
 ```bash
 git clone <repository-url>
 cd Journal-Trend-Tracking-BE
 ```
 
----
+Cấu hình JDK 21:
+- Tạo biến môi trường `JAVA_HOME` trỏ đến thư mục cài JDK 21
+- Thêm `%JAVA_HOME%\bin` vào `Path`
+- Kiểm tra: `java -version` → hiện `21.x`
 
-### Bước 2 — Khởi động SQL Server bằng Docker
+**Trong IntelliJ IDEA**: File → Project Structure (Ctrl+Alt+Shift+S) → SDK & Language level = 21. Settings → Maven → Runner → JRE = 21.
 
-Mở Docker Desktop, đảm bảo trạng thái **Engine running**.
+### 2. Cấu hình môi trường
 
-Mở terminal tại thư mục gốc project, chạy:
+Database (SQL Server) và Neo4j đã được host trên cloud — **không cần Docker**.
 
-```bash
-docker compose up -d
-```
-
-Kiểm tra container đang chạy:
-
-```bash
-docker ps
-```
-
-Thấy `journal_sqlserver` với status **Up** là thành công.
-
-> SQL Server sẽ chạy tại `localhost,1434`
-
----
-
-### Bước 3 — Kết nối SSMS vào Docker SQL Server
-
-Mở SSMS, điền thông tin kết nối:
-
-| Field          | Giá trị                                |
-| -------------- | -------------------------------------- |
-| Server name    | `localhost,1434`                       |
-| Authentication | `SQL Server Authentication`            |
-| Login          | `sa`                                   |
-| Password       | _(xem file `.env` hoặc hỏi team lead)_ |
-
-> ⚠️ Phải chọn **SQL Server Authentication**, không phải Windows Authentication.
-> Nếu máy bạn có sẵn SQL Server cũ, dùng đúng port `1434` để tránh nhầm.
-
----
-
-### Bước 4 — Chạy script tạo database
-
-Sau khi kết nối SSMS thành công, mở file:
-
-```
-database/testJournal1.sql
-```
-
-Nhấn **Execute (F5)** để chạy toàn bộ script.
-
-Script sẽ tự động:
-
-- Tạo database `JournalTrendDB`
-- Tạo toàn bộ 23 bảng
-- Tạo Views và Stored Procedures
-
----
-
-### Bước 5 — Tạo file môi trường
-
-Tạo file `src/main/resources/application-local.properties`:
+Tạo file `application-local.properties` trong `src/main/resources/`:
 
 ```properties
-spring.datasource.url=jdbc:sqlserver://localhost:1434;databaseName=JournalTrendDB;encrypt=false;trustServerCertificate=true
-spring.datasource.username=sa
-spring.datasource.password=<password của Docker SQL Server>
+spring.datasource.url=jdbc:sqlserver://<cloud-host>:1434;databaseName=JournalTrendDB;encrypt=true;trustServerCertificate=false
+spring.datasource.username=<your_db_user>
+spring.datasource.password=<your_db_password>
 spring.datasource.driver-class-name=com.microsoft.sqlserver.jdbc.SQLServerDriver
 ```
 
-> File này không được push lên GitHub. Mỗi người tự tạo trên máy của mình.
+> Lấy thông tin kết nối từ file `.env` tại gốc project hoặc hỏi team lead.
 
----
+File `.env` tại gốc project chứa các biến nhạy cảm (datasource, Neo4j, JWT, SMTP, API keys,...) và được Spring Boot load qua `spring.config.import=optional:file:.env[.properties]`.
 
-### Bước 6 — Chạy project
+> ⚠️ Cả 2 file này đều nằm trong `.gitignore` — không push lên GitHub.
+
+### 3. Chạy
 
 ```bash
 mvn spring-boot:run
 ```
 
-Backend sẽ chạy tại:
+Backend chạy tại: **http://localhost:8080**
+Swagger UI: **http://localhost:8080/swagger-ui/index.html**
+
+---
+
+## 📦 Cấu trúc dự án
 
 ```
-http://localhost:8080
+src/main/java/com/sra/journal_tracking/
+├── config/                # Security, CORS, JPA config, Neo4j config
+├── controller/            # REST API endpoints (18 controllers)
+├── service/               # Interface business logic
+│   └── impl/              # Implementations
+├── repository/
+│   ├── jpa/               # Spring Data JPA repositories (SQL Server)
+│   └── neo4j/             # Spring Data Neo4j repositories (graph)
+├── entity/
+│   ├── jpa/               # JPA entities → SQL Server tables
+│   └── neo4j/             # Neo4j entities → graph nodes/edges
+├── dto/
+│   ├── request/           # Request DTOs
+│   ├── response/          # Response DTOs
+│   └── follow/            # Follow feature DTOs
+├── exception/             # AppException, ErrorCode, GlobalExceptionHandler
+├── utils/                 # JWT, helpers, constants
+└── enums/                 # Role, TokenType, SyncStatus,...
 ```
 
 ---
 
-## Quản lý Docker
+## 🗄️ Kiến trúc Dual Database
 
-| Lệnh                     | Tác dụng                    |
-| ------------------------ | --------------------------- |
-| `docker compose up -d`   | Khởi động SQL Server        |
-| `docker compose down`    | Tắt SQL Server (giữ data)   |
-| `docker compose down -v` | Tắt và **xóa toàn bộ data** |
-| `docker ps`              | Xem container đang chạy     |
-| `docker compose logs`    | Xem log nếu lỗi             |
+Hệ thống sử dụng **2 database riêng biệt** với package isolation:
 
-> ⚠️ Không chạy `docker compose down -v` khi đã có data quan trọng.
+| | SQL Server (JPA) | Neo4j (Graph) |
+|---|---|---|
+| **Vai trò** | Lưu trữ chính: users, papers, journals, authors, keywords, bookmarks, follows, sync logs | Lưu trữ đồ thị: Paper nodes, Keyword nodes, `HAS_KEYWORD` relationships |
+| **Config** | `JpaConfig.java` | `Neo4jConfig.java` |
+| **Entity Package** | `entity.jpa.*` | `entity.neo4j.*` |
+| **Repository Package** | `repository.jpa.*` | `repository.neo4j.*` |
+
+Hai database hoạt động độc lập — khi sync dữ liệu từ OpenAlex, paper được ghi đồng thời vào cả hai. Package isolation ngăn Spring Data scanning conflict.
 
 ---
 
-## Build project
+## 🔍 Luồng Tìm kiếm (Search Pipeline)
+
+```
+User nhập keyword → PaperSearchOrchestrator
+                        │
+        ┌───────────────┼───────────────┐
+        ▼               ▼               ▼
+    Neo4j Graph     SQL Server      OpenAlex API
+  (keyword→paper   (full paper      (live fallback
+   ID lookup)       data by ID)      + background sync)
+```
+
+1. **Neo4j cache hit** — Query `(p:Paper)-[:HAS_KEYWORD]->(k:Keyword)` → lấy paper IDs → fetch full data từ SQL Server → trả kết quả.
+2. **Neo4j miss** — Fallback sang OpenAlex API, trigger background sync vào SQL Server + Neo4j.
+3. **Stale IDs** — Neo4j có ID nhưng SQL không có → xóa Neo4j node, fallback sang OpenAlex.
+
+Mọi search đều được ghi nhận qua `SearchKeywordService` để tracking hot-keyword.
+
+---
+
+## 🔐 Auth & Phân quyền
+
+### Luồng xác thực
+
+```
+FE Login → AuthController.login() → AuthService → JwtTokenProvider tạo JWT
+       → Response: { accessToken, role }
+       → FE lưu token (localStorage) + role (sessionStorage)
+       → Mọi request sau đó: axiosClient gắn Authorization: Bearer <token>
+       → BE: JwtAuthenticationFilter trích xuất & validate → set SecurityContext
+```
+
+- **Stateless JWT** — không server-side session (trừ `UserSession` table để track logout)
+- **BCrypt** mã hóa password
+- **CORS** mở `*` cho dev (cần thắt chặt trước production)
+
+### Public endpoints (không cần auth)
+
+- `/api/auth/**` — đăng ký, đăng nhập, xác thực email
+- `/api/public/**`
+- `/swagger-ui/**`, `/v3/api-docs/**`
+
+### Hệ thống Role
+
+| Role | Storage | Quyền hạn |
+|------|---------|-----------|
+| `ADMIN` | `sessionStorage` → `admin` | Quản lý user, trigger data sync, dashboard stats, audit log |
+| `RESEARCHER` | `sessionStorage` → `researcher` | Không giới hạn search, advanced filter, analytics, bookmarks, follows |
+| `ACADEMIC_USER` | `sessionStorage` → `academic_user` | Bị giới hạn search/view hàng tháng, bookmarks, follows (max 20) |
+
+ACADEMIC_USER có thể tự nâng cấp lên RESEARCHER qua `POST /api/users/me/upgrade`.
+
+Usage limits được lưu trong bảng `UserUsage`, cấu hình qua bảng `SystemConfig`.
+
+---
+
+## 📡 API Endpoints
+
+### Auth
+| Method | Endpoint | Auth | Mô tả |
+|--------|----------|:----:|-------|
+| `POST` | `/api/auth/register` | ❌ | Đăng ký + auto-login |
+| `POST` | `/api/auth/login` | ❌ | Đăng nhập → JWT |
+| `POST` | `/api/auth/logout` | ❌ | Đăng xuất (vô hiệu token) |
+
+### User (Profile)
+| Method | Endpoint | Auth | Mô tả |
+|--------|----------|:----:|-------|
+| `GET` | `/api/users/me` | ✅ | Thông tin cá nhân |
+| `PUT` | `/api/users/me` | ✅ | Cập nhật profile |
+| `PUT` | `/api/users/me/password` | ✅ | Đổi mật khẩu |
+| `POST` | `/api/users/me/upgrade` | ✅ | Nâng cấp lên RESEARCHER |
+
+### Papers & Search
+| Method | Endpoint | Auth | Mô tả |
+|--------|----------|:----:|-------|
+| `GET` | `/api/v1/papers` | ✅ | Danh sách papers (cơ bản) |
+| `GET` | `/api/v1/papers/search` | ✅ | Tìm kiếm toàn văn (qua `PaperSearchOrchestrator`) |
+| `GET` | `/api/v1/papers/search/author` | ✅ | Tìm theo tác giả |
+| `GET` | `/api/v1/papers/search/journal` | ✅ | Tìm theo journal |
+| `GET` | `/api/v1/papers/filter/advanced` | ✅ | Advanced filter (RESEARCHER+) |
+| `GET` | `/api/v1/papers/{id}` | ✅ | Chi tiết paper |
+
+### Follows
+| Method | Endpoint | Auth | Mô tả |
+|--------|----------|:----:|-------|
+| `POST` | `/api/v1/follows` | ✅ | Follow journal/topic/keyword |
+| `GET` | `/api/v1/follows` | ✅ | Danh sách đang follow |
+| `PUT` | `/api/v1/follows/{id}?notifyEnabled=` | ✅ | Bật/tắt thông báo |
+| `DELETE` | `/api/v1/follows/{id}` | ✅ | Unfollow |
+
+> Chi tiết: [docs/follow-api.md](docs/follow-api.md)
+
+### Bookmarks
+| Method | Endpoint | Auth | Mô tả |
+|--------|----------|:----:|-------|
+| `POST` | `/api/v1/bookmarks` | ✅ | Lưu bookmark |
+| `GET` | `/api/v1/bookmarks` | ✅ | Danh sách bookmark |
+| `DELETE` | `/api/v1/bookmarks/{id}` | ✅ | Xóa bookmark |
+
+### Graph (Neo4j)
+| Method | Endpoint | Auth | Mô tả |
+|--------|----------|:----:|-------|
+| `GET` | `/api/graphs/paper/{id}` | ❌ | Đồ thị từ khóa của paper |
+
+### Admin
+| Method | Endpoint | Auth | Mô tả |
+|--------|----------|:----:|-------|
+| `GET` | `/api/users` | ADMIN | Danh sách user |
+| `GET` | `/api/users/{id}` | ADMIN | Chi tiết user |
+| `PUT` | `/api/users/{id}/status` | ADMIN | Enable/disable user |
+| `PUT` | `/api/users/{id}/role` | ADMIN | Đổi role |
+| `POST` | `/api/v1/admin/sync/openalex` | ADMIN | Trigger manual sync |
+| `GET` | `/api/v1/dashboard/**` | ADMIN | Dashboard stats |
+| `GET` | `/api/admin/**` | ADMIN | Data sources, audit logs, config |
+
+---
+
+## 🔄 Data Sync
+
+`DataSyncServiceImpl` đồng bộ bài báo từ 2 nguồn:
+
+| Nguồn | API | Cơ chế |
+|-------|-----|--------|
+| **OpenAlex** | `api.openalex.org` | Pagination, abstract từ inverted index, "polite pool" email |
+| **Semantic Scholar** | `api.semanticscholar.org` | Bổ sung, deduplicate theo DOI |
+
+- **Scheduled**: Tự động chạy hàng ngày lúc 2:00 AM (`@Scheduled`)
+- **Manual**: Admin trigger qua `POST /api/v1/admin/sync/openalex`
+- **Deduplication**: Theo DOI giữa 2 nguồn
+- **Tracking**: `BulkSyncProgressTracker` (in-memory) + `SyncLog` table
+
+---
+
+## 🧪 Build & Test
 
 ```bash
+# Build JAR
 mvn clean package
+
+# Chạy toàn bộ test
+mvn test
+
+# Chạy 1 test class
+mvn test -Dtest=JournalTrackingApplicationTests
+
+# Chạy 1 test method
+mvn test -Dtest=JournalTrackingApplicationTests#methodName
 ```
 
 ---
 
-## Cấu trúc thư mục
+## 🌿 Git Workflow
+
+- **Main branch**: `main` (production)
+- **Dev branch**: `develop` (default)
+- **Feature branch**: `feature/<tên-chức-năng>`
+- **Fix branch**: `fix/<mô-tả>`
+
+### Commit convention
 
 ```
-src/main/java/com/gfi/journaltracking/
-├── config/          # Security config, CORS, Beans
-├── controller/      # REST API endpoints
-├── service/         # Business logic
-│   └── impl/        # Implementations
-├── repository/      # JPA Repositories
-├── entity/          # Database entities
-├── dto/             # Data Transfer Objects
-│   ├── request/
-│   └── response/
-├── exception/       # Custom exceptions
-├── utils/           # Helper classes
-└── constants/       # Enums, constants
+feat: mô tả tính năng mới
+fix: mô tả bug đã sửa
+refactor: mô tả refactor
+docs: mô tả cập nhật tài liệu
+style: mô tả format code
 ```
 
----
+### Quy tắc
 
-## Quy tắc Git
-
-- Không push trực tiếp lên `main`
-- Không push file `application-local.properties`
-- Không push file `.env`
-- Mỗi feature tạo branch riêng từ `develop`
-- Đặt tên branch: `feature/tên-chức-năng`
-- Phải tạo Pull Request trước khi merge
-
----
-
-## Tạo branch mới
+- ❌ Không push trực tiếp lên `main`
+- ❌ Không push `application-local.properties` hay `.env`
+- ❌ Không sửa branch của người khác
+- ✅ Luôn tạo Pull Request để merge
+- ✅ Luôn pull `develop` mới nhất trước khi code
 
 ```bash
+# Tạo branch mới
 git checkout develop
 git pull
-git checkout -b feature/tên-chức-năng
+git checkout -b feature/ten-chuc-nang
 ```
 
 ---
 
-## Commit convention
+## 📚 Tài liệu liên quan
 
-```bash
-feat: thêm API lấy danh sách journal
-fix: sửa lỗi authentication
-refactor: tối ưu query
-docs: cập nhật README
-style: format code
-```
+- [CLAUDE.md](CLAUDE.md) — Hướng dẫn chi tiết cho AI assistant
+- [docs/follow-api.md](docs/follow-api.md) — API docs cho tính năng Follow
+- Swagger UI: http://localhost:8080/swagger-ui/index.html
 
 ---
 
-## Lưu ý
+## 👥 Contributors
 
-- Không push file `application-local.properties`
-- Không push file `.env`
-- Không sửa branch của người khác
-- Luôn `git pull develop` mới nhất trước khi code
-- Luôn bật Docker Desktop trước khi chạy project
-
----
-
-## Contributors
-
-Backend Team - Scientific Journal Publication Trend Tracking System
+Backend Team — SCITRACK
