@@ -12,13 +12,20 @@ import com.sra.journal_tracking.dto.paper.KeywordQuickStatsResponse;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.paper.RelatedKeywordResponse;
 import com.sra.journal_tracking.dto.response.AppResponse;
+import com.sra.journal_tracking.dto.search.CategoryResponse;
+import com.sra.journal_tracking.dto.search.NicheTopicResponse;
+import com.sra.journal_tracking.dto.search.RecentSearchResponse;
 import com.sra.journal_tracking.service.AuthorQuickStatsService;
+import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.JournalQuickStatsService;
 import com.sra.journal_tracking.service.KeywordQuickStatsService;
+import com.sra.journal_tracking.service.UserSearchHistoryService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -35,6 +42,8 @@ public class SearchController {
     private final AuthorQuickStatsService authorQuickStatsService;
     private final KeywordQuickStatsService keywordQuickStatsService;
     private final JournalQuickStatsService journalQuickStatsService;
+    private final UserSearchHistoryService userSearchHistoryService;
+    private final GraphService graphService;
 
     @Operation(
             summary = "Quick author statistics lookup",
@@ -270,6 +279,94 @@ public class SearchController {
 
         List<JournalAuthorResponse> authors = journalQuickStatsService.getTopAuthors(keyword.trim());
         return ResponseEntity.ok(AppResponse.success("Top authors retrieved", authors));
+    }
+
+    @Operation(
+            summary = "Get recent search history for current user",
+            description = "Returns the 3-5 most recent distinct searches (keywords, authors, or journals) "
+                        + "performed by the currently authenticated user. Used for the search page zero state "
+                        + "before the user types anything — enables one-click re-search for repetitive research workflows."
+    )
+    @SecurityRequirement(name = "Bearer Authentication")
+    @GetMapping("/history/recent")
+    public ResponseEntity<AppResponse<List<RecentSearchResponse>>> getRecentSearches(
+            @RequestParam(defaultValue = "5") int limit,
+            Authentication authentication) {
+
+        if (limit < 1) limit = 1;
+        if (limit > 10) limit = 10;
+
+        String userEmail = authentication.getName();
+        log.info("Fetching recent searches for user: {}, limit={}", userEmail, limit);
+
+        List<RecentSearchResponse> recentSearches = userSearchHistoryService.getRecentSearches(userEmail, limit);
+        return ResponseEntity.ok(AppResponse.success("Recent searches retrieved", recentSearches));
+    }
+
+    @Operation(
+            summary = "Get broad research categories for discovery",
+            description = "Returns top keywords with the most paper connections in Neo4j — "
+                        + "these represent broad research fields (e.g., 'Artificial Intelligence', "
+                        + "'Biomedical Engineering'). Used as pill buttons in the search zero state "
+                        + "so students can narrow down their research scope by clicking a field."
+    )
+    @GetMapping("/categories")
+    public ResponseEntity<AppResponse<List<CategoryResponse>>> getCategories(
+            @RequestParam(defaultValue = "8") int limit) {
+
+        if (limit < 1) limit = 1;
+        if (limit > 12) limit = 12;
+
+        log.info("Fetching research categories, limit={}", limit);
+
+        List<CategoryResponse> categories = graphService.getCategoryKeywords(limit).stream()
+                .map(row -> CategoryResponse.builder()
+                        .keywordText((String) row.get("keywordText"))
+                        .normalizedText((String) row.get("normalizedText"))
+                        .paperCount((Long) row.get("paperCount"))
+                        .build())
+                .toList();
+
+        return ResponseEntity.ok(AppResponse.success("Categories retrieved", categories));
+    }
+
+    @Operation(
+            summary = "Get niche topics within a research category",
+            description = "Given a broad category keyword, finds co-occurring keywords in recent papers "
+                        + "(last 3 years) using Neo4j graph traversal. These 'ngách' topics represent "
+                        + "specific subtopics trending within the field — shown when user clicks a category pill."
+    )
+    @GetMapping("/categories/niches")
+    public ResponseEntity<AppResponse<List<NicheTopicResponse>>> getNiches(
+            @RequestParam("keyword") String keyword,
+            @RequestParam(defaultValue = "6") int limit) {
+
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new IllegalArgumentException("Category keyword cannot be empty");
+        }
+        if (limit < 1) limit = 1;
+        if (limit > 15) limit = 15;
+
+        String normalizedKeyword = keyword.toLowerCase().trim();
+        short thisYear = (short) java.time.Year.now().getValue();
+        short lastYear = (short) (thisYear - 1);
+        int startYear = thisYear - 2; // Last 3 years
+
+        log.info("Fetching niche topics for category: '{}', limit={}", normalizedKeyword, limit);
+
+        List<NicheTopicResponse> niches = graphService.getNicheKeywords(
+                        normalizedKeyword, startYear, thisYear, lastYear, limit)
+                .stream()
+                .map(row -> NicheTopicResponse.builder()
+                        .keywordText((String) row.get("keywordText"))
+                        .normalizedText((String) row.get("normalizedText"))
+                        .paperCount((Long) row.get("paperCount"))
+                        .thisYearCount((Long) row.get("thisYearCount"))
+                        .lastYearCount((Long) row.get("lastYearCount"))
+                        .build())
+                .toList();
+
+        return ResponseEntity.ok(AppResponse.success("Niche topics retrieved", niches));
     }
 
 }

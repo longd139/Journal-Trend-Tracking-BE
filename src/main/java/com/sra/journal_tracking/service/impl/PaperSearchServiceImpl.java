@@ -11,12 +11,14 @@ import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserUsageRepository;
+import com.sra.journal_tracking.repository.jpa.JournalRepository;
 import com.sra.journal_tracking.service.AuthorQuickStatsService;
 import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.KeywordExpansionService;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperSearchService;
 import com.sra.journal_tracking.service.SearchBackfillService;
+import com.sra.journal_tracking.service.UserSearchHistoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -55,6 +57,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
     private final OpenAlexFallbackSearchService openAlexFallbackSearchService;
     private final AuthorQuickStatsService authorQuickStatsService;
     private final DataSyncService dataSyncService;
+    private final UserSearchHistoryService userSearchHistoryService;
+    private final JournalRepository journalRepository;
 
     @Override
     public PaperSearchResultDTO searchPapers(PaperSearchRequestDTO request, String userEmail) {
@@ -129,6 +133,13 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             checkAndIncrementUsage(user.getUserId(), "search");
         }
 
+        // Record per-user search history for zero-state recent-searches feature
+        try {
+            userSearchHistoryService.recordSearch(userEmail, authorName.trim(), "AUTHOR");
+        } catch (Exception e) {
+            log.warn("Failed to record author search history for '{}': {}", authorName, e.getMessage());
+        }
+
         int page = Math.max(0, request.getPage());
         int size = Math.min(50, Math.max(1, request.getSize()));
         Pageable pageable = PageRequest.of(page, size);
@@ -200,6 +211,16 @@ public class PaperSearchServiceImpl implements PaperSearchService {
 
         if ("ACADEMIC_USER".equalsIgnoreCase(user.getRole().getRoleName())) {
             checkAndIncrementUsage(user.getUserId(), "search");
+        }
+
+        // Record per-user search history for zero-state recent-searches feature
+        try {
+            String journalName = journalRepository.findById(journalId)
+                    .map(j -> j.getJournalName())
+                    .orElse(journalId.toString());
+            userSearchHistoryService.recordSearch(userEmail, journalName, "JOURNAL");
+        } catch (Exception e) {
+            log.warn("Failed to record journal search history for '{}': {}", journalId, e.getMessage());
         }
 
         int page = Math.max(0, request.getPage());

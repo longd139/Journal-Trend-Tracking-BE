@@ -46,6 +46,7 @@ public class PaperSearchOrchestrator {
     private final GraphService graphService;
     private final DataSyncService dataSyncService;
     private final SearchKeywordService searchKeywordService;
+    private final UserSearchHistoryService userSearchHistoryService;
     private final KeywordExpansionService keywordExpansionService;
     private final ResearchPaperRepository researchPaperRepository;
 
@@ -87,6 +88,13 @@ public class PaperSearchOrchestrator {
             searchKeywordService.recordSearch(trimmedKeyword);
         } catch (Exception e) {
             log.warn("Failed to record search keyword '{}': {}", trimmedKeyword, e.getMessage());
+        }
+
+        // Record per-user search history for zero-state recent-searches feature
+        try {
+            userSearchHistoryService.recordSearch(userEmail, trimmedKeyword, "KEYWORD");
+        } catch (Exception e) {
+            log.warn("Failed to record user search history '{}': {}", trimmedKeyword, e.getMessage());
         }
 
         PaperSearchResultDTO result;

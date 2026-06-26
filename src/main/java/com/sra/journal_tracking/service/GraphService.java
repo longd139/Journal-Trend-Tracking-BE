@@ -597,6 +597,114 @@ public class GraphService {
         }
     }
 
+    // ============================================
+    //  CATEGORIES DISCOVERY: Field-level keywords
+    // ============================================
+
+    /**
+     * Find the most-connected keywords — these represent broad research fields
+     * suitable for the "Categories Discovery" zero-state pill buttons.
+     * <p>
+     * Uses a simple graph heuristic: keywords connected to many papers are
+     * likely broad research areas (e.g., "Artificial Intelligence", "Biomedical").
+     *
+     * @param limit max number of categories to return (recommend 6-8)
+     * @return list of maps: {keywordText, paperCount}
+     */
+    public List<Map<String, Object>> getCategoryKeywords(int limit) {
+        String cypherQuery = """
+                MATCH (k:Keyword)<-[:HAS_KEYWORD]-(p:Paper)
+                WITH k, COUNT(DISTINCT p) AS paperCount
+                WHERE paperCount >= 5
+                RETURN k.text AS keywordText, k.normalizedText AS normalizedText, paperCount
+                ORDER BY paperCount DESC
+                LIMIT $limit
+                """;
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        try {
+            neo4jClient.query(cypherQuery)
+                    .bind(limit).to("limit")
+                    .fetch()
+                    .all()
+                    .forEach(record -> {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("keywordText", record.get("keywordText") != null
+                                ? record.get("keywordText").toString() : "");
+                        row.put("normalizedText", record.get("normalizedText") != null
+                                ? record.get("normalizedText").toString() : "");
+                        row.put("paperCount", record.get("paperCount") != null
+                                ? ((Number) record.get("paperCount")).longValue() : 0L);
+                        results.add(row);
+                    });
+            log.info("Category keywords: {} found (limit={})", results.size(), limit);
+        } catch (Exception e) {
+            log.warn("Category keywords query failed: {}", e.getMessage());
+        }
+        return results;
+    }
+
+    /**
+     * Get niche sub-topics within a category field.
+     * Finds keywords that co-occur with the given category keyword in recent papers.
+     * These are the "ngách" — specific subtopics trending within a broad field.
+     *
+     * @param categoryKeyword the broad field keyword (normalized)
+     * @param startYear       only consider papers from this year onward
+     * @param limit           max number of niche topics to return
+     * @return list of maps: {keywordText, paperCount, thisYearCount, lastYearCount}
+     */
+    public List<Map<String, Object>> getNicheKeywords(
+            String categoryKeyword, int startYear, short thisYear, short lastYear, int limit) {
+
+        // Co-occurrence traversal: category → papers (recent) → other keywords
+        String cypherQuery = """
+                MATCH (p:Paper)-[:HAS_KEYWORD]->(cat:Keyword)
+                WHERE cat.normalizedText = $categoryKeyword AND p.pubYear >= $startYear
+                MATCH (p)-[:HAS_KEYWORD]->(niche:Keyword)
+                WHERE niche.normalizedText <> $categoryKeyword
+                WITH niche,
+                     COLLECT(DISTINCT p) AS papers
+                WITH niche.normalizedText AS normKw,
+                     niche.text AS origKw,
+                     SIZE(papers) AS totalCount,
+                     SIZE([x IN papers WHERE x.pubYear = $thisYear]) AS thisYearCount,
+                     SIZE([x IN papers WHERE x.pubYear = $lastYear]) AS lastYearCount
+                WHERE totalCount >= 2
+                RETURN normKw, origKw, totalCount, thisYearCount, lastYearCount
+                ORDER BY totalCount DESC
+                LIMIT $limit
+                """;
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        try {
+            neo4jClient.query(cypherQuery)
+                    .bind(categoryKeyword).to("categoryKeyword")
+                    .bind(startYear).to("startYear")
+                    .bind(thisYear).to("thisYear")
+                    .bind(lastYear).to("lastYear")
+                    .bind(limit).to("limit")
+                    .fetch()
+                    .all()
+                    .forEach(record -> {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("keywordText", record.get("origKw") != null
+                                ? record.get("origKw").toString() : "");
+                        row.put("normalizedText", record.get("normKw") != null
+                                ? record.get("normKw").toString() : "");
+                        row.put("paperCount", ((Number) record.get("totalCount")).longValue());
+                        row.put("thisYearCount", ((Number) record.get("thisYearCount")).longValue());
+                        row.put("lastYearCount", ((Number) record.get("lastYearCount")).longValue());
+                        results.add(row);
+                    });
+            log.info("Niche keywords for '{}': {} found (since {})",
+                    categoryKeyword, results.size(), startYear);
+        } catch (Exception e) {
+            log.warn("Niche keywords query failed for '{}': {}", categoryKeyword, e.getMessage());
+        }
+        return results;
+    }
+
     /**
      * Get Neo4j graph statistics.
      */
