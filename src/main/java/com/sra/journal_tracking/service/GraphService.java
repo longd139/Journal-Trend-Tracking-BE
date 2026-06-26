@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -612,36 +613,76 @@ public class GraphService {
      * @return list of maps: {keywordText, paperCount}
      */
     public List<Map<String, Object>> getCategoryKeywords(int limit) {
+        // Fetch more than needed to account for post-filtering
+        int fetchLimit = limit * 3;
         String cypherQuery = """
                 MATCH (k:Keyword)<-[:HAS_KEYWORD]-(p:Paper)
                 WITH k, COUNT(DISTINCT p) AS paperCount
                 WHERE paperCount >= 5
                 RETURN k.text AS keywordText, k.normalizedText AS normalizedText, paperCount
                 ORDER BY paperCount DESC
-                LIMIT $limit
+                LIMIT $fetchLimit
                 """;
 
-        List<Map<String, Object>> results = new ArrayList<>();
+        List<Map<String, Object>> rawResults = new ArrayList<>();
         try {
             neo4jClient.query(cypherQuery)
-                    .bind(limit).to("limit")
+                    .bind(fetchLimit).to("fetchLimit")
                     .fetch()
                     .all()
                     .forEach(record -> {
-                        Map<String, Object> row = new LinkedHashMap<>();
-                        row.put("keywordText", record.get("keywordText") != null
-                                ? record.get("keywordText").toString() : "");
-                        row.put("normalizedText", record.get("normalizedText") != null
-                                ? record.get("normalizedText").toString() : "");
-                        row.put("paperCount", record.get("paperCount") != null
-                                ? ((Number) record.get("paperCount")).longValue() : 0L);
-                        results.add(row);
+                        String text = record.get("keywordText") != null
+                                ? record.get("keywordText").toString() : "";
+                        if (isValidCategory(text)) {
+                            Map<String, Object> row = new LinkedHashMap<>();
+                            row.put("keywordText", text);
+                            row.put("normalizedText", record.get("normalizedText") != null
+                                    ? record.get("normalizedText").toString() : "");
+                            row.put("paperCount", record.get("paperCount") != null
+                                    ? ((Number) record.get("paperCount")).longValue() : 0L);
+                            rawResults.add(row);
+                        }
                     });
-            log.info("Category keywords: {} found (limit={})", results.size(), limit);
+
+            log.info("Category keywords: {} found (limit={})", rawResults.size(), limit);
         } catch (Exception e) {
             log.warn("Category keywords query failed: {}", e.getMessage());
         }
-        return results;
+
+        // Limit after filtering
+        if (rawResults.size() > limit) {
+            return rawResults.subList(0, limit);
+        }
+        return rawResults;
+    }
+
+    /** Heuristic: is this keyword suitable as a broad research category? */
+    private boolean isValidCategory(String keyword) {
+        if (keyword == null || keyword.isBlank()) return false;
+        String lower = keyword.toLowerCase().trim();
+
+        // Single short words are usually noise ("based", "using", "flow")
+        if (lower.length() <= 4) return false;
+
+        // Must contain at least one letter
+        if (!lower.matches(".*[a-z].*")) return false;
+
+        // Stop words — common noise in academic keyword extraction
+        Set<String> stopWords = Set.of(
+                "based", "using", "method", "analysis", "study", "research",
+                "data", "model", "effect", "role", "approach", "system",
+                "paper", "results", "process", "review", "design", "new",
+                "case", "application", "performance", "evaluation", "overview",
+                "impact", "development", "implementation", "framework",
+                "introduction", "background", "conclusion", "discussion",
+                "methods", "materials", "experimental", "related work",
+                "future work", "state of the art", "literature review",
+                "used", "found", "show", "may", "also", "can", "well",
+                "important", "significant", "various", "different",
+                "high", "low", "large", "small", "first", "two", "three",
+                "one", "using", "via", "towards", "toward", "through"
+        );
+        return !stopWords.contains(lower);
     }
 
     /**

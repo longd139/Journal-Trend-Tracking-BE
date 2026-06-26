@@ -15,6 +15,7 @@ import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.dto.search.CategoryResponse;
 import com.sra.journal_tracking.dto.search.NicheTopicResponse;
 import com.sra.journal_tracking.dto.search.RecentSearchResponse;
+import com.sra.journal_tracking.repository.jpa.ResearchFieldRepository;
 import com.sra.journal_tracking.service.AuthorQuickStatsService;
 import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.JournalQuickStatsService;
@@ -44,6 +45,7 @@ public class SearchController {
     private final JournalQuickStatsService journalQuickStatsService;
     private final UserSearchHistoryService userSearchHistoryService;
     private final GraphService graphService;
+    private final ResearchFieldRepository researchFieldRepository;
 
     @Operation(
             summary = "Quick author statistics lookup",
@@ -305,10 +307,10 @@ public class SearchController {
 
     @Operation(
             summary = "Get broad research categories for discovery",
-            description = "Returns top keywords with the most paper connections in Neo4j — "
-                        + "these represent broad research fields (e.g., 'Artificial Intelligence', "
-                        + "'Biomedical Engineering'). Used as pill buttons in the search zero state "
-                        + "so students can narrow down their research scope by clicking a field."
+            description = "Returns top-level research fields from the database (parentField IS NULL, isTracked = true) "
+                        + "with paper counts. Used as pill buttons in the search zero state so students "
+                        + "can narrow down their research scope by clicking a field. "
+                        + "Data source: SQL RESEARCH_FIELD table."
     )
     @GetMapping("/categories")
     public ResponseEntity<AppResponse<List<CategoryResponse>>> getCategories(
@@ -317,14 +319,19 @@ public class SearchController {
         if (limit < 1) limit = 1;
         if (limit > 12) limit = 12;
 
-        log.info("Fetching research categories, limit={}", limit);
+        log.info("Fetching research categories from SQL, limit={}", limit);
 
-        List<CategoryResponse> categories = graphService.getCategoryKeywords(limit).stream()
-                .map(row -> CategoryResponse.builder()
-                        .keywordText((String) row.get("keywordText"))
-                        .normalizedText((String) row.get("normalizedText"))
-                        .paperCount((Long) row.get("paperCount"))
+        List<CategoryResponse> categories = researchFieldRepository
+                .findByParentFieldIsNullAndIsTrackedTrue()
+                .stream()
+                .map(field -> CategoryResponse.builder()
+                        .keywordText(field.getFieldName())
+                        .normalizedText(field.getFieldName().toLowerCase().trim())
+                        .paperCount(researchFieldRepository.countPapersByFieldId(field.getFieldId()))
                         .build())
+                .filter(c -> c.getPaperCount() > 0) // Only show fields with papers
+                .sorted((a, b) -> Long.compare(b.getPaperCount(), a.getPaperCount()))
+                .limit(limit)
                 .toList();
 
         return ResponseEntity.ok(AppResponse.success("Categories retrieved", categories));
