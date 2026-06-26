@@ -10,6 +10,7 @@ public enum ErrorCode {
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found."),
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect."),
     USER_NOT_ACTIVE(HttpStatus.FORBIDDEN, "Your account has not been verified. Please verify your email before continuing."),
+    GOOGLE_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Google authentication failed. The token is invalid or expired."),
 
     // ---- LỖI VERIFICATION TOKEN ----
     VERIFICATION_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "The token is invalid or has already been used."),

@@ -29,4 +29,7 @@ public class RegisterRequest {
 
     @Schema(description = "institution", example = "FPT University")
     private String institution;
+
+    @Schema(description = "role", example = "academic_user", allowableValues = {"academic_user", "researcher"})
+    private String roleName;
 }

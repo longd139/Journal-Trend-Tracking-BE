@@ -1,6 +1,7 @@
 package com.sra.journal_tracking.service.impl;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -9,12 +10,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import com.sra.journal_tracking.dto.auth.AuthResponse;
+import com.sra.journal_tracking.dto.auth.GoogleLoginRequest;
 import com.sra.journal_tracking.dto.auth.LoginRequest;
 import com.sra.journal_tracking.dto.auth.RegisterRequest;
 import com.sra.journal_tracking.entity.jpa.Role;
@@ -28,6 +32,7 @@ import com.sra.journal_tracking.repository.jpa.RoleRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserSessionRepository;
 import com.sra.journal_tracking.repository.jpa.VerificationTokenRepository;
+import com.sra.journal_tracking.security.CustomUserDetails;
 import com.sra.journal_tracking.security.JwtTokenProvider;
 import com.sra.journal_tracking.service.AuthService;
 
@@ -56,6 +61,106 @@ public class AuthServiceImpl implements AuthService {
         @Value("${app.reset-token-expiration-ms:900000}")
         private long resetTokenExpirationMs;
 
+        @Value("${app.google-client-id:}")
+        private String googleClientId;
+
+        @Override
+        @Transactional
+        public AuthResponse googleLogin(GoogleLoginRequest request) {
+                // 1. Verify Google ID token
+                Map<String, Object> payload = verifyGoogleToken(request.getCredential());
+
+                String email = (String) payload.get("email");
+                String name = (String) payload.get("name");
+
+                if (email == null || email.isBlank()) {
+                        throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
+                }
+
+                log.info("Google login: email={}, name={}", email, name);
+
+                // 2. Find or create user
+                User user = userRepository.findByEmail(email).orElse(null);
+
+                if (user == null) {
+                        // Create new user from Google account
+                        Role role = roleRepository.findByRoleNameIgnoreCase("academic_user")
+                                        .orElseThrow(() -> new RuntimeException("Role not found."));
+
+                        user = User.builder()
+                                        .fullName(name != null ? name : email)
+                                        .email(email)
+                                        .passwordHash(passwordEncoder.encode(UUID.randomUUID().toString()))
+                                        .institution((String) payload.getOrDefault("hd", null))
+                                        .role(role)
+                                        .isActive(true) // Google accounts are pre-verified
+                                        .build();
+
+                        userRepository.save(user);
+                        log.info("Created new user from Google: {}", email);
+                } else {
+                        // Update last login time and name if changed
+                        user.setLastLoginAt(LocalDateTime.now());
+                        if (name != null && !name.isBlank() && !name.equals(user.getFullName())) {
+                                user.setFullName(name);
+                        }
+                        userRepository.save(user);
+                }
+
+                // 3. Generate JWT (Google-authenticated, no password needed)
+                CustomUserDetails userDetails = new CustomUserDetails(user);
+                Authentication authentication = new UsernamePasswordAuthenticationToken(
+                                userDetails, null, userDetails.getAuthorities());
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                String jwt = tokenProvider.generateToken(authentication);
+                saveUserSession(user, jwt);
+
+                return buildAuthResponse(jwt, user);
+        }
+
+        /**
+         * Verify a Google ID token by calling Google's tokeninfo endpoint.
+         * No extra dependencies needed — just a simple HTTP call.
+         */
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> verifyGoogleToken(String idToken) {
+                String url = "https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken;
+
+                try {
+                        RestTemplate restTemplate = new RestTemplate();
+                        Map<String, Object> payload = restTemplate.getForObject(url, Map.class);
+
+                        if (payload == null) {
+                                throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
+                        }
+
+                        // Check for errors from Google
+                        if (payload.containsKey("error")) {
+                                log.warn("Google token verification failed: {}", payload.get("error_description"));
+                                throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
+                        }
+
+                        // Verify audience (client ID) if configured
+                        if (googleClientId != null && !googleClientId.isBlank()) {
+                                String aud = (String) payload.get("aud");
+                                if (!googleClientId.equals(aud)) {
+                                        log.warn("Google token audience mismatch: expected={}, got={}",
+                                                        googleClientId, aud);
+                                        throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
+                                }
+                        }
+
+                        return payload;
+
+                } catch (AppException e) {
+                        throw e;
+                } catch (Exception e) {
+                        log.error("Failed to verify Google token: {}", e.getMessage(), e);
+                        throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
+                }
+        }
+
         @Override
         @Transactional
         public AuthResponse register(RegisterRequest request) {
@@ -63,8 +168,19 @@ public class AuthServiceImpl implements AuthService {
                         throw new AppException(ErrorCode.USER_EXISTED);
                 }
 
-                Role role = roleRepository.findByRoleNameIgnoreCase("academic_user")
-                                .orElseThrow(() -> new RuntimeException("Role not found."));
+                Role role;
+                String requestedRole = request.getRoleName();
+                if (requestedRole != null && !requestedRole.isBlank()) {
+                        String normalized = requestedRole.trim().toLowerCase();
+                        if ("admin".equals(normalized)) {
+                                throw new AppException(ErrorCode.INVALID_CREDENTIALS);
+                        }
+                        role = roleRepository.findByRoleNameIgnoreCase(normalized)
+                                        .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+                } else {
+                        role = roleRepository.findByRoleNameIgnoreCase("academic_user")
+                                        .orElseThrow(() -> new RuntimeException("Role not found."));
+                }
 
                 User user = User.builder()
                                 .fullName(request.getFullName())

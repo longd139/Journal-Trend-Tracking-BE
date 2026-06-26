@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.sra.journal_tracking.dto.auth.AuthResponse;
 import com.sra.journal_tracking.dto.auth.ForgotPasswordRequest;
+import com.sra.journal_tracking.dto.auth.GoogleLoginRequest;
 import com.sra.journal_tracking.dto.auth.LoginRequest;
 import com.sra.journal_tracking.dto.auth.RegisterRequest;
 import com.sra.journal_tracking.dto.auth.ResetPasswordRequest;
@@ -47,6 +48,15 @@ public class AuthController {
             @Valid @RequestBody LoginRequest request) {
         AuthResponse authResponse = authService.login(request);
         return ResponseEntity.ok(AppResponse.success("Login successful", authResponse));
+    }
+
+    @Operation(summary = "Google login", description = "Authenticate user via Google OAuth ID token. If the user does not exist, creates a new account automatically. Returns a JWT token for subsequent API calls.")
+    @ApiResponse(responseCode = "200", description = "Google login successful")
+    @PostMapping("/google")
+    public ResponseEntity<AppResponse<AuthResponse>> googleLogin(
+            @Valid @RequestBody GoogleLoginRequest request) {
+        AuthResponse authResponse = authService.googleLogin(request);
+        return ResponseEntity.ok(AppResponse.success("Google login successful", authResponse));
     }
 
     @Operation(summary = "Logout", description = "Invalidate current JWT token")
