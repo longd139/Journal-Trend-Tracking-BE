@@ -191,6 +191,12 @@ public class AuthServiceImpl implements AuthService {
                                 .isActive(true)
                                 .build();
 
+                // If registering as researcher, set 3-day trial
+                if ("researcher".equalsIgnoreCase(role.getRoleName())) {
+                        user.setRoleExpiryAt(LocalDateTime.now().plusDays(3));
+                        log.info("Researcher trial set for {}: expires at {}", request.getEmail(), user.getRoleExpiryAt());
+                }
+
                 userRepository.save(user);
 
                 // Tạo verification token và log link ra terminal
@@ -384,6 +390,7 @@ public class AuthServiceImpl implements AuthService {
                                                 .fullName(user.getFullName())
                                                 .email(user.getEmail())
                                                 .roleName(user.getRole().getRoleName())
+                                                .roleExpiryAt(user.getRoleExpiryAt())
                                                 .build())
                                 .build();
         }

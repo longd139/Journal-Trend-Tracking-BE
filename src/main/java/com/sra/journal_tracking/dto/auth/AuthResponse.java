@@ -7,6 +7,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -43,5 +45,8 @@ public class AuthResponse {
 
         @Schema(description = "Role name", example = "USER")
         private String roleName;
+
+        @Schema(description = "When the current role expires (null = permanent)", example = "2026-06-29T12:00:00")
+        private LocalDateTime roleExpiryAt;
     }
 }

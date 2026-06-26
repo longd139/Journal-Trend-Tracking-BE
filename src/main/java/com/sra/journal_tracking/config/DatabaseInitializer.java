@@ -67,6 +67,18 @@ public class DatabaseInitializer {
                     """);
             log.info("DB init: TRENDING_TOPIC ensured");
 
+            // ── ROLE_EXPIRY_AT column on USER (researcher trial) ──
+            stmt.execute("""
+                    IF NOT EXISTS (
+                        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_NAME = 'USER' AND COLUMN_NAME = 'RoleExpiryAt'
+                    )
+                    BEGIN
+                        ALTER TABLE [USER] ADD RoleExpiryAt DATETIME2 NULL
+                    END
+                    """);
+            log.info("DB init: USER.RoleExpiryAt column ensured");
+
         } catch (Exception e) {
             log.error("Database initialization failed: {}", e.getMessage(), e);
         }

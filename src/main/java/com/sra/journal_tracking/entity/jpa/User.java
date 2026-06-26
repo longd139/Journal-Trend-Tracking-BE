@@ -60,6 +60,10 @@ public class User {
     @Column(name = "LastLoginAt")
     private LocalDateTime lastLoginAt;
 
+    /** When the current role expires (null = permanent). Used for researcher trial (3 days). */
+    @Column(name = "RoleExpiryAt")
+    private LocalDateTime roleExpiryAt;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) {
