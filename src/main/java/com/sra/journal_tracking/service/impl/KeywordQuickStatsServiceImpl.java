@@ -32,8 +32,10 @@ import java.util.stream.Collectors;
  *
  * Flow:
  * 1. Neo4j → get all paper IDs + count matching the keyword
- * 2. SQL → load papers, compute total citations + avg per paper
- * 3. SQL → count papers by pubYear for YoY growth calculation
+ * 2. If no papers found → auto-sync from OpenAlex + Semantic Scholar
+ * 3. Re-query Neo4j → should now have data
+ * 4. SQL → load papers, compute total citations + avg per paper
+ * 5. SQL → count papers by pubYear for YoY growth calculation
  */
 @Slf4j
 @Service
@@ -63,17 +65,7 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
 
         if (totalPapers == 0) {
             log.info("No papers found for keyword '{}'", trimmedKeyword);
-            return KeywordQuickStatsResponse.builder()
-                    .keyword(trimmedKeyword)
-                    .totalPapers(0L)
-                    .totalCitations(0L)
-                    .yoyGrowthRate(null)
-                    .yoyGrowthDirection("neutral")
-                    .avgCitationsPerPaper(null)
-                    .papersThisYear(0L)
-                    .papersLastYear(0L)
-                    .topJournals(List.of())
-                    .build();
+            return buildEmptyResponse(trimmedKeyword);
         }
 
         // Step 2: Get all paper IDs from Neo4j
@@ -240,22 +232,24 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
 
         log.info("Fetching top influential papers for keyword: '{}'", trimmedKeyword);
 
-        // Step 1: Get all paper IDs from Neo4j
-        List<String> paperIdStrings = graphService.getAllPaperIdsByKeyword(trimmedKeyword.toLowerCase());
+        // Neo4j index lookup (fast, exact match on normalizedText) → SQL fetch by IDs
+        String normalized = trimmedKeyword.toLowerCase();
+        List<String> paperIdStrings = graphService.getAllPaperIdsByKeyword(normalized);
+
         if (paperIdStrings.isEmpty()) {
-            log.info("No papers found for '{}'", trimmedKeyword);
+            log.info("No papers found for '{}' in Neo4j", trimmedKeyword);
             return List.of();
         }
 
+        // Only take first 50 IDs — enough for top-5, faster SQL IN clause
         List<UUID> paperIds = paperIdStrings.stream()
+                .limit(50)
                 .map(UUID::fromString)
                 .toList();
 
-        // Step 2: Fetch papers from SQL, ordered by citation count DESC, top 5
         List<ResearchPaper> topPapers = researchPaperRepository.findTopCitedByIds(
                 paperIds, PageRequest.of(0, 5));
 
-        // Step 3: Map to DTOs
         return topPapers.stream()
                 .map(this::mapToSummaryDTO)
                 .collect(Collectors.toList());

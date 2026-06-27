@@ -278,4 +278,44 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
          + "GROUP BY a.fullName, a.externalAuthorId "
          + "ORDER BY COUNT(DISTINCT p) DESC")
     List<Object[]> findTopAuthorsByJournalId(@Param("journalId") UUID journalId, Pageable pageable);
+
+    // ---- Weekly Breakout / Sparkline Queries ----
+
+    /**
+     * Sum citation counts grouped by (year, month) of pubDate for a list of paper IDs.
+     * Only considers papers where pubDate IS NOT NULL.
+     * Returns [year, month, sumCitationCount] ordered by year/month DESC.
+     */
+    @Query("SELECT YEAR(p.pubDate), MONTH(p.pubDate), COALESCE(SUM(p.citationCount), 0) "
+         + "FROM ResearchPaper p "
+         + "WHERE p.paperId IN :ids AND p.pubDate IS NOT NULL "
+         + "GROUP BY YEAR(p.pubDate), MONTH(p.pubDate) "
+         + "ORDER BY YEAR(p.pubDate) DESC, MONTH(p.pubDate) DESC")
+    List<Object[]> sumCitationsByPubDateMonthForPaperIds(@Param("ids") List<UUID> ids);
+
+    /**
+     * Sum citation counts grouped by (year, month) of createdAt for a list of paper IDs.
+     * Only considers papers where pubDate IS NULL (fallback when pubDate is missing).
+     * Returns [year, month, sumCitationCount] ordered by year/month DESC.
+     */
+    @Query("SELECT YEAR(p.createdAt), MONTH(p.createdAt), COALESCE(SUM(p.citationCount), 0) "
+         + "FROM ResearchPaper p "
+         + "WHERE p.paperId IN :ids AND p.pubDate IS NULL "
+         + "GROUP BY YEAR(p.createdAt), MONTH(p.createdAt) "
+         + "ORDER BY YEAR(p.createdAt) DESC, MONTH(p.createdAt) DESC")
+    List<Object[]> sumCitationsByCreatedAtMonthForPaperIds(@Param("ids") List<UUID> ids);
+
+    /**
+     * Fast top-cited papers by keyword — single SQL query, no Neo4j.
+     * Searches title + abstract + keywords with LIKE, orders by citation DESC, limit N.
+     */
+    @Query("SELECT DISTINCT p FROM ResearchPaper p "
+         + "LEFT JOIN FETCH p.journal "
+         + "LEFT JOIN p.keywords pk "
+         + "LEFT JOIN pk.keyword kw "
+         + "WHERE (LOWER(p.title) LIKE LOWER(CONCAT('%', :query, '%')) "
+         + "   OR LOWER(p.abstractText) LIKE LOWER(CONCAT('%', :query, '%')) "
+         + "   OR LOWER(kw.keywordText) LIKE LOWER(CONCAT('%', :query, '%'))) "
+         + "ORDER BY p.citationCount DESC")
+    List<ResearchPaper> findTopCitedByKeyword(@Param("query") String query, Pageable pageable);
 }

@@ -23,6 +23,7 @@ import com.sra.journal_tracking.repository.jpa.KeywordRepository;
 import com.sra.journal_tracking.repository.jpa.PaperAuthorRepository;
 import com.sra.journal_tracking.repository.jpa.PaperKeywordRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchFieldRepository;
+import com.sra.journal_tracking.repository.jpa.ResearchTopicRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SyncLogRepository;
 import com.sra.journal_tracking.service.BulkSyncProgressTracker;
@@ -76,6 +77,7 @@ public class DataSyncServiceImpl implements DataSyncService {
     private final JournalRepository journalRepository;
     private final ResearchFieldRepository researchFieldRepository;
     private final KeywordRepository keywordRepository;
+    private final ResearchTopicRepository researchTopicRepository;
     private final SyncLogRepository syncLogRepository;
     private final GraphService graphService;
     private final RestTemplate restTemplate;
@@ -643,14 +645,28 @@ public class DataSyncServiceImpl implements DataSyncService {
     @Override
     @Transactional(readOnly = true)
     public DatabaseStatsResponse getDatabaseStats() {
-        // Papers
-        long totalPapers = researchPaperRepository.count();
-        long openAccess = entityManager
-                .createQuery("SELECT COUNT(p) FROM ResearchPaper p WHERE p.isOpenAccess = true", Long.class)
-                .getSingleResult();
-        long hasPdf = entityManager
-                .createQuery("SELECT COUNT(p) FROM ResearchPaper p WHERE p.pdfUrl IS NOT NULL AND p.pdfUrl <> ''", Long.class)
-                .getSingleResult();
+        // ── Cache: 1-hour TTL (same pattern as GraphService/WeeklyBreakoutService) ──
+        long now = System.currentTimeMillis();
+        if (cachedStats != null && now < cachedStats.expiryTime) {
+            log.info("CACHE HIT: database stats ({}s old)", (now - (cachedStats.expiryTime - CACHE_TTL_MS)) / 1000);
+            return cachedStats.data;
+        }
+
+        log.info("Computing database statistics...");
+        long startTime = System.currentTimeMillis();
+
+        // Papers — single query with aggregation instead of 3 separate queries
+        @SuppressWarnings("unchecked")
+        List<Object[]> paperAggRows = entityManager
+                .createQuery("SELECT COUNT(p), "
+                           + "SUM(CASE WHEN p.isOpenAccess = true THEN 1 ELSE 0 END), "
+                           + "SUM(CASE WHEN p.pdfUrl IS NOT NULL AND p.pdfUrl <> '' THEN 1 ELSE 0 END) "
+                           + "FROM ResearchPaper p")
+                .getResultList();
+        Object[] agg = paperAggRows.get(0);
+        long totalPapers = (Long) agg[0];
+        long openAccess = (Long) agg[1];
+        long hasPdf = (Long) agg[2];
 
         // Papers by source
         @SuppressWarnings("unchecked")
@@ -672,29 +688,19 @@ public class DataSyncServiceImpl implements DataSyncService {
             byYear.put(((Short) row[0]).intValue(), (Long) row[1]);
         }
 
-        // Authors
+        // Authors (total only — skip slow orphaned count in fast path)
         long totalAuthors = authorRepository.count();
-        long orphanedAuthors = ((Number) entityManager
-                .createNativeQuery("SELECT COUNT(*) FROM AUTHOR WHERE AuthorID NOT IN (SELECT DISTINCT AuthorID FROM PAPER_AUTHOR)")
-                .getSingleResult()).longValue();
 
-        // Keywords
+        // Keywords (total only — skip slow orphaned count)
         long totalKeywords = keywordRepository.count();
-        long orphanedKeywords = ((Number) entityManager
-                .createNativeQuery("SELECT COUNT(*) FROM KEYWORD WHERE KeywordID NOT IN (SELECT DISTINCT KeywordID FROM PAPER_KEYWORD)")
-                .getSingleResult()).longValue();
 
         // Journals & Fields
         long totalJournals = journalRepository.count();
         long totalFields = researchFieldRepository.count();
 
         // Topics
-        long totalTopics = ((Number) entityManager
-                .createNativeQuery("SELECT COUNT(*) FROM RESEARCH_TOPIC")
-                .getSingleResult()).longValue();
-        long trending = ((Number) entityManager
-                .createNativeQuery("SELECT COUNT(*) FROM RESEARCH_TOPIC WHERE IsTrending = 1")
-                .getSingleResult()).longValue();
+        long totalTopics = researchTopicRepository.count();
+        long trending = researchTopicRepository.countByIsTrendingTrue();
 
         // Sync logs
         long totalSyncLogs = syncLogRepository.count();
@@ -706,17 +712,17 @@ public class DataSyncServiceImpl implements DataSyncService {
             if (lastSyncObj != null) lastSync = lastSyncObj.toString();
         } catch (Exception ignored) {}
 
-        // Neo4j
+        // Neo4j stats (single call)
         DatabaseStatsResponse.Neo4jStats neo4jStats = getNeo4jStats();
 
-        return DatabaseStatsResponse.builder()
+        DatabaseStatsResponse stats = DatabaseStatsResponse.builder()
                 .papers(DatabaseStatsResponse.PaperStats.builder()
                         .total(totalPapers).bySource(bySource).byYear(byYear)
                         .openAccess(openAccess).hasPdfUrl(hasPdf).build())
                 .authors(DatabaseStatsResponse.AuthorStats.builder()
-                        .total(totalAuthors).orphaned(orphanedAuthors).build())
+                        .total(totalAuthors).build())
                 .keywords(DatabaseStatsResponse.KeywordStats.builder()
-                        .total(totalKeywords).orphaned(orphanedKeywords).build())
+                        .total(totalKeywords).build())
                 .journals(DatabaseStatsResponse.CountStat.builder().total(totalJournals).build())
                 .researchFields(DatabaseStatsResponse.CountStat.builder().total(totalFields).build())
                 .researchTopics(DatabaseStatsResponse.TopicStats.builder()
@@ -725,7 +731,28 @@ public class DataSyncServiceImpl implements DataSyncService {
                 .syncLogs(DatabaseStatsResponse.SyncStats.builder()
                         .total(totalSyncLogs).lastSync(lastSync).build())
                 .build();
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.info("Database stats computed in {}ms: papers={}, authors={}, keywords={}, neo4j=[papers={}, kw={}, rels={}]",
+                elapsed, totalPapers, totalAuthors, totalKeywords,
+                neo4jStats.getPaperNodes(), neo4jStats.getKeywordNodes(), neo4jStats.getRelationships());
+
+        // ── Store in cache ──
+        cachedStats = new StatsCacheEntry(stats);
+        return stats;
     }
+
+    // ── Stats cache (1 hour TTL) ──
+    private static final long CACHE_TTL_MS = 60 * 60 * 1000;
+    private static class StatsCacheEntry {
+        final DatabaseStatsResponse data;
+        final long expiryTime;
+        StatsCacheEntry(DatabaseStatsResponse data) {
+            this.data = data;
+            this.expiryTime = System.currentTimeMillis() + CACHE_TTL_MS;
+        }
+    }
+    private StatsCacheEntry cachedStats;
 
     private DatabaseStatsResponse.Neo4jStats getNeo4jStats() {
         Map<String, Long> stats = graphService.getStats();

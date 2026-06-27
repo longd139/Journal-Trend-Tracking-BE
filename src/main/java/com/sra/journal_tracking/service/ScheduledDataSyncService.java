@@ -5,6 +5,9 @@ import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,16 +20,28 @@ import java.util.stream.Collectors;
 
 /**
  * Auto-sync trending topics from external sources.
- * Runs daily at 2 AM. Controlled by SystemConfig key "auto_sync_enabled".
+ *
+ * Startup: runs once on app boot (async, high volume — 50 papers/keyword, 12 keywords)
+ * Hourly:  runs every hour (low volume — 10 papers/keyword, 8 keywords)
+ * Controlled by SystemConfig key "auto_sync_enabled".
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ScheduledDataSyncService {
 
+    // ── Hourly sync (lightweight) ──
     private static final int MAX_TRENDING_PAPERS = 15;
     private static final int MAX_KEYWORDS = 8;
     private static final int SYNC_PER_KEYWORD = 10;
+
+    // ── Startup sync (heavy — builds initial dataset) ──
+    private static final int STARTUP_MAX_KEYWORDS = 12;
+    private static final int STARTUP_SYNC_PER_KEYWORD = 30;
+
+    // ── Rate limiting: ms between API calls to avoid connection exhaustion ──
+    private static final int SLEEP_BETWEEN_SOURCES = 3000;   // 3s giữa OpenAlex → Semantic Scholar → arXiv
+    private static final int SLEEP_BETWEEN_KEYWORDS = 5000;   // 5s giữa các keyword
 
     private final DataSyncService dataSyncService;
     private final SystemConfigRepository systemConfigRepository;
@@ -37,6 +52,129 @@ public class ScheduledDataSyncService {
 
     @Value("${app.openalex-email:}")
     private String openalexEmail;
+
+    // ═══════════════════════════════════════════════════════════
+    //  Startup Sync — runs once when app boots (async, high volume)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Runs immediately after application startup to populate the database
+     * with a large initial dataset. Async — does not block app boot.
+     *
+     * Fetches trending keywords → syncs 50 papers/keyword from 4 sources.
+     * This gives the statistics APIs a solid data foundation from day one.
+     */
+    @Async("taskExecutor")
+    @EventListener(ApplicationReadyEvent.class)
+    public void startupBulkSync() {
+        if (!isAutoSyncEnabled()) {
+            log.info("STARTUP SYNC: Auto-sync is DISABLED. Skipping startup bulk sync.");
+            return;
+        }
+
+        log.info("╔══════════════════════════════════════════════════════════════╗");
+        log.info("║  STARTUP BULK SYNC — Building initial dataset (high volume)  ║");
+        log.info("║  Keywords: {} | Papers/keyword: {} | Sources: 4             ║",
+                STARTUP_MAX_KEYWORDS, STARTUP_SYNC_PER_KEYWORD);
+        log.info("╚══════════════════════════════════════════════════════════════╝");
+
+        LocalDateTime startTime = LocalDateTime.now();
+        int totalPapersInserted = 0;
+
+        try {
+            // Step 1: Collect trending keywords from multiple sources
+            Set<String> trendingKeywords = new LinkedHashSet<>();
+            trendingKeywords.addAll(fetchTrendingFromOpenAlex());
+            trendingKeywords.addAll(fetchTrendingFromSemanticScholar());
+
+            // Also add curated high-value keywords for a rich initial dataset
+            trendingKeywords.addAll(getDefaultTopics());
+
+            if (trendingKeywords.isEmpty()) {
+                log.warn("STARTUP SYNC: No trending keywords found. Using defaults only.");
+                trendingKeywords.addAll(getDefaultTopics());
+            }
+
+            // Limit to startup max
+            List<String> keywords = trendingKeywords.stream()
+                    .limit(STARTUP_MAX_KEYWORDS)
+                    .toList();
+
+            log.info("STARTUP SYNC: {} keywords to sync: {}", keywords.size(),
+                    String.join(", ", keywords));
+
+            // Step 2: Sync papers for each keyword from all available sources
+            int kwIndex = 0;
+            for (String keyword : keywords) {
+                kwIndex++;
+                log.info("STARTUP SYNC [{}/{}]: Syncing '{}'...", kwIndex, keywords.size(), keyword);
+
+                // OpenAlex (primary source, no rate limit issues)
+                try {
+                    SyncLog log1 = dataSyncService.syncFromOpenAlex(keyword, STARTUP_SYNC_PER_KEYWORD);
+                    int inserted = log1.getPapersInserted() != null ? log1.getPapersInserted() : 0;
+                    totalPapersInserted += inserted;
+                    log.info("  → OpenAlex: {} papers inserted", inserted);
+                    Thread.sleep(SLEEP_BETWEEN_SOURCES);
+                } catch (Exception e) {
+                    log.warn("  → OpenAlex FAILED for '{}': {}", keyword, e.getMessage());
+                }
+
+                // Semantic Scholar
+                try {
+                    SyncLog log2 = dataSyncService.syncFromSemanticScholar(keyword, STARTUP_SYNC_PER_KEYWORD);
+                    int inserted = log2.getPapersInserted() != null ? log2.getPapersInserted() : 0;
+                    totalPapersInserted += inserted;
+                    log.info("  → Semantic Scholar: {} papers inserted", inserted);
+                    Thread.sleep(SLEEP_BETWEEN_SOURCES);
+                } catch (Exception e) {
+                    log.warn("  → Semantic Scholar FAILED for '{}': {}", keyword, e.getMessage());
+                }
+
+                // arXiv (slower rate limit)
+                try {
+                    SyncLog log3 = dataSyncService.syncFromArxiv(keyword, Math.min(STARTUP_SYNC_PER_KEYWORD, 15));
+                    int inserted = log3.getPapersInserted() != null ? log3.getPapersInserted() : 0;
+                    totalPapersInserted += inserted;
+                    log.info("  → arXiv: {} papers inserted", inserted);
+                    Thread.sleep(SLEEP_BETWEEN_SOURCES);
+                } catch (Exception e) {
+                    log.debug("  → arXiv skipped for '{}': {}", keyword, e.getMessage());
+                }
+
+                // CORE (if API key configured)
+                if (coreApiKey != null && !coreApiKey.isBlank()) {
+                    try {
+                        SyncLog log4 = dataSyncService.syncFromCore(keyword, Math.min(STARTUP_SYNC_PER_KEYWORD, 20));
+                        int inserted = log4.getPapersInserted() != null ? log4.getPapersInserted() : 0;
+                        totalPapersInserted += inserted;
+                        log.info("  → CORE: {} papers inserted", inserted);
+                        Thread.sleep(SLEEP_BETWEEN_SOURCES);
+                    } catch (Exception e) {
+                        log.debug("  → CORE skipped for '{}': {}", keyword, e.getMessage());
+                    }
+                }
+
+                // Save progress after each keyword
+                saveAutoSyncResult(totalPapersInserted, startTime);
+                Thread.sleep(SLEEP_BETWEEN_KEYWORDS);
+            }
+
+        } catch (Exception e) {
+            log.error("STARTUP SYNC FAILED: {}", e.getMessage(), e);
+            saveAutoSyncResult(totalPapersInserted, startTime);
+        }
+
+        long elapsed = java.time.Duration.between(startTime, LocalDateTime.now()).toSeconds();
+        log.info("╔══════════════════════════════════════════════════════════════╗");
+        log.info("║  STARTUP SYNC COMPLETE: {} papers in {}s                    ║",
+                totalPapersInserted, elapsed);
+        log.info("╚══════════════════════════════════════════════════════════════╝");
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Hourly Sync — lightweight, keeps data fresh
+    // ═══════════════════════════════════════════════════════════
 
     @Scheduled(cron = "0 0 * * * ?") // Every hour
     public void autoSyncTrendingTopics() {
