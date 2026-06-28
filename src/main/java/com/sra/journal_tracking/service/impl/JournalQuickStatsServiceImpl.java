@@ -13,6 +13,7 @@ import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.service.JournalQuickStatsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +38,8 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "search:journalQuickStats", cacheManager = "searchCacheManager",
+               key = "#journalName.trim().toLowerCase()", unless = "#result == null || #result.totalPapers == 0")
     public JournalQuickStatsResponse getStats(String journalName) {
         String trimmed = journalName.trim();
         if (trimmed.isEmpty()) {
@@ -110,6 +113,8 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "search:journalTimeline", cacheManager = "searchCacheManager",
+               key = "#journalName.trim().toLowerCase()", unless = "#result == null || #result.timeline == null || #result.timeline.isEmpty()")
     public JournalTimelineResponse getTimeline(String journalName) {
         String trimmed = journalName.trim();
         if (trimmed.isEmpty()) {
@@ -183,6 +188,8 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "search:journalTopPapers", cacheManager = "searchCacheManager",
+               key = "#journalName.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
     public List<PaperDetailResponseDTO> getTopPapers(String journalName) {
         Journal journal = findJournal(journalName);
         if (journal == null) return List.of();
@@ -197,6 +204,8 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "search:journalTopAuthors", cacheManager = "searchCacheManager",
+               key = "#journalName.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
     public List<JournalAuthorResponse> getTopAuthors(String journalName) {
         Journal journal = findJournal(journalName);
         if (journal == null) return List.of();

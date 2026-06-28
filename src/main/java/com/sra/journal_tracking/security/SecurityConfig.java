@@ -90,6 +90,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/public/**").permitAll()
                         .requestMatchers("/api/graphs/**").permitAll()
                         .requestMatchers("/api/v1/papers").permitAll()
+                        .requestMatchers("/api/v1/journals/**").permitAll()
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",

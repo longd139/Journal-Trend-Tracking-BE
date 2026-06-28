@@ -5,6 +5,7 @@ import com.sra.journal_tracking.dto.author.AuthorQuickStatsResponse;
 import com.sra.journal_tracking.dto.author.AuthorResearchFocusResponse;
 import com.sra.journal_tracking.dto.author.AuthorTimelineResponse;
 import com.sra.journal_tracking.dto.author.CoAuthorResponse;
+import com.sra.journal_tracking.dto.author.SuggestedAuthorResponse;
 import com.sra.journal_tracking.dto.journal.JournalAuthorResponse;
 import com.sra.journal_tracking.dto.journal.JournalQuickStatsResponse;
 import com.sra.journal_tracking.dto.journal.JournalTimelineResponse;
@@ -17,6 +18,7 @@ import com.sra.journal_tracking.dto.search.NicheTopicResponse;
 import com.sra.journal_tracking.dto.search.RecentSearchResponse;
 import com.sra.journal_tracking.repository.jpa.ResearchFieldRepository;
 import com.sra.journal_tracking.service.AuthorQuickStatsService;
+import com.sra.journal_tracking.service.AuthorSuggestionService;
 import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.JournalQuickStatsService;
 import com.sra.journal_tracking.service.KeywordQuickStatsService;
@@ -41,6 +43,7 @@ import java.util.List;
 public class SearchController {
 
     private final AuthorQuickStatsService authorQuickStatsService;
+    private final AuthorSuggestionService authorSuggestionService;
     private final KeywordQuickStatsService keywordQuickStatsService;
     private final JournalQuickStatsService journalQuickStatsService;
     private final UserSearchHistoryService userSearchHistoryService;
@@ -374,6 +377,19 @@ public class SearchController {
                 .toList();
 
         return ResponseEntity.ok(AppResponse.success("Niche topics retrieved", niches));
+    }
+
+    @Operation(
+            summary = "Suggested authors for zero-state",
+            description = "Returns top authors by citation count with their primary research field. "
+                        + "Used when the author search page loads without a keyword — helps users "
+                        + "discover influential researchers across different fields. Cached per day."
+    )
+    @GetMapping("/author/suggested")
+    public ResponseEntity<AppResponse<List<SuggestedAuthorResponse>>> getSuggestedAuthors() {
+        log.info("Fetching suggested authors (zero-state)");
+        List<SuggestedAuthorResponse> authors = authorSuggestionService.getSuggestedAuthors();
+        return ResponseEntity.ok(AppResponse.success("Suggested authors retrieved", authors));
     }
 
 }

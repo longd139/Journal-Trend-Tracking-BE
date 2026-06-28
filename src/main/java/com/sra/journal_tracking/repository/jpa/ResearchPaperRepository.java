@@ -217,10 +217,8 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
      * Find papers by IDs, ordered by citation count descending.
      * Used for "Top 5 Most Influential Papers" in keyword quick-stats.
      */
-    @Query("SELECT DISTINCT p FROM ResearchPaper p "
+    @Query("SELECT p FROM ResearchPaper p "
          + "LEFT JOIN FETCH p.journal "
-         + "LEFT JOIN FETCH p.keywords pk "
-         + "LEFT JOIN FETCH pk.keyword "
          + "WHERE p.paperId IN :ids "
          + "ORDER BY p.citationCount DESC")
     List<ResearchPaper> findTopCitedByIds(@Param("ids") List<UUID> ids, Pageable pageable);

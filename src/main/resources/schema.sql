@@ -39,3 +39,21 @@ BEGIN
         CREATE NONCLUSTERED INDEX IX_TRENDING_TOPIC_DisplayOrder
             ON TRENDING_TOPIC (DisplayOrder ASC)'
 END
+
+-- 3. RESEARCH_FIELD — Seed additional top-level fields if missing
+IF NOT EXISTS (SELECT 1 FROM RESEARCH_FIELD WHERE FieldName = N'Engineering')
+    INSERT INTO RESEARCH_FIELD (FieldID, ParentFieldID, FieldName, IsTracked, Description)
+    VALUES (NEWID(), NULL, N'Engineering', 1, N'Engineering and technology disciplines');
+
+IF NOT EXISTS (SELECT 1 FROM RESEARCH_FIELD WHERE FieldName = N'Medicine')
+    INSERT INTO RESEARCH_FIELD (FieldID, ParentFieldID, FieldName, IsTracked, Description)
+    VALUES (NEWID(), NULL, N'Medicine', 1, N'Medical and health sciences');
+
+IF NOT EXISTS (SELECT 1 FROM RESEARCH_FIELD WHERE FieldName = N'Physics')
+    INSERT INTO RESEARCH_FIELD (FieldID, ParentFieldID, FieldName, IsTracked, Description)
+    VALUES (NEWID(), NULL, N'Physics', 1, N'Physics and physical sciences');
+
+IF NOT EXISTS (SELECT 1 FROM RESEARCH_FIELD WHERE FieldName = N'Economics')
+    INSERT INTO RESEARCH_FIELD (FieldID, ParentFieldID, FieldName, IsTracked, Description)
+    VALUES (NEWID(), NULL, N'Economics', 1, N'Economics and business studies');
+

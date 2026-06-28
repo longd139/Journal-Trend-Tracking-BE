@@ -13,6 +13,7 @@ import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.KeywordQuickStatsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +48,8 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "search:keywordQuickStats", cacheManager = "searchCacheManager",
+               key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.totalPapers == 0")
     public KeywordQuickStatsResponse getStats(String keyword) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) {
@@ -162,6 +165,8 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
     }
 
     @Override
+    @Cacheable(value = "search:keywordRelatedTrends", cacheManager = "searchCacheManager",
+               key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
     public List<RelatedKeywordResponse> getRelatedTrends(String keyword) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) {
@@ -220,6 +225,8 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
     }
 
     @Override
+    @Cacheable(value = "search:keywordTopPapers", cacheManager = "searchCacheManager",
+               key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
     public List<PaperDetailResponseDTO> getTopInfluentialPapers(String keyword) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) {

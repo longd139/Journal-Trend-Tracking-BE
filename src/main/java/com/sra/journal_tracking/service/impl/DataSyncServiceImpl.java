@@ -30,6 +30,7 @@ import com.sra.journal_tracking.service.BulkSyncProgressTracker;
 import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.KeywordExtractionService;
+import com.sra.journal_tracking.service.NotificationTriggerService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
@@ -83,6 +84,7 @@ public class DataSyncServiceImpl implements DataSyncService {
     private final RestTemplate restTemplate;
     private final BulkSyncProgressTracker bulkSyncProgressTracker;
     private final KeywordExtractionService keywordExtractionService;
+    private final NotificationTriggerService notificationTriggerService;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -177,6 +179,9 @@ public class DataSyncServiceImpl implements DataSyncService {
 
                     // Cache paper-keyword links in Neo4j for graph search.
                     savePaperToNeo4j(savedPaper, List.of(), query);
+
+                    // Trigger notification for users following related journal/keyword
+                    notificationTriggerService.notifyNewPaper(savedPaper);
 
                     if (paperDTO.getAuthors() != null) {
                         int order = 1;
@@ -375,6 +380,9 @@ public class DataSyncServiceImpl implements DataSyncService {
             }
         }
 
+        // Trigger notification for users following related journal/keyword
+        notificationTriggerService.notifyNewPaper(savedPaper);
+
         return savedPaper;
     }
 
@@ -452,6 +460,9 @@ public class DataSyncServiceImpl implements DataSyncService {
 
                 List<String> keywords = extractKeywordsFromTitle(pp.title());
                 savePaperToNeo4j(savedPaper, keywords, query);
+
+                // Trigger notification for users following related journal/keyword
+                notificationTriggerService.notifyNewPaper(savedPaper);
 
                 if (pp.authors() != null) {
                     int order = 1;
@@ -563,6 +574,9 @@ public class DataSyncServiceImpl implements DataSyncService {
 
                 List<String> kws = extractKeywordsFromTitle(title);
                 savePaperToNeo4j(savedPaper, kws, query);
+
+                // Trigger notification for users following related journal/keyword
+                notificationTriggerService.notifyNewPaper(savedPaper);
 
                 @SuppressWarnings("unchecked")
                 List<Map<String, Object>> authors = (List<Map<String, Object>>) work.get("authors");
@@ -921,6 +935,9 @@ public class DataSyncServiceImpl implements DataSyncService {
                         List<String> kws = saveOpenAlexKeywords(savedPaper, work, keyword);
                         savePaperToNeo4j(savedPaper, kws, keyword);
 
+                        // Trigger notification for users following related journal/keyword
+                        notificationTriggerService.notifyNewPaper(savedPaper);
+
                         if (work.getAuthorships() != null) {
                             int order = 1;
                             for (OpenAlexResponseDTO.Authorship authorship : work.getAuthorships()) {
@@ -1069,6 +1086,9 @@ public class DataSyncServiceImpl implements DataSyncService {
 
                         List<String> kws = saveOpenAlexKeywords(savedPaper, work, keyword);
                         savePaperToNeo4j(savedPaper, kws, keyword);
+
+                        // Trigger notification for users following related journal/keyword
+                        notificationTriggerService.notifyNewPaper(savedPaper);
 
                         if (work.getAuthorships() != null) {
                             int order = 1;
