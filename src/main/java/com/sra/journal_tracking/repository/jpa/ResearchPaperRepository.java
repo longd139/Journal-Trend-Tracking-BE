@@ -316,4 +316,43 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
          + "   OR LOWER(kw.keywordText) LIKE LOWER(CONCAT('%', :query, '%'))) "
          + "ORDER BY p.citationCount DESC")
     List<ResearchPaper> findTopCitedByKeyword(@Param("query") String query, Pageable pageable);
+
+	    // ── Report Queries ──
+
+	    /**
+	     * Top keywords published in a specific journal in recent years (from startYear).
+	     * Returns [keywordText, paperCount] ordered by frequency DESC.
+	     * Used for journal quality report "taste" analysis.
+	     */
+	    @Query("SELECT kw.keywordText, COUNT(p) FROM ResearchPaper p "
+	         + "JOIN p.keywords pk JOIN pk.keyword kw "
+	         + "WHERE p.journal.journalId = :journalId AND p.pubYear >= :startYear "
+	         + "GROUP BY kw.keywordText ORDER BY COUNT(p) DESC")
+	    List<Object[]> findTopKeywordsByJournalIdRecent(
+	            @Param("journalId") UUID journalId,
+	            @Param("startYear") Short startYear,
+	            Pageable pageable);
+
+	    /**
+	     * Count papers for a given author in recent years (from startYear).
+	     * Used to determine if an author is actively publishing.
+	     */
+	    @Query("SELECT COUNT(p) FROM ResearchPaper p "
+	         + "JOIN p.authors pa "
+	         + "WHERE pa.author.authorId = :authorId AND p.pubYear >= :startYear")
+	    long countRecentPapersByAuthorId(
+	            @Param("authorId") UUID authorId,
+	            @Param("startYear") Short startYear);
+
+	    /**
+	     * Get yearly paper counts for a set of paper IDs.
+	     * Returns [pubYear, paperCount] ordered by year ASC.
+	     * Used for keyword trend report yearly breakdown chart.
+	     */
+	    @Query("SELECT p.pubYear, COUNT(p) FROM ResearchPaper p "
+	         + "WHERE p.paperId IN :ids AND p.pubYear >= :startYear "
+	         + "GROUP BY p.pubYear ORDER BY p.pubYear ASC")
+	    List<Object[]> countPapersByYearForIds(
+	            @Param("ids") List<UUID> ids,
+	            @Param("startYear") Short startYear);
 }
