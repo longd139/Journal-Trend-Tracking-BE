@@ -197,11 +197,24 @@ public class AuthServiceImpl implements AuthService {
                         log.info("Researcher trial set for {}: expires at {}", request.getEmail(), user.getRoleExpiryAt());
                 }
 
-                userRepository.save(user);
+                user = userRepository.saveAndFlush(user);
 
-                // Tạo verification token và log link ra terminal
-                Authentication authentication = authenticationManager.authenticate(
-                                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
+                // Validate: role must match what was requested
+                if (!role.getRoleName().equalsIgnoreCase(user.getRole().getRoleName())) {
+                        log.error("ROLE MISMATCH after save! Requested={}, Actual={}",
+                                        role.getRoleName(), user.getRole().getRoleName());
+                        throw new AppException(ErrorCode.INVALID_CREDENTIALS);
+                }
+
+                log.info("User registered: email={}, role={}, roleExpiryAt={}",
+                                user.getEmail(), user.getRole().getRoleName(), user.getRoleExpiryAt());
+
+                // Tạo Authentication trực tiếp từ user vừa lưu — không gọi authenticate()
+                // để tránh trigger loadUserByUsername() khi transaction chưa commit
+                CustomUserDetails userDetails = new CustomUserDetails(user);
+                Authentication authentication = new UsernamePasswordAuthenticationToken(
+                                userDetails, null, userDetails.getAuthorities());
+                SecurityContextHolder.getContext().setAuthentication(authentication);
 
                 String jwt = tokenProvider.generateToken(authentication);
                 saveUserSession(user, jwt);
@@ -220,6 +233,9 @@ public class AuthServiceImpl implements AuthService {
 
                 User user = userRepository.findByEmail(request.getEmail())
                                 .orElseThrow(() -> new RuntimeException("User not found"));
+
+                log.info("User logged in: email={}, role={}, roleExpiryAt={}",
+                                user.getEmail(), user.getRole().getRoleName(), user.getRoleExpiryAt());
 
                 saveUserSession(user, jwt);
                 return buildAuthResponse(jwt, user);
