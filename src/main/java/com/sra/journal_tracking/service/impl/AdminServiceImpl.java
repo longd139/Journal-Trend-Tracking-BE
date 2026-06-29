@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AdminServiceImpl implements AdminService {
 
-    private static final Set<String> USER_ROLE_TARGETS = Set.of("academic_user", "researcher");
+    private static final Set<String> USER_ROLE_TARGETS = Set.of("academic_user", "researcher", "admin");
     private static final Set<String> SUPPORTED_SYNC_SOURCES = Set.of("openalex", "semantic_scholar", "arxiv", "core");
     private static final Map<String, String> CONFIG_ALIASES = Map.ofEntries(
             Map.entry("syncIntervalHours", "sync_interval_hours"),
