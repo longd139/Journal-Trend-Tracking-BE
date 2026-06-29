@@ -1,0 +1,14 @@
+{
+  "name": "openalex-scraper",
+  "version": "1.0.0",
+  "description": "Standalone JavaScript tool to scrape data from OpenAlex API and output JSON files for the SCITRACK system",
+  "type": "module",
+  "main": "scraper.js",
+  "scripts": {
+    "scrape:papers": "node scraper.js --entity papers",
+    "scrape:authors": "node scraper.js --entity authors",
+    "scrape:journals": "node scraper.js --entity journals",
+    "scrape:all": "node scraper.js --entity all"
+  },
+  "license": "MIT"
+}

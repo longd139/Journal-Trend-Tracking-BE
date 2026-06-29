@@ -433,16 +433,21 @@ public class AuthorQuickStatsService {
     // ── URL builder ──
 
     private String buildUrl(String keyword) {
-        // Pre-encode the search keyword to avoid double-encoding:
-        // build().encode() would encode space → %20, then RestTemplate/URI
-        // encodes % → %25, resulting in %2520 (OpenAlex sees literal "%20").
-        // By pre-encoding and using build(true), the already-encoded %20
-        // is recognized as a valid percent-sequence and left intact.
-        String encodedKeyword = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
+        // Use filter=display_name.search: instead of the generic search= param.
+        // The generic /authors search parser treats dots in initials (e.g. "O.",
+        // "M." in "Ahmed O. M. Bahageel") as regex-like operators, causing
+        // extremely broad scans and OpenAlex 504 "query_timeout".
+        // display_name.search: does a targeted substring match against the
+        // display_name field and handles dots/special chars correctly.
+        //
+        // Pre-encode to avoid double-encoding: build(true) recognizes already-
+        // encoded sequences (%XX) and leaves them intact.
+        String filterValue = "display_name.search:" + keyword;
+        String encodedFilter = URLEncoder.encode(filterValue, StandardCharsets.UTF_8);
 
         UriComponentsBuilder builder = UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_AUTHORS_URL)
-                .queryParam("search", encodedKeyword)
+                .queryParam("filter", encodedFilter)
                 .queryParam("per-page", MAX_RESULTS);
 
         if (openalexEmail != null && !openalexEmail.isBlank()) {

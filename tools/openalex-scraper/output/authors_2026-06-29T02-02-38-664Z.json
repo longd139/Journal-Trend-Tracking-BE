@@ -1,0 +1,128 @@
+{
+  "query": "Ahmed O. M. Bahageel",
+  "total": 2,
+  "results": [
+    {
+      "openAlexId": "https://openalex.org/A5093587645",
+      "externalAuthorId": "https://openalex.org/A5093587645",
+      "fullName": "Ahmed O. M. Bahageel",
+      "affiliation": null,
+      "institutionType": null,
+      "hIndex": 2,
+      "totalCitations": 13,
+      "worksCount": 7,
+      "i10Index": 0,
+      "twoYearMeanCitedness": 2.1666666666666665,
+      "orcid": null,
+      "countsByYear": [
+        {
+          "year": 2023,
+          "worksCount": 1,
+          "oaWorksCount": 1,
+          "citedByCount": 0
+        },
+        {
+          "year": 2024,
+          "worksCount": 5,
+          "oaWorksCount": 1,
+          "citedByCount": 12
+        },
+        {
+          "year": 2025,
+          "worksCount": 1,
+          "oaWorksCount": 0,
+          "citedByCount": 1
+        }
+      ],
+      "topics": [
+        {
+          "openAlexId": "https://openalex.org/T11052",
+          "name": "Energy Load and Power Forecasting",
+          "count": 6,
+          "subfield": "Electrical and Electronic Engineering",
+          "field": "Engineering",
+          "domain": "Physical Sciences"
+        },
+        {
+          "openAlexId": "https://openalex.org/T11276",
+          "name": "Solar Radiation and Photovoltaics",
+          "count": 3,
+          "subfield": "Artificial Intelligence",
+          "field": "Computer Science",
+          "domain": "Physical Sciences"
+        },
+        {
+          "openAlexId": "https://openalex.org/T10223",
+          "name": "Microgrid Control and Optimization",
+          "count": 2,
+          "subfield": "Control and Systems Engineering",
+          "field": "Engineering",
+          "domain": "Physical Sciences"
+        },
+        {
+          "openAlexId": "https://openalex.org/T10424",
+          "name": "Electric Power System Optimization",
+          "count": 2,
+          "subfield": "Electrical and Electronic Engineering",
+          "field": "Engineering",
+          "domain": "Physical Sciences"
+        },
+        {
+          "openAlexId": "https://openalex.org/T10603",
+          "name": "Smart Grid Energy Management",
+          "count": 2,
+          "subfield": "Electrical and Electronic Engineering",
+          "field": "Engineering",
+          "domain": "Physical Sciences"
+        }
+      ]
+    },
+    {
+      "openAlexId": "https://openalex.org/A5098812780",
+      "externalAuthorId": "https://openalex.org/A5098812780",
+      "fullName": "O. M. Ahmed Bahageel",
+      "affiliation": null,
+      "institutionType": null,
+      "hIndex": 1,
+      "totalCitations": 5,
+      "worksCount": 1,
+      "i10Index": 0,
+      "twoYearMeanCitedness": 5,
+      "orcid": null,
+      "countsByYear": [
+        {
+          "year": 2024,
+          "worksCount": 1,
+          "oaWorksCount": 0,
+          "citedByCount": 5
+        }
+      ],
+      "topics": [
+        {
+          "openAlexId": "https://openalex.org/T10223",
+          "name": "Microgrid Control and Optimization",
+          "count": 1,
+          "subfield": "Control and Systems Engineering",
+          "field": "Engineering",
+          "domain": "Physical Sciences"
+        },
+        {
+          "openAlexId": "https://openalex.org/T10305",
+          "name": "Power System Optimization and Stability",
+          "count": 1,
+          "subfield": "Electrical and Electronic Engineering",
+          "field": "Engineering",
+          "domain": "Physical Sciences"
+        },
+        {
+          "openAlexId": "https://openalex.org/T10573",
+          "name": "Power Quality and Harmonics",
+          "count": 1,
+          "subfield": "Electrical and Electronic Engineering",
+          "field": "Engineering",
+          "domain": "Physical Sciences"
+        }
+      ]
+    }
+  ]
+}
