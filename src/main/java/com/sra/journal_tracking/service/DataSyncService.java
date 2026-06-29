@@ -48,6 +48,11 @@ public interface DataSyncService {
     java.util.Map<String, Object> bulkSyncFromOpenAlex(java.util.List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo);
 
     /**
+     * Bulk sync with custom mailto email (for team members to use their own polite pool quota).
+     */
+    java.util.Map<String, Object> bulkSyncFromOpenAlex(java.util.List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo, String mailto);
+
+    /**
      * Async version of bulkSyncFromOpenAlex with progress tracking.
      * Updates {@link BulkSyncProgressTracker} as each keyword completes.
      *

@@ -438,11 +438,11 @@ function generateSql(papers, opts) {
   lines.push("--      NormalizedText for keywords, ExternalAuthorID for authors)");
   lines.push("-- ═══════════════════════════════════════════════════════════════");
   lines.push("");
-  lines.push("BEGIN TRANSACTION;");
+  lines.push("SET NOCOUNT ON;  -- suppress row-count messages for performance");
   lines.push("GO");
   lines.push("");
 
-  // Ensure API_SOURCE 'OpenAlex' exists
+  // Ensure API_SOURCE 'OpenAlex' exists (outside any paper transaction)
   lines.push("-- Ensure API_SOURCE exists");
   lines.push("IF NOT EXISTS (SELECT 1 FROM API_SOURCE WHERE SourceName = 'OpenAlex')");
   lines.push("BEGIN");
@@ -451,8 +451,7 @@ function generateSql(papers, opts) {
   lines.push("END");
   lines.push("GO");
   lines.push("");
-  lines.push("DECLARE @SourceID UNIQUEIDENTIFIER = (SELECT SourceID FROM API_SOURCE WHERE SourceName = 'OpenAlex');");
-  lines.push("GO");
+  lines.push("-- @SourceID is declared inside each paper transaction below");
   lines.push("");
 
   for (let i = 0; i < papers.length; i++) {
@@ -465,6 +464,8 @@ function generateSql(papers, opts) {
     lines.push(`-- OpenAlex: ${p.openAlexId || "N/A"}`);
     lines.push("-- ───────────────────────────────────────────────────────────────");
     lines.push("");
+    lines.push("BEGIN TRANSACTION;  -- per-paper transaction for performance");
+    lines.push("DECLARE @SourceID UNIQUEIDENTIFIER = (SELECT SourceID FROM API_SOURCE WHERE SourceName = 'OpenAlex');");
 
     // ── 1. JOURNAL (upsert by ISSN) ──
     if (p.journal && p.journal.issn) {
@@ -549,14 +550,14 @@ function generateSql(papers, opts) {
     // ── 4. AUTHORS + PAPER_AUTHOR ──
     if (p.authors.length > 0) {
       lines.push(`-- 4. Authors (${p.authors.length}) + paper_author junction`);
-      lines.push(`-- Upsert by (SourceID, ExternalAuthorID); skip if already linked`);
+      lines.push("-- Upsert by (SourceID, ExternalAuthorID); skip if already linked");
+      lines.push("DECLARE @AuthorID UNIQUEIDENTIFIER;  -- declared once, reused via SET");
       for (const author of p.authors) {
         const extId = author.openAlexId?.split("/").pop() || null;
         const extIdVal = extId ? escapeSql(extId) : "NULL";
         lines.push("");
         lines.push(`--   Author: ${(author.fullName || "Unknown").substring(0, 50)}`);
         if (extId) {
-          lines.push("DECLARE @AuthorID UNIQUEIDENTIFIER;");
           lines.push(`IF EXISTS (SELECT 1 FROM AUTHOR WHERE SourceID = @SourceID AND ExternalAuthorID = ${extIdVal})`);
           lines.push(`    SET @AuthorID = (SELECT AuthorID FROM AUTHOR WHERE SourceID = @SourceID AND ExternalAuthorID = ${extIdVal});`);
           lines.push("ELSE");
@@ -566,8 +567,7 @@ function generateSql(papers, opts) {
           lines.push(`    VALUES (@AuthorID, @SourceID, ${extIdVal}, ${escapeSql(author.fullName)}, ${escapeSql(author.affiliations?.[0] || "Unknown")}, 0, 0);`);
           lines.push("END");
         } else {
-          // No external ID — always insert new (can't reliably match)
-          lines.push("DECLARE @AuthorID UNIQUEIDENTIFIER = NEWID();");
+          lines.push("SET @AuthorID = NEWID();");
           lines.push("INSERT INTO AUTHOR (AuthorID, SourceID, ExternalAuthorID, FullName, Affiliation, HIndex, TotalCitations)");
           lines.push(`VALUES (@AuthorID, @SourceID, NULL, ${escapeSql(author.fullName)}, ${escapeSql(author.affiliations?.[0] || "Unknown")}, 0, 0);`);
         }
@@ -578,11 +578,9 @@ function generateSql(papers, opts) {
         lines.push("    INSERT INTO PAPER_AUTHOR (PaperID, AuthorID, AuthorOrder, IsCorresponding)");
         lines.push(`    VALUES (@PaperID, @AuthorID, ${author.authorOrder}, ${author.isCorresponding ? 1 : 0});`);
         lines.push("END");
-        lines.push("GO");
       }
     } else {
       lines.push("-- (no authors)");
-      lines.push("GO");
     }
     lines.push("");
 
@@ -590,12 +588,12 @@ function generateSql(papers, opts) {
     if (p.keywords.length > 0) {
       lines.push(`-- 5. Keywords (${p.keywords.length}) + paper_keyword junction`);
       lines.push("-- Upsert by NormalizedText; skip if already linked");
+      lines.push("DECLARE @KeywordID UNIQUEIDENTIFIER;  -- declared once, reused via SET");
       for (const kw of p.keywords) {
         const norm = keywordNormalized(kw.keyword);
         const score = kw.score != null ? kw.score.toFixed(4) : "NULL";
         lines.push("");
         lines.push(`--   Keyword: ${kw.keyword}`);
-        lines.push("DECLARE @KeywordID UNIQUEIDENTIFIER;");
         lines.push(`IF EXISTS (SELECT 1 FROM KEYWORD WHERE NormalizedText = ${escapeSql(norm)})`);
         lines.push("BEGIN");
         lines.push(`    SET @KeywordID = (SELECT KeywordID FROM KEYWORD WHERE NormalizedText = ${escapeSql(norm)});`);
@@ -615,25 +613,68 @@ function generateSql(papers, opts) {
         lines.push("    INSERT INTO PAPER_KEYWORD (PaperID, KeywordID, RelevanceScore)");
         lines.push(`    VALUES (@PaperID, @KeywordID, ${score});`);
         lines.push("END");
-        lines.push("GO");
       }
     } else {
       lines.push("-- (no keywords)");
       lines.push("GO");
     }
+    lines.push("COMMIT TRANSACTION;  -- commit this paper");
+    lines.push("GO");
     lines.push("");
   }
 
   lines.push("-- ═══════════════════════════════════════════════════════════════");
-  lines.push("-- Cleanup: drop variables (optional, but clean)");
+  lines.push("-- All papers committed individually above");
   lines.push("-- ═══════════════════════════════════════════════════════════════");
-  lines.push("COMMIT TRANSACTION;");
-  lines.push("GO");
   lines.push("");
   lines.push(`PRINT '✅ Done! Processed ${papers.length} papers from OpenAlex.';`);
   lines.push("GO");
 
-  return lines.join("\n");
+  return postProcess(lines.join("\n"));
+}
+
+/**
+ * Remove GO statements between BEGIN TRANSACTION and COMMIT TRANSACTION.
+ * In SQL Server, GO destroys DECLARE variables, so sections within a paper
+ * must all run in the same batch. We only keep COMMIT TRANSACTION; GO.
+ */
+function postProcess(sql) {
+  const lines = sql.split("\n");
+  const result = [];
+  let inTransaction = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+
+    if (trimmed === "BEGIN TRANSACTION;  -- per-paper transaction for performance"
+        || trimmed === "BEGIN TRANSACTION;") {
+      inTransaction = true;
+      result.push(lines[i]);
+      continue;
+    }
+
+    if (trimmed === "COMMIT TRANSACTION;  -- commit this paper"
+        || trimmed === "COMMIT TRANSACTION;") {
+      inTransaction = false;
+      result.push(lines[i]);
+      result.push("GO");
+      result.push("");
+      continue;
+    }
+
+    // Skip GO inside transactions (variables must survive across sections)
+    if (inTransaction && trimmed === "GO") {
+      // Replace GO with blank line to keep formatting readable
+      if (result.length > 0 && result[result.length - 1].trim() !== "") {
+        result.push("");
+      }
+      continue;
+    }
+
+    result.push(lines[i]);
+  }
+
+  return result.join("\n");
 }
 
 // ═════════════════════════════════════════════════════════════════════

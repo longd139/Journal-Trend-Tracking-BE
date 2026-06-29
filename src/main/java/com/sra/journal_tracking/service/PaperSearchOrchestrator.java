@@ -13,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Year;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -29,10 +28,9 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class PaperSearchOrchestrator {
-    private static final int RECENT_PUBLICATION_YEAR_WINDOW = 3;
-    private static final int DEFAULT_FALLBACK_LIMIT = 10;
+    private static final int MAX_SEARCH_RESULTS = 50;
     private static final double MIN_PRIMARY_KEYWORD_SCORE = 0.55d;
-    private static final long CACHE_TTL_MS = 60 * 60 * 1000; // 1 giờ
+    private static final long CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 giờ
 
     // ── Manual in-memory cache ──
     private static class CacheEntry<T> {
@@ -47,12 +45,11 @@ public class PaperSearchOrchestrator {
     private final DataSyncService dataSyncService;
     private final SearchKeywordService searchKeywordService;
     private final UserSearchHistoryService userSearchHistoryService;
-    private final KeywordExpansionService keywordExpansionService;
     private final ResearchPaperRepository researchPaperRepository;
 
     @Transactional
     public PaperSearchResultDTO searchByKeyword(String keyword, String userEmail) {
-        return searchByKeyword(keyword, userEmail, DEFAULT_FALLBACK_LIMIT);
+        return searchByKeyword(keyword, userEmail, MAX_SEARCH_RESULTS);
     }
 
     @Transactional
@@ -61,7 +58,7 @@ public class PaperSearchOrchestrator {
         if (trimmedKeyword.isEmpty()) {
             throw new IllegalArgumentException("Keyword cannot be empty");
         }
-        int safeLimit = Math.max(1, Math.min(resultLimit, DEFAULT_FALLBACK_LIMIT));
+        int safeLimit = Math.max(1, Math.min(resultLimit, MAX_SEARCH_RESULTS));
 
         // ── Cache check ──
         String cacheKey = trimmedKeyword.toLowerCase();
@@ -109,29 +106,48 @@ public class PaperSearchOrchestrator {
             if (!sqlPapers.isEmpty()) {
                 log.info("SQL MATCH: {} papers valid in SQL", sqlPapers.size());
                 result = mapToSearchResultDTO(sqlPapers);
-                // ── Cache result ──
                 searchResultCache.put(cacheKey, new CacheEntry<>(result));
                 log.info("CACHE STORE: orchestrator '{}' → {} papers (TTL=1h)", trimmedKeyword, sqlPapers.size());
                 return result;
             }
 
-            log.warn("Neo4j STALE: {} IDs found in Neo4j but 0 in SQL. Cleaning up & falling back to OpenAlex.",
+            log.warn("Neo4j STALE: {} IDs found in Neo4j but 0 in SQL. Cleaning up & falling back to SQL full-text.",
                     neo4jPaperIds.size());
             graphService.deleteStalePapers(neo4jPaperIds);
         } else {
             log.info("Neo4j MISS for '{}'", trimmedKeyword);
         }
 
-        log.info("Calling OpenAlex API for '{}'", trimmedKeyword);
-        result = syncAndReturn(trimmedKeyword, safeLimit);
-        // ── Cache result (chỉ cache nếu có papers — đừng cache empty) ──
-        if (result.getPapers() != null && !result.getPapers().isEmpty()) {
+        // ── SQL full-text fallback (no external API call) ──
+        log.info("Trying SQL full-text search for '{}'", trimmedKeyword);
+        List<ResearchPaper> sqlResults = researchPaperRepository.findTopCitedByKeyword(
+                trimmedKeyword, org.springframework.data.domain.PageRequest.of(0, safeLimit));
+
+        if (!sqlResults.isEmpty()) {
+            log.info("SQL FULL-TEXT HIT: {} papers found for '{}'", sqlResults.size(), trimmedKeyword);
+            result = mapToSearchResultDTO(sqlResults);
             searchResultCache.put(cacheKey, new CacheEntry<>(result));
-            log.info("CACHE STORE: orchestrator '{}' → {} papers (TTL=1h)", trimmedKeyword, result.getPapers().size());
-        } else {
-            log.info("CACHE SKIP: orchestrator '{}' empty — not cached", trimmedKeyword);
+            log.info("CACHE STORE: orchestrator '{}' → {} papers (TTL=1h)", trimmedKeyword, sqlResults.size());
+
+            // Background async sync to enrich Neo4j for next search
+            try {
+                dataSyncService.syncFromOpenAlexAsync(trimmedKeyword, safeLimit);
+            } catch (Exception e) {
+                log.warn("Background sync failed for '{}': {}", trimmedKeyword, e.getMessage());
+            }
+
+            return result;
         }
-        return result;
+
+        // Nothing found — trigger background sync for future searches
+        log.info("No papers found for '{}' in any source. Triggering background sync.", trimmedKeyword);
+        try {
+            dataSyncService.syncFromOpenAlexAsync(trimmedKeyword, safeLimit);
+        } catch (Exception e) {
+            log.warn("Background sync trigger failed for '{}': {}", trimmedKeyword, e.getMessage());
+        }
+
+        return buildEmptyResult();
     }
 
     // ============================================
@@ -143,11 +159,7 @@ public class PaperSearchOrchestrator {
                 .map(UUID::fromString)
                 .collect(Collectors.toList());
 
-        short startYear = recentStartYear();
-        short endYear = currentYear();
-        List<ResearchPaper> papers = researchPaperRepository.findAllById(uuids).stream()
-                .filter(paper -> isRecentPublication(paper.getPubYear(), startYear, endYear))
-                .collect(Collectors.toList());
+        List<ResearchPaper> papers = researchPaperRepository.findAllById(uuids);
 
         papers.sort((a, b) -> {
             int idxA = uuids.indexOf(a.getPaperId());
@@ -156,66 +168,6 @@ public class PaperSearchOrchestrator {
         });
 
         return papers;
-    }
-
-    // ============================================
-    //  FALLBACK: Sync + Return
-    // ============================================
-
-    /**
-     * Synchronously sync papers from external APIs for the given keyword,
-     * then re-query Neo4j → SQL to return fresh results.
-     * Expanded keywords are synced asynchronously in the background
-     * to enrich the graph for future searches.
-     */
-    private PaperSearchResultDTO syncAndReturn(String keyword, int limit) {
-        int safeLimit = Math.max(1, Math.min(limit, DEFAULT_FALLBACK_LIMIT));
-        log.info("No cached papers for '{}'; starting synchronous sync from OpenAlex + Semantic Scholar", keyword);
-
-        // ── 1. Sync primary keyword SYNCHRONOUSLY ──
-        try {
-            log.info("Syncing '{}' from OpenAlex (synchronous)...", keyword);
-            dataSyncService.syncFromOpenAlex(keyword, safeLimit);
-        } catch (Exception e) {
-            log.warn("OpenAlex sync failed for '{}': {}", keyword, e.getMessage());
-        }
-
-        try {
-            log.info("Syncing '{}' from Semantic Scholar (synchronous)...", keyword);
-            dataSyncService.syncFromSemanticScholar(keyword, safeLimit);
-        } catch (Exception e) {
-            log.warn("Semantic Scholar sync failed for '{}': {}", keyword, e.getMessage());
-        }
-
-        // ── 2. Kick off expanded keywords ASYNCHRONOUSLY (background enrichment) ──
-        try {
-            keywordExpansionService.expand(keyword, 3)
-                    .stream()
-                    .filter(term -> !term.equalsIgnoreCase(keyword.trim()))
-                    .forEach(term -> dataSyncService.syncFromOpenAlexAsync(term, Math.min(limit, DEFAULT_FALLBACK_LIMIT)));
-        } catch (Exception e) {
-            log.warn("Keyword expansion failed for '{}': {}", keyword, e.getMessage());
-        }
-
-        // ── 3. Re-query Neo4j for the keyword (now populated by the syncs above) ──
-        List<String> freshPaperIds = graphService.searchPapersByKeyword(keyword);
-
-        if (!freshPaperIds.isEmpty()) {
-            log.info("Post-sync Neo4j HIT: {} papers found for '{}'", freshPaperIds.size(), keyword);
-            List<ResearchPaper> sqlPapers = filterRelevantPapers(fetchPapersFromSql(freshPaperIds), keyword);
-
-            if (!sqlPapers.isEmpty()) {
-                log.info("Post-sync SQL MATCH: {} papers valid", sqlPapers.size());
-                return mapToSearchResultDTO(sqlPapers);
-            }
-
-            log.warn("Post-sync: Neo4j returned {} IDs but 0 valid in SQL. Cleaning up stale nodes.", freshPaperIds.size());
-            graphService.deleteStalePapers(freshPaperIds);
-        }
-
-        // ── 4. Still nothing — return empty result (graceful degradation) ──
-        log.info("No papers found for '{}' after sync. Returning empty result.", keyword);
-        return buildEmptyResult();
     }
 
     private PaperSearchResultDTO mapToSearchResultDTO(List<ResearchPaper> papers) {
@@ -434,20 +386,5 @@ public class PaperSearchOrchestrator {
         return !isSyntheticKeyword(paperKeyword)
                 && paperKeyword.getRelevanceScore() != null
                 && paperKeyword.getRelevanceScore() >= MIN_PRIMARY_KEYWORD_SCORE;
-    }
-
-    private short currentYear() {
-        return (short) Year.now().getValue();
-    }
-
-    private short recentStartYear() {
-        return (short) (currentYear() - RECENT_PUBLICATION_YEAR_WINDOW + 1);
-    }
-
-    private boolean isRecentPublication(Short publicationYear, short startYear, short endYear) {
-        if (publicationYear == null) {
-            return false;
-        }
-        return publicationYear >= startYear && publicationYear <= endYear;
     }
 }

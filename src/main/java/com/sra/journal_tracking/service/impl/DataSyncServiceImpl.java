@@ -68,7 +68,7 @@ public class DataSyncServiceImpl implements DataSyncService {
     private static final int RECENT_PUBLICATION_YEAR_WINDOW = 3;
     private static final int MAX_AUTHORS_PER_PAPER = 5;
     private static final int MAX_KEYWORDS_PER_PAPER = 8;
-    private static final int MAX_BULK_PAGES_PER_KEYWORD = 50; // safety cap to avoid infinite pagination
+    private static final int MAX_BULK_PAGES_PER_KEYWORD = 200; // safety cap (200 pages × 200 per page = 40k papers max per keyword)
 
     private final ResearchPaperRepository researchPaperRepository;
     private final AuthorRepository authorRepository;
@@ -852,9 +852,14 @@ public class DataSyncServiceImpl implements DataSyncService {
 
     @Override
     public Map<String, Object> bulkSyncFromOpenAlex(List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo) {
+        return bulkSyncFromOpenAlex(keywords, papersPerKeyword, yearFrom, yearTo, openalexEmail);
+    }
+
+    @Override
+    public Map<String, Object> bulkSyncFromOpenAlex(List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo, String mailto) {
         log.info("Starting BULK sync: {} keywords, {} papers each", keywords.size(), papersPerKeyword);
 
-        int yrFrom = yearFrom != null ? yearFrom : Year.now().getValue() - 3;
+        int yrFrom = yearFrom != null ? yearFrom : 1900;
         int yrTo = yearTo != null ? yearTo : Year.now().getValue();
         int perPage = Math.min(200, Math.max(10, papersPerKeyword));
         int perKeyword = Math.max(1, papersPerKeyword);
@@ -866,14 +871,14 @@ public class DataSyncServiceImpl implements DataSyncService {
 
         for (String keyword : keywords) {
             int kwScanned = 0, kwInserted = 0, pageCount = 0;
-            int skippedByYear = 0, skippedByRelevance = 0, skippedByDuplicate = 0;
+            int skippedByYear = 0, skippedByDuplicate = 0;
             String nextCursor = "*";
             boolean hasMore = true;
 
             // Stop when: (1) enough papers inserted, (2) no more pages, or (3) safety cap reached
             while (hasMore && kwInserted < perKeyword && pageCount < MAX_BULK_PAGES_PER_KEYWORD) {
                 try {
-                    String url = withOpenAlexMailto(
+                    String url = withMailto(
                             UriComponentsBuilder
                                     .fromHttpUrl(source.getBaseUrl() + "/works")
                                     .queryParam("search", normalizeOpenAlexSearchQuery(keyword))
@@ -881,7 +886,8 @@ public class DataSyncServiceImpl implements DataSyncService {
                                     .queryParam("sort", "publication_date:desc")
                                     .queryParam("per-page", perPage)
                                     .queryParam("cursor", nextCursor)
-                                    .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,cited_by_count,abstract_inverted_index,open_access,primary_location,best_oa_location,topics,keywords,authorships")
+                                    .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,cited_by_count,abstract_inverted_index,open_access,primary_location,best_oa_location,topics,keywords,authorships"),
+                            mailto
                     ).build().encode().toUriString();
 
                     OpenAlexResponseDTO response = fetchOpenAlexWithRetry(url, OpenAlexResponseDTO.class, keyword);
@@ -902,10 +908,6 @@ public class DataSyncServiceImpl implements DataSyncService {
                         }
 
                         String abstractText = rebuildAbstract(work.getAbstractInvertedIndex());
-                        if (!isOpenAlexWorkRelevant(work, abstractText, keyword)) {
-                            skippedByRelevance++;
-                            continue;
-                        }
 
                         String doi = normalizeDoi(work.getDoi());
                         String title = trimToLength(resolveTitle(work), 1000);
@@ -955,6 +957,11 @@ public class DataSyncServiceImpl implements DataSyncService {
                         hasMore = false;
                     }
 
+                    // Log progress every 5 pages
+                    if (pageCount % 5 == 0) {
+                        log.info("Bulk sync '{}': page {}, inserted {} so far (scanned: {})", keyword, pageCount, kwInserted, kwScanned);
+                    }
+
                     Thread.sleep(500); // Rate limit
                 } catch (Exception e) {
                     log.warn("Bulk sync page failed for '{}': {}", keyword, e.getMessage());
@@ -964,9 +971,15 @@ public class DataSyncServiceImpl implements DataSyncService {
 
             totalFetched += kwScanned;
             totalInserted += kwInserted;
-            keywordStats.put(keyword, Map.of("scanned", kwScanned, "inserted", kwInserted));
-            log.info("Bulk sync: '{}' → scanned {}, inserted {} (pages: {}, skipped: year={} relevance={} dup={})",
-                    keyword, kwScanned, kwInserted, pageCount, skippedByYear, skippedByRelevance, skippedByDuplicate);
+            Map<String, Integer> kwStats = new LinkedHashMap<>();
+            kwStats.put("scanned", kwScanned);
+            kwStats.put("inserted", kwInserted);
+            kwStats.put("skippedByYear", skippedByYear);
+            kwStats.put("skippedByRelevance", 0); // relevance check removed — OpenAlex already filters
+            kwStats.put("skippedByDuplicate", skippedByDuplicate);
+            keywordStats.put(keyword, kwStats);
+            log.info("Bulk sync: '{}' → scanned {}, inserted {} (pages: {}, skipped: year={} dup={})",
+                    keyword, kwScanned, kwInserted, pageCount, skippedByYear, skippedByDuplicate);
         }
 
         log.info("BULK SYNC DONE: {} keywords, {} total fetched, {} total inserted",
@@ -999,9 +1012,14 @@ public class DataSyncServiceImpl implements DataSyncService {
      */
     private Map<String, Object> bulkSyncFromOpenAlexWithProgress(String taskId, List<String> keywords,
                                                                   int papersPerKeyword, Integer yearFrom, Integer yearTo) {
+        return bulkSyncFromOpenAlexWithProgress(taskId, keywords, papersPerKeyword, yearFrom, yearTo, openalexEmail);
+    }
+
+    private Map<String, Object> bulkSyncFromOpenAlexWithProgress(String taskId, List<String> keywords,
+                                                                  int papersPerKeyword, Integer yearFrom, Integer yearTo, String mailto) {
         log.info("Starting BULK sync [{}]: {} keywords, {} papers each", taskId, keywords.size(), papersPerKeyword);
 
-        int yrFrom = yearFrom != null ? yearFrom : Year.now().getValue() - 3;
+        int yrFrom = yearFrom != null ? yearFrom : 1900;
         int yrTo = yearTo != null ? yearTo : Year.now().getValue();
         int perPage = Math.min(200, Math.max(10, papersPerKeyword));
         int perKeyword = Math.max(1, papersPerKeyword);
@@ -1018,14 +1036,14 @@ public class DataSyncServiceImpl implements DataSyncService {
 
         for (String keyword : keywords) {
             int kwScanned = 0, kwInserted = 0, pageCount = 0;
-            int skippedByYear = 0, skippedByRelevance = 0, skippedByDuplicate = 0;
+            int skippedByYear = 0, skippedByDuplicate = 0;
             String nextCursor = "*";
             boolean hasMore = true;
 
             // Stop when: (1) enough papers inserted, (2) no more pages, or (3) safety cap reached
             while (hasMore && kwInserted < perKeyword && pageCount < MAX_BULK_PAGES_PER_KEYWORD) {
                 try {
-                    String url = withOpenAlexMailto(
+                    String url = withMailto(
                             UriComponentsBuilder
                                     .fromHttpUrl(source.getBaseUrl() + "/works")
                                     .queryParam("search", normalizeOpenAlexSearchQuery(keyword))
@@ -1033,7 +1051,8 @@ public class DataSyncServiceImpl implements DataSyncService {
                                     .queryParam("sort", "publication_date:desc")
                                     .queryParam("per-page", perPage)
                                     .queryParam("cursor", nextCursor)
-                                    .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,cited_by_count,abstract_inverted_index,open_access,primary_location,best_oa_location,topics,keywords,authorships")
+                                    .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,cited_by_count,abstract_inverted_index,open_access,primary_location,best_oa_location,topics,keywords,authorships"),
+                            mailto
                     ).build().encode().toUriString();
 
                     OpenAlexResponseDTO response = fetchOpenAlexWithRetry(url, OpenAlexResponseDTO.class, keyword);
@@ -1054,10 +1073,6 @@ public class DataSyncServiceImpl implements DataSyncService {
                         }
 
                         String abstractText = rebuildAbstract(work.getAbstractInvertedIndex());
-                        if (!isOpenAlexWorkRelevant(work, abstractText, keyword)) {
-                            skippedByRelevance++;
-                            continue;
-                        }
 
                         String doi = normalizeDoi(work.getDoi());
                         String title = trimToLength(resolveTitle(work), 1000);
@@ -1107,6 +1122,11 @@ public class DataSyncServiceImpl implements DataSyncService {
                         hasMore = false;
                     }
 
+                    // Log progress every 5 pages
+                    if (pageCount % 5 == 0) {
+                        log.info("Bulk sync '{}': page {}, inserted {} so far (scanned: {})", keyword, pageCount, kwInserted, kwScanned);
+                    }
+
                     Thread.sleep(500); // Rate limit
                 } catch (Exception e) {
                     String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
@@ -1124,10 +1144,10 @@ public class DataSyncServiceImpl implements DataSyncService {
             // Update progress after each keyword
             bulkSyncProgressTracker.updateKeywordProgress(taskId, keyword, kwScanned, kwInserted, totalFetched, totalInserted);
 
-            log.info("Bulk sync [{}]: '{}' → scanned {}, inserted {} (pages: {}, {}%, skipped: year={} relevance={} dup={})",
+            log.info("Bulk sync [{}]: '{}' → scanned {}, inserted {} (pages: {}, {}%, skipped: year={} dup={})",
                     taskId, keyword, kwScanned, kwInserted, pageCount,
                     (keywordStats.size() * 100) / keywords.size(),
-                    skippedByYear, skippedByRelevance, skippedByDuplicate);
+                    skippedByYear, skippedByDuplicate);
         }
 
         log.info("BULK SYNC [{}] DONE: {} keywords, {} total fetched, {} total inserted",
@@ -1698,6 +1718,16 @@ public class DataSyncServiceImpl implements DataSyncService {
     private UriComponentsBuilder withOpenAlexMailto(UriComponentsBuilder builder) {
         if (openalexEmail != null && !openalexEmail.isBlank()) {
             builder.queryParam("mailto", openalexEmail);
+        }
+        return builder;
+    }
+
+    /**
+     * Add mailto param with explicit email (for team members using their own polite pool quota).
+     */
+    private UriComponentsBuilder withMailto(UriComponentsBuilder builder, String mailto) {
+        if (mailto != null && !mailto.isBlank()) {
+            builder.queryParam("mailto", mailto);
         }
         return builder;
     }

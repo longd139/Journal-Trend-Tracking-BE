@@ -50,6 +50,33 @@ public class DataSyncController {
         return buildSyncResponse("OpenAlex", query, syncLog);
     }
 
+    @Operation(summary = "Deep sync keywords from OpenAlex", description = "Fetch up to 40k papers per keyword using cursor pagination. Supports multiple keywords separated by comma or newline. Each team member must provide their own email for polite pool.")
+    @PostMapping("/openalex/deep")
+    public ResponseEntity<AppResponse<Map<String, Object>>> triggerDeepSync(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "500") int limit,
+            @RequestParam(required = false) Integer yearFrom,
+            @RequestParam(required = false) Integer yearTo,
+            @RequestParam String mailto) {
+
+        // Split by comma, newline, or semicolon — support paste multiple keywords
+        List<String> keywords = java.util.Arrays.stream(query.split("[,;\n]+"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .toList();
+
+        if (keywords.isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(AppResponse.of(400, "No valid keywords found in query", null));
+        }
+
+        Map<String, Object> result = dataSyncService.bulkSyncFromOpenAlex(
+                keywords, limit, yearFrom, yearTo, mailto);
+        return ResponseEntity.ok(AppResponse.success(
+                "Deep sync completed for " + keywords.size() + " keyword(s)", result));
+    }
+
     @Operation(summary = "Manual trigger Semantic Scholar Sync", description = "Fetch papers from Semantic Scholar based on keyword and year range")
     @PostMapping("/semantic-scholar")
     public ResponseEntity<AppResponse<Map<String, Object>>> triggerSemanticScholarSync(
