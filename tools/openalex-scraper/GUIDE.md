@@ -61,7 +61,7 @@ Mở file đó bằng **SSMS** hoặc **Azure Data Studio**, chạy vào databas
 | Tìm từ khóa | Chọn mode `1`, nhập keyword |
 | Lấy theo link | Chọn mode `2`, paste link OpenAlex |
 | Lấy tất cả | Nhập limit `0` |
-| Không dùng email | Enter bỏ qua (rate limit thấp hơn) |
+| Dùng email cá nhân | BẮT BUỘC nhập email để có polite pool (100k req/ngày) |
 
 ---
 

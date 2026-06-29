@@ -63,14 +63,13 @@ function parseArgs() {
     }
   }
 
-  // Validate email format if provided
-  if (opts.mailto && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(opts.mailto)) {
-    console.error(`Error: invalid email format: "${opts.mailto}"`);
+  // Validate email — REQUIRED for polite pool (100k req/day vs ~10 req/s public pool)
+  if (!opts.mailto || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(opts.mailto)) {
+    console.error(`Error: --mailto <your@email.com> is REQUIRED.`);
+    console.error(`  OpenAlex polite pool gives you 100k requests/day.`);
+    console.error(`  Without it, you'll get rate-limited very quickly (~10 req/s public pool).`);
+    console.error(`  Provide your email via --mailto or -m flag.`);
     process.exit(1);
-  }
-  if (!opts.mailto) {
-    console.warn("  ⚠ No --mailto provided — using public pool (lower rate limit).");
-    console.warn("    Set --mailto your@email.com for polite pool (100k req/day).");
   }
 
   if (!["papers", "authors", "journals", "all", "batch"].includes(opts.entity)) {
@@ -102,7 +101,7 @@ Options:
   -q, --query     Search keyword (required, except batch mode)
   -l, --limit     Max results (default: ${DEFAULT_LIMIT}, max per page: ${MAX_PER_PAGE}, 0 = fetch ALL up to 10k)
   -f, --format    Output format: json | sql (default: json)
-  -m, --mailto    Your email for OpenAlex polite pool (100k req/day vs ~10 req/s)
+  -m, --mailto    Your email (REQUIRED) for OpenAlex polite pool (100k req/day vs public ~10 req/s)
   --ids           Comma-separated OpenAlex IDs or URLs (for batch mode)
   --ids-file      File path with one OpenAlex ID/URL per line (for batch mode)
   -o, --output    Output directory (default: ./output)
@@ -145,23 +144,50 @@ function loadIdsFromFile(filePath) {
   return parseOpenAlexIds(readFileSync(filePath, "utf-8"));
 }
 
-// ── HTTP helper with retry ──────────────────────────────────────────
+// ── HTTP helper with retry and jitter ──────────────────────────────
 
-async function fetchWithRetry(url, retries = 3) {
+/**
+ * Random delay between min and max milliseconds (inclusive).
+ * Adds jitter to avoid thundering herd when multiple instances run.
+ */
+function randomDelay(minMs, maxMs) {
+  return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function fetchWithRetry(url, retries = 5) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const res = await fetch(url);
       if (!res.ok) {
         const body = await res.text();
         if (res.status === 429) {
-          const wait = (attempt + 1) * 5;
-          console.warn(`  ⚠ 429 Rate limited — waiting ${wait}s...`);
-          await sleep(wait * 1000);
+          // Read Retry-After header if available
+          const retryAfter = res.headers.get("Retry-After");
+          let waitSec;
+          if (retryAfter) {
+            waitSec = parseInt(retryAfter, 10) || 10;
+          } else {
+            // Exponential backoff with jitter: 10s → 20s → 40s → 80s → 160s
+            waitSec = Math.min(10 * Math.pow(2, attempt), 180);
+            // Add ±25% jitter
+            waitSec = Math.floor(waitSec * (0.75 + Math.random() * 0.5));
+          }
+          console.warn(`  ⚠ 429 Rate limited (attempt ${attempt + 1}/${retries}) — waiting ${waitSec}s...`);
+          await sleep(waitSec * 1000);
           continue;
         }
         if (res.status === 504) {
-          console.warn(`  ⚠ 504 Gateway Timeout (attempt ${attempt + 1}/${retries}) — retrying in ${(attempt + 1) * 3}s...`);
-          await sleep((attempt + 1) * 3000);
+          const wait = randomDelay(3000, 8000);
+          console.warn(`  ⚠ 504 Gateway Timeout (attempt ${attempt + 1}/${retries}) — retrying in ${(wait / 1000).toFixed(1)}s...`);
+          await sleep(wait);
+          continue;
+        }
+        if (res.status === 503) {
+          const wait = randomDelay(5000, 15000);
+          console.warn(`  ⚠ 503 Service Unavailable (attempt ${attempt + 1}/${retries}) — retrying in ${(wait / 1000).toFixed(1)}s...`);
+          await sleep(wait);
           continue;
         }
         throw new Error(`HTTP ${res.status}: ${body.substring(0, 300)}`);
@@ -169,8 +195,9 @@ async function fetchWithRetry(url, retries = 3) {
       return await res.json();
     } catch (e) {
       if (attempt < retries - 1) {
-        console.warn(`  ⚠ Fetch failed (attempt ${attempt + 1}/${retries}): ${e.message}`);
-        await sleep((attempt + 1) * 2000);
+        const wait = randomDelay(2000, 5000);
+        console.warn(`  ⚠ Fetch failed (attempt ${attempt + 1}/${retries}): ${e.message} — retrying in ${(wait / 1000).toFixed(1)}s...`);
+        await sleep(wait);
       } else {
         console.error(`  ✗ All ${retries} attempts failed: ${e.message}`);
         return null;
@@ -178,8 +205,6 @@ async function fetchWithRetry(url, retries = 3) {
     }
   }
 }
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── URL builders ─────────────────────────────────────────────────────
 
@@ -679,8 +704,12 @@ async function scrapePapers(query, limit, mailto) {
     allPapers.push(...pageResults);
     console.log(`${pageResults.length} papers (total: ${allPapers.length.toLocaleString()})`);
 
-    // Polite delay between pages
-    if (page < totalPages) await sleep(200);
+    // Polite delay between pages with random jitter (800ms–1500ms)
+    if (page < totalPages) {
+      const delay = randomDelay(800, 1500);
+      process.stdout.write(`   ⏳ Waiting ${(delay / 1000).toFixed(1)}s (jitter)...\r`);
+      await sleep(delay);
+    }
   }
 
   const finalCount = fetchAll ? allPapers.length : Math.min(allPapers.length, limit);
@@ -713,8 +742,11 @@ async function scrapeBatchPapers(ids, mailto) {
     const results = data.results || [];
     console.log(`   ✓ ${results.length} papers returned`);
     allPapers.push(...results.map(mapPaper));
-    // Small delay between chunks to be polite
-    if (i + BATCH_CHUNK_SIZE < ids.length) await sleep(300);
+    // Jittered delay between batch chunks
+    if (i + BATCH_CHUNK_SIZE < ids.length) {
+      const delay = randomDelay(500, 1200);
+      await sleep(delay);
+    }
   }
 
   // Check for missing IDs
@@ -832,9 +864,14 @@ async function interactiveMode() {
   console.log("║  OpenAlex Scraper — Interactive Mode                ║");
   console.log("╚══════════════════════════════════════════════════════╝\n");
 
-  // ── Email ──
-  const email = await ask(rl, "📧 Your email (for polite pool, press Enter to skip): ");
-  const mailto = email || "";
+  // ── Email (REQUIRED) ──
+  let mailto = "";
+  while (!mailto || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mailto)) {
+    mailto = await ask(rl, "📧 Your email (REQUIRED for polite pool — 100k req/day): ");
+    if (!mailto || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mailto)) {
+      console.log("   ❌ Email is required to avoid rate limiting. Please enter a valid email.");
+    }
+  }
 
   // ── Mode: search hay batch ──
   console.log("\n📋 Choose mode:");
@@ -892,7 +929,7 @@ async function interactiveMode() {
   console.log(`║  Mode:    ${isBatch ? "Batch by IDs" : "Search by keyword"}`);
   console.log(`║  Query:   ${(query || "").substring(0, 42)}`);
   if (!isBatch) console.log(`║  Limit:   ${opts.limit === 0 ? "ALL (up to 10k)" : opts.limit}`);
-  console.log(`║  Email:   ${mailto || "(none — public pool)"}`);
+  console.log(`║  Email:   ${mailto} (polite pool)`);
   console.log(`║  Output:  SQL file in ./output/`);
   console.log("╚══════════════════════════════════════════════════════╝");
 
