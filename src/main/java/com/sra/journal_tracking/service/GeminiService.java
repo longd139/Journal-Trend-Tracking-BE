@@ -3,6 +3,7 @@ package com.sra.journal_tracking.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -23,7 +24,7 @@ import java.util.stream.Collectors;
 public class GeminiService {
 
     private static final int DEFAULT_MAX_RELATED = 6;
-    private static final int MAX_RETRIES = 2;
+    private static final int MAX_RETRIES = 0; // No retries — RestTemplate has short timeout, fallback to local
 
     // ── In-memory cache: 1 hour TTL ──
     private static final long CACHE_TTL_MS = 60 * 60 * 1000;
@@ -47,7 +48,7 @@ public class GeminiService {
     @Value("${gemini.api.key}")
     private String geminiApiKey;
 
-    public GeminiService(RestTemplate restTemplate,
+    public GeminiService(@Qualifier("geminiRestTemplate") RestTemplate restTemplate,
                          ObjectMapper objectMapper,
                          KeywordExpansionService keywordExpansionService) {
         this.restTemplate = restTemplate;
@@ -354,6 +355,20 @@ public class GeminiService {
             Map.entry("ev", List.of("electric vehicle", "battery", "electric motor", "charging infrastructure")),
             Map.entry("iot", List.of("internet of things", "sensor network", "embedded system", "smart device", "edge computing")),
             Map.entry("cloud", List.of("cloud computing", "aws", "virtualization", "serverless", "distributed system", "container")),
-            Map.entry("cybersecurity", List.of("encryption", "malware", "network security", "vulnerability", "authentication", "firewall"))
+            Map.entry("cybersecurity", List.of("encryption", "malware", "network security", "vulnerability", "authentication", "firewall")),
+
+            // ── Business / Management / Finance ──
+            Map.entry("corporate governance", List.of("board of directors", "shareholder rights", "executive compensation", "audit committee", "corporate social responsibility", "stakeholder theory")),
+            Map.entry("management", List.of("leadership", "organizational behavior", "strategic planning", "human resources", "performance management", "change management")),
+            Map.entry("entrepreneurship", List.of("startup", "venture capital", "business model", "innovation", "small business", "lean startup")),
+            Map.entry("marketing", List.of("consumer behavior", "brand management", "digital marketing", "market segmentation", "advertising", "social media marketing")),
+            Map.entry("finance", List.of("investment", "risk management", "capital market", "portfolio theory", "corporate finance", "financial modeling")),
+            Map.entry("accounting", List.of("financial reporting", "auditing", "tax compliance", "internal control", "cost accounting", "financial statement")),
+            Map.entry("strategy", List.of("competitive advantage", "business model", "market analysis", "disruption", "blue ocean strategy", "swot analysis")),
+            Map.entry("human resource", List.of("employee engagement", "talent management", "recruitment", "workplace diversity", "compensation", "training development")),
+            Map.entry("innovation", List.of("research development", "technology transfer", "disruptive technology", "patent", "product development", "open innovation")),
+            Map.entry("risk management", List.of("credit risk", "market risk", "operational risk", "hedging", "basel", "enterprise risk")),
+            Map.entry("business ethics", List.of("corporate social responsibility", "whistleblowing", "code of conduct", "sustainability reporting", "ethical leadership", "stakeholder engagement"))
+
     );
 }

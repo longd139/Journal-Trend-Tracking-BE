@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.dto.auth;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -31,5 +32,6 @@ public class RegisterRequest {
     private String institution;
 
     @Schema(description = "role", example = "academic_user", allowableValues = {"academic_user", "researcher"})
+    @JsonProperty("role")
     private String roleName;
 }

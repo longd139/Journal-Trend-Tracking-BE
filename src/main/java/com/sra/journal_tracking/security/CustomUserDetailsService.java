@@ -29,19 +29,25 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));
 
         // Auto-downgrade if researcher trial has expired
+        // Sử dụng buffer 1 phút để tránh race condition giữa thời điểm set roleExpiryAt và thời điểm kiểm tra
         if (user.getRoleExpiryAt() != null
-                && user.getRoleExpiryAt().isBefore(LocalDateTime.now())
+                && user.getRoleExpiryAt().plusMinutes(1).isBefore(LocalDateTime.now())
                 && user.getRole() != null
                 && "researcher".equalsIgnoreCase(user.getRole().getRoleName())) {
 
             Role academicRole = roleRepository.findByRoleNameIgnoreCase("academic_user")
                     .orElse(null);
             if (academicRole != null) {
+                log.info("Researcher trial expired for {} (expiry={}, now={}) — downgrading to academic_user",
+                        email, user.getRoleExpiryAt(), LocalDateTime.now());
                 user.setRole(academicRole);
                 user.setRoleExpiryAt(null);
                 userRepository.save(user);
-                log.info("Trial expired for user {} — downgraded to academic_user", email);
             }
+        } else if (user.getRoleExpiryAt() != null
+                && "researcher".equalsIgnoreCase(user.getRole() != null ? user.getRole().getRoleName() : "")) {
+            log.debug("Researcher trial still active for {}: expires at {}, now={}",
+                    email, user.getRoleExpiryAt(), LocalDateTime.now());
         }
 
         return new CustomUserDetails(user);

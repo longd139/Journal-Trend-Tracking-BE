@@ -52,6 +52,8 @@ public class AuthorQuickStatsService {
      * @throws AppException(ErrorCode.AUTHOR_NOT_FOUND) if no author matches
      * @throws AppException(ErrorCode.EXTERNAL_API_ERROR) if OpenAlex API is unreachable
      */
+    @Cacheable(value = "search:authorQuickStats", cacheManager = "searchCacheManager",
+               key = "#keyword.trim().toLowerCase()")
     public AuthorQuickStatsResponse searchAuthor(String keyword) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) {
@@ -115,7 +117,8 @@ public class AuthorQuickStatsService {
      * @throws AppException(ErrorCode.AUTHOR_NOT_FOUND) if no author matches
      * @throws AppException(ErrorCode.EXTERNAL_API_ERROR) if OpenAlex API is unreachable
      */
-    @Cacheable(value = "authorTimeline", unless = "#result == null")
+    @Cacheable(value = "search:authorTimeline", cacheManager = "searchCacheManager",
+               key = "#keyword.trim().toLowerCase()", unless = "#result == null")
     public AuthorTimelineResponse getTimeline(String keyword) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) {
@@ -196,7 +199,8 @@ public class AuthorQuickStatsService {
      * @throws AppException(ErrorCode.AUTHOR_NOT_FOUND) if no author matches
      * @throws AppException(ErrorCode.EXTERNAL_API_ERROR) if OpenAlex API is unreachable
      */
-    @Cacheable(value = "authorResearchFocus", unless = "#result == null")
+    @Cacheable(value = "search:authorResearchFocus", cacheManager = "searchCacheManager",
+               key = "#keyword.trim().toLowerCase()", unless = "#result == null")
     public AuthorResearchFocusResponse getResearchFocus(String keyword) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) {
@@ -280,7 +284,8 @@ public class AuthorQuickStatsService {
      * @throws AppException(ErrorCode.AUTHOR_NOT_FOUND) if no author matches
      * @throws AppException(ErrorCode.EXTERNAL_API_ERROR) if OpenAlex API is unreachable
      */
-    @Cacheable(value = "authorCoAuthors", unless = "#result == null")
+    @Cacheable(value = "search:authorCoAuthors", cacheManager = "searchCacheManager",
+               key = "#keyword.trim().toLowerCase()", unless = "#result == null")
     public CoAuthorResponse getCoAuthors(String keyword) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) {

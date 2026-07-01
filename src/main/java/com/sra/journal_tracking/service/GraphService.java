@@ -92,7 +92,7 @@ public class GraphService {
         boolean exists = false;
         try {
             Long count = neo4jClient.query(cypherQuery)
-                    .bind(keyword).to("keyword")
+                    .bind(normalizedKeyword).to("keyword")
                     .fetch()
                     .one()
                     .map(record -> {
@@ -179,7 +179,7 @@ public class GraphService {
         List<String> paperIds = new ArrayList<>();
         try {
             neo4jClient.query(cypherQuery)
-                    .bind(keyword).to("keyword")
+                    .bind(cacheKey).to("keyword")
                     .fetch()
                     .all()
                     .forEach(record -> paperIds.add(record.get("paperId").toString()));
@@ -370,7 +370,7 @@ public class GraphService {
 
         try {
             neo4jClient.query(cypherQuery)
-                    .bind(keyword).to("keyword")
+                    .bind(cacheKey).to("keyword")
                     .fetch()
                     .all()
                     .forEach(record -> {
@@ -440,7 +440,7 @@ public class GraphService {
 
         try {
             Long count = neo4jClient.query(cypherQuery)
-                    .bind(keyword).to("keyword")
+                    .bind(normalizedKeyword).to("keyword")
                     .fetch()
                     .one()
                     .map(record -> ((Number) record.get("cnt")).longValue())
@@ -467,14 +467,14 @@ public class GraphService {
                 MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
                 WHERE k.normalizedText = $keyword
                 RETURN DISTINCT p.paperId AS paperId
-                LIMIT 300
+                LIMIT 50
                 """;
 
         List<String> paperIds = new ArrayList<>();
 
         try {
             neo4jClient.query(cypherQuery)
-                    .bind(keyword).to("keyword")
+                    .bind(normalizedKeyword).to("keyword")
                     .fetch()
                     .all()
                     .forEach(record -> paperIds.add(record.get("paperId").toString()));
