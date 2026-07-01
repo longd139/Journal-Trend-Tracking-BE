@@ -1,6 +1,7 @@
 package com.sra.journal_tracking.service;
 
 import com.sra.journal_tracking.dto.user.ChangePasswordRequest;
+import com.sra.journal_tracking.dto.user.UpdateBackgroundRequest;
 import com.sra.journal_tracking.dto.user.UpdateProfileRequest;
 import com.sra.journal_tracking.dto.user.UserDTO;
 
@@ -10,6 +11,7 @@ import java.util.UUID;
 public interface UserService {
     UserDTO getCurrentUser(String email);
     UserDTO updateProfile(String email, UpdateProfileRequest request);
+    UserDTO updateBackground(String email, UpdateBackgroundRequest request);
     void changePassword(String email, ChangePasswordRequest request);
     void upgradeAccount(String email); // UC-05
 

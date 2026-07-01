@@ -7,9 +7,10 @@ import com.sra.journal_tracking.entity.jpa.ResearchField;
 import com.sra.journal_tracking.repository.jpa.JournalRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchFieldRepository;
 import com.sra.journal_tracking.service.JournalService;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,7 +39,7 @@ public class JournalServiceImpl implements JournalService {
 
     /** Pre-warm cache on startup — async, không block app. */
     @Async
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     public void warmUpCache() {
         try {
             Thread.sleep(3000); // chờ connection pool khởi tạo

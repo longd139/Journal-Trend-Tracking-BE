@@ -17,6 +17,7 @@ public class UserDTO {
     private String email;
     private String institution;
     private String avatarUrl;
+    private String backgroundUrl;
     private String roleName;
     private Boolean isActive;
     private Integer remainingSearches;

@@ -50,6 +50,9 @@ public class User {
     @Column(name = "Institution", length = 300)
     private String institution;
 
+    @Column(name = "BackgroundUrl", length = 500)
+    private String backgroundUrl;
+
     @Column(name = "IsActive", nullable = false)
     @Builder.Default
     private Boolean isActive = true;

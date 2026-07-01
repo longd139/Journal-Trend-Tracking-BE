@@ -21,6 +21,8 @@ import com.sra.journal_tracking.dto.auth.AuthResponse;
 import com.sra.journal_tracking.dto.auth.GoogleLoginRequest;
 import com.sra.journal_tracking.dto.auth.LoginRequest;
 import com.sra.journal_tracking.dto.auth.RegisterRequest;
+import com.sra.journal_tracking.entity.jpa.Notification;
+import com.sra.journal_tracking.entity.jpa.NotificationType;
 import com.sra.journal_tracking.entity.jpa.Role;
 import com.sra.journal_tracking.entity.jpa.User;
 import com.sra.journal_tracking.entity.jpa.UserSession;
@@ -28,6 +30,7 @@ import com.sra.journal_tracking.entity.jpa.VerificationToken;
 import com.sra.journal_tracking.entity.jpa.VerificationToken.TokenType;
 import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
+import com.sra.journal_tracking.repository.jpa.NotificationRepository;
 import com.sra.journal_tracking.repository.jpa.RoleRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserSessionRepository;
@@ -46,6 +49,7 @@ public class AuthServiceImpl implements AuthService {
 
         private final UserRepository userRepository;
         private final RoleRepository roleRepository;
+        private final NotificationRepository notificationRepository;
         private final UserSessionRepository userSessionRepository;
         private final VerificationTokenRepository verificationTokenRepository;
         private final PasswordEncoder passwordEncoder;
@@ -205,6 +209,8 @@ public class AuthServiceImpl implements AuthService {
                                         role.getRoleName(), user.getRole().getRoleName());
                         throw new AppException(ErrorCode.INVALID_CREDENTIALS);
                 }
+
+                createResearcherTrialNotification(user);
 
                 log.info("User registered: email={}, role={}, roleExpiryAt={}",
                                 user.getEmail(), user.getRole().getRoleName(), user.getRoleExpiryAt());
@@ -385,6 +391,21 @@ public class AuthServiceImpl implements AuthService {
                                 .expiresAt(LocalDateTime.now().plusDays(1))
                                 .build();
                 userSessionRepository.save(session);
+        }
+
+        private void createResearcherTrialNotification(User user) {
+                if (user.getRole() == null || !"researcher".equalsIgnoreCase(user.getRole().getRoleName())) {
+                        return;
+                }
+
+                notificationRepository.save(Notification.builder()
+                                .user(user)
+                                .type(NotificationType.SYSTEM)
+                                .title("Researcher trial activated")
+                                .message("Your Researcher trial is active for 3 days.")
+                                .isRead(false)
+                                .build());
+                log.info("Researcher trial notification created for {}", user.getEmail());
         }
 
         @Override
