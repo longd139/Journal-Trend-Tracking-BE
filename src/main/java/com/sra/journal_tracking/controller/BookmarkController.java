@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.sra.journal_tracking.dto.bookmark.BookmarkedPaperResponse;
 import com.sra.journal_tracking.dto.bookmark.BookmarkRequest;
 import com.sra.journal_tracking.dto.bookmark.BookmarkResponse;
 import com.sra.journal_tracking.dto.response.AppResponse;
@@ -79,5 +80,18 @@ public class BookmarkController {
             @PathVariable UUID keywordId) {
         bookmarkService.deleteBookmarkByKeyword(authentication.getName(), keywordId);
         return ResponseEntity.ok(AppResponse.success("Bookmark removed successfully"));
+    }
+
+    @Operation(
+            summary = "Get recent bookmarked papers",
+            description = "Returns the 5 most recently bookmarked papers for the current user. "
+                    + "Used by the dashboard \"Tài liệu đã lưu\" card for quick access to saved papers. "
+                    + "Only returns paper bookmarks, not keyword bookmarks."
+    )
+    @GetMapping("/recent-papers")
+    public ResponseEntity<AppResponse<List<BookmarkedPaperResponse>>> getRecentBookmarkedPapers(
+            Authentication authentication) {
+        List<BookmarkedPaperResponse> papers = bookmarkService.getRecentBookmarkedPapers(authentication.getName());
+        return ResponseEntity.ok(AppResponse.success("Recent bookmarked papers retrieved", papers));
     }
 }

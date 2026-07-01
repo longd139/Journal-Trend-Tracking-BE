@@ -36,6 +36,8 @@ import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -1900,6 +1902,41 @@ public class DataSyncServiceImpl implements DataSyncService {
      */
     private List<String> extractKeywordsFromTitle(String title) {
         return keywordExtractionService.extract(title, "");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Startup Recovery: fix stuck SyncLog records
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * On app startup, mark any SyncLog records stuck in "running" status as "failed".
+     * <p>
+     * These "zombie" records occur when the app is stopped or crashes mid-sync —
+     * the sync never completes and the record stays in "running" forever.
+     * The admin Data Control page shows these as "pending," which is confusing.
+     * <p>
+     * Runs AFTER the main startup sync to avoid interfering with it.
+     */
+    @Async("taskExecutor")
+    @EventListener(ApplicationReadyEvent.class)
+    @Transactional
+    public void recoverStuckSyncLogs() {
+        try {
+            List<SyncLog> stuck = syncLogRepository.findStuckRunningTasks();
+            if (stuck.isEmpty()) {
+                log.info("SyncLog recovery: no stuck records found — all clean.");
+                return;
+            }
+            log.warn("SyncLog recovery: found {} stuck 'running' record(s). Marking as 'failed'.", stuck.size());
+            for (SyncLog s : stuck) {
+                log.info("  → Recovering SyncLog {} (source={}, started={})",
+                        s.getLogId(), s.getSource() != null ? s.getSource().getSourceName() : "?", s.getStartedAt());
+            }
+            int updated = syncLogRepository.markStuckTasksAsFailed("App restart: sync was interrupted (stuck in 'running')");
+            log.info("SyncLog recovery: {} record(s) marked as 'failed'.", updated);
+        } catch (Exception e) {
+            log.error("SyncLog recovery failed: {}", e.getMessage(), e);
+        }
     }
 
 }

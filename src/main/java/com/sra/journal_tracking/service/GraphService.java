@@ -36,6 +36,7 @@ public class GraphService {
 
     private final ConcurrentHashMap<String, CacheEntry<GraphResponse>> keywordGraphCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CacheEntry<List<String>>> paperSearchCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CacheEntry<List<String>>> allPaperIdsCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CacheEntry<Boolean>> keywordExistsCache = new ConcurrentHashMap<>();
 
     private final Neo4jClient neo4jClient;
@@ -227,6 +228,7 @@ public class GraphService {
             String cacheKey = kw.toLowerCase().trim();
             keywordGraphCache.remove(cacheKey);
             paperSearchCache.remove(cacheKey);
+            allPaperIdsCache.remove(cacheKey);
             keywordExistsCache.remove(cacheKey);
         }
 
@@ -455,11 +457,24 @@ public class GraphService {
 
     /**
      * Get ALL paper IDs for a keyword (up to 300) using index-friendly exact match.
+     * Result is cached for 1 hour — repeated calls for the same keyword return instantly.
      *
      * @param keyword the search keyword
      * @return list of matching paper UUID strings (max 300)
      */
     public List<String> getAllPaperIdsByKeyword(String keyword) {
+        String cacheKey = keyword.toLowerCase().trim();
+
+        // ── Cache hit? ──
+        CacheEntry<List<String>> cached = allPaperIdsCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            log.info("CACHE HIT: allPaperIds '{}' → {} papers (from cache)", keyword, cached.data.size());
+            return cached.data;
+        }
+        if (cached != null) {
+            allPaperIdsCache.remove(cacheKey);
+        }
+
         String normalizedKeyword = keyword.toLowerCase().trim();
 
         // Exact match only — uses Neo4j index on normalizedText for fast lookup
@@ -467,7 +482,7 @@ public class GraphService {
                 MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
                 WHERE k.normalizedText = $keyword
                 RETURN DISTINCT p.paperId AS paperId
-                LIMIT 50
+                LIMIT 300
                 """;
 
         List<String> paperIds = new ArrayList<>();
@@ -481,6 +496,14 @@ public class GraphService {
             log.info("Neo4j getAll for '{}': {} papers (exact match)", keyword, paperIds.size());
         } catch (Exception e) {
             log.warn("Neo4j getAll failed for keyword '{}': {}", keyword, e.getMessage());
+        }
+
+        // ── Store in cache (only cache non-empty results) ──
+        if (!paperIds.isEmpty()) {
+            allPaperIdsCache.put(cacheKey, new CacheEntry<>(paperIds));
+            log.info("CACHE STORE: allPaperIds '{}' → {} papers (TTL=1h)", keyword, paperIds.size());
+        } else {
+            log.info("CACHE SKIP: allPaperIds '{}' empty — not cached (will retry Neo4j next time)", keyword);
         }
 
         return paperIds;
@@ -591,6 +614,7 @@ public class GraphService {
             // Clear all caches too
             keywordGraphCache.clear();
             paperSearchCache.clear();
+            allPaperIdsCache.clear();
             keywordExistsCache.clear();
             log.info("GraphService: cleared all caches");
         } catch (Exception e) {
@@ -748,26 +772,72 @@ public class GraphService {
 
     /**
      * Get Neo4j graph statistics.
+     * <p>
+     * Runs 3 count queries in parallel with a shared 8-second timeout.
+     * If Neo4j is down, the driver Config (Neo4jConfig) enforces a 5s connection timeout,
+     * so all 3 futures fail fast in parallel — worst case ~5s instead of 15s sequential.
      */
     public java.util.Map<String, Long> getStats() {
         java.util.Map<String, Long> stats = new java.util.LinkedHashMap<>();
         try {
-            Long papers = neo4jClient.query("MATCH (p:Paper) RETURN COUNT(p) AS cnt")
-                    .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
-            Long keywords = neo4jClient.query("MATCH (k:Keyword) RETURN COUNT(k) AS cnt")
-                    .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
-            Long rels = neo4jClient.query("MATCH ()-[r:HAS_KEYWORD]->() RETURN COUNT(r) AS cnt")
-                    .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
-            stats.put("paperNodes", papers);
-            stats.put("keywordNodes", keywords);
-            stats.put("relationships", rels);
+            java.util.concurrent.CompletableFuture<Long> papersFut = timedQueryAsync(
+                    "MATCH (p:Paper) RETURN COUNT(p) AS cnt", "cnt");
+            java.util.concurrent.CompletableFuture<Long> keywordsFut = timedQueryAsync(
+                    "MATCH (k:Keyword) RETURN COUNT(k) AS cnt", "cnt");
+            java.util.concurrent.CompletableFuture<Long> relsFut = timedQueryAsync(
+                    "MATCH ()-[r:HAS_KEYWORD]->() RETURN COUNT(r) AS cnt", "cnt");
+
+            // Wait for all 3 with a shared 8s deadline
+            java.util.concurrent.CompletableFuture.allOf(papersFut, keywordsFut, relsFut)
+                    .get(8, java.util.concurrent.TimeUnit.SECONDS);
+
+            stats.put("paperNodes", getFutureResult(papersFut));
+            stats.put("keywordNodes", getFutureResult(keywordsFut));
+            stats.put("relationships", getFutureResult(relsFut));
+        } catch (java.util.concurrent.TimeoutException e) {
+            log.warn("Neo4j stats timed out after 8s — returning partial/zero stats");
+            stats.putIfAbsent("paperNodes", 0L);
+            stats.putIfAbsent("keywordNodes", 0L);
+            stats.putIfAbsent("relationships", 0L);
         } catch (Exception e) {
-            log.debug("Neo4j stats unavailable: {}", e.getMessage());
+            log.warn("Neo4j stats unavailable: {}", e.getMessage());
             stats.putIfAbsent("paperNodes", 0L);
             stats.putIfAbsent("keywordNodes", 0L);
             stats.putIfAbsent("relationships", 0L);
         }
         return stats;
+    }
+
+    /**
+     * Launch a Neo4j count query asynchronously.
+     */
+    private java.util.concurrent.CompletableFuture<Long> timedQueryAsync(String cypher, String column) {
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try {
+                return neo4jClient.query(cypher)
+                        .fetch().one()
+                        .map(r -> {
+                            Object val = r.get(column);
+                            return val instanceof Number ? ((Number) val).longValue() : 0L;
+                        })
+                        .orElse(0L);
+            } catch (Exception e) {
+                log.warn("Neo4j query failed: {} — {}", cypher.substring(0, Math.min(50, cypher.length())), e.getMessage());
+                return 0L;
+            }
+        });
+    }
+
+    /**
+     * Safely get the result from a completed or failed future.
+     */
+    private Long getFutureResult(java.util.concurrent.CompletableFuture<Long> future) {
+        try {
+            Long val = future.getNow(0L);
+            return val != null ? val : 0L;
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 
     // ============================================

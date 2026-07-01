@@ -1,11 +1,13 @@
 package com.sra.journal_tracking.repository.jpa;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -25,4 +27,19 @@ public interface SyncLogRepository extends JpaRepository<SyncLog, UUID> {
             @Param("status") String status,
             @Param("isManual") Boolean isManual,
             Pageable pageable);
+
+    /**
+     * Find all SyncLog records stuck in "running" status with no completedAt timestamp.
+     * These are records that were left behind after an app crash or restart mid-sync.
+     */
+    @Query("SELECT s FROM SyncLog s WHERE s.status = 'running' AND s.completedAt IS NULL")
+    List<SyncLog> findStuckRunningTasks();
+
+    /**
+     * Mark stuck SyncLog records as "failed" with a reason.
+     */
+    @Modifying
+    @Query("UPDATE SyncLog s SET s.status = 'failed', s.errorMessage = :reason, s.completedAt = CURRENT_TIMESTAMP "
+         + "WHERE s.status = 'running' AND s.completedAt IS NULL")
+    int markStuckTasksAsFailed(@Param("reason") String reason);
 }

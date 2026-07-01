@@ -5,6 +5,7 @@ import com.sra.journal_tracking.dto.journal.JournalQuickStatsResponse;
 import com.sra.journal_tracking.dto.report.AuthorImpactReportResponse;
 import com.sra.journal_tracking.dto.report.JournalQualityReportResponse;
 import com.sra.journal_tracking.dto.report.KeywordTrendReportResponse;
+import com.sra.journal_tracking.dto.report.TrendingTopicResponse;
 import com.sra.journal_tracking.entity.jpa.Author;
 import com.sra.journal_tracking.entity.jpa.Journal;
 import com.sra.journal_tracking.entity.jpa.ResearchField;
@@ -28,10 +29,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Year;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Report generation service — produces analytical reports for keywords, authors, and journals.
@@ -49,6 +53,8 @@ public class ReportServiceImpl implements ReportService {
     private static final int KEYWORD_TREND_YEAR_WINDOW = 5;
     private static final int JOURNAL_RECENT_YEAR_WINDOW = 2;
     private static final int AUTHOR_ACTIVITY_YEAR_WINDOW = 3;
+    private static final int TRENDING_CANDIDATE_POOL_SIZE = 30;
+    private static final int TRENDING_TOP_RESULT_COUNT = 5;
 
     private final GraphService graphService;
     private final AuthorQuickStatsService authorQuickStatsService;
@@ -306,6 +312,106 @@ public class ReportServiceImpl implements ReportService {
                 .totalCitations(stats.getTotalCitations())
                 .topKeywords(recentKeywords)
                 .build();
+    }
+
+    // ============================================
+    //  TRENDING TOPICS (Dashboard)
+    // ============================================
+
+    @Override
+    @Cacheable(value = "search:report", cacheManager = "searchCacheManager",
+            key = "'trendingTopics'",
+            unless = "#result == null || #result.isEmpty()")
+    public List<TrendingTopicResponse> getTrendingTopics() {
+        log.info("Generating trending topics for dashboard");
+
+        short thisYear = currentYear();
+        short lastYear = (short) (thisYear - 1);
+        short startYear = (short) (thisYear - KEYWORD_TREND_YEAR_WINDOW + 1);
+
+        // Step 1: Get candidate keywords from Neo4j (top by paper count)
+        List<Map<String, Object>> candidates = graphService.getCategoryKeywords(TRENDING_CANDIDATE_POOL_SIZE);
+        if (candidates.isEmpty()) {
+            log.info("No candidate keywords found in Neo4j");
+            return List.of();
+        }
+
+        log.info("Candidate pool: {} keywords for trending analysis", candidates.size());
+
+        // Step 2: Compute growth rate for each candidate IN PARALLEL
+        // Uses parallelStream to fan out Neo4j + SQL queries concurrently.
+        // NOT @Transactional — each thread gets its own transaction from Spring Data JPA defaults.
+        List<TrendingTopicResponse> results = Collections.synchronizedList(new ArrayList<>());
+
+        candidates.parallelStream().forEach(candidate -> {
+            String originalText = candidate.get("keywordText") != null
+                    ? candidate.get("keywordText").toString() : "";
+            String normalizedText = candidate.get("normalizedText") != null
+                    ? candidate.get("normalizedText").toString() : "";
+
+            if (normalizedText.isEmpty()) return;
+
+            try {
+                // Get paper IDs from Neo4j (cached after first call)
+                List<String> paperIdStrs = graphService.getAllPaperIdsByKeyword(normalizedText);
+                if (paperIdStrs.isEmpty()) return;
+
+                List<UUID> paperIds = paperIdStrs.stream()
+                        .map(UUID::fromString)
+                        .toList();
+
+                // Yearly breakdown for sparkline
+                List<Object[]> yearlyRows = researchPaperRepository.countPapersByYearForIds(paperIds, startYear);
+                List<TrendingTopicResponse.SparklinePoint> sparkline = yearlyRows.stream()
+                        .map(row -> TrendingTopicResponse.SparklinePoint.builder()
+                                .year(((Short) row[0]).intValue())
+                                .paperCount(((Number) row[1]).longValue())
+                                .build())
+                        .toList();
+
+                // YoY growth rate
+                long papersThisYear = researchPaperRepository.countByPaperIdsAndPubYear(paperIds, thisYear);
+                long papersLastYear = researchPaperRepository.countByPaperIdsAndPubYear(paperIds, lastYear);
+
+                Double yoyGrowthRate = null;
+                if (papersLastYear > 0) {
+                    yoyGrowthRate = roundToOneDecimal(((double) (papersThisYear - papersLastYear) / papersLastYear) * 100.0);
+                } else if (papersThisYear > 0) {
+                    yoyGrowthRate = 100.0;
+                }
+
+                // Total papers from Neo4j (already known from candidate data)
+                long totalPapers = candidate.get("paperCount") != null
+                        ? ((Number) candidate.get("paperCount")).longValue()
+                        : paperIdStrs.size();
+
+                // Status and insight
+                String status = determineKeywordStatus(yoyGrowthRate);
+                String insight = generateKeywordInsight(originalText, yoyGrowthRate, status, totalPapers);
+
+                results.add(TrendingTopicResponse.builder()
+                        .keyword(originalText)
+                        .totalPapers(totalPapers)
+                        .yoyGrowthRate(yoyGrowthRate)
+                        .status(status)
+                        .insight(insight)
+                        .sparkline(sparkline)
+                        .build());
+
+            } catch (Exception e) {
+                log.warn("Failed to compute trend for keyword '{}': {}", originalText, e.getMessage());
+            }
+        });
+
+        // Step 3: Sort by growth rate descending (nulls last), take top N
+        List<TrendingTopicResponse> sorted = results.stream()
+                .sorted(Comparator.comparing(TrendingTopicResponse::getYoyGrowthRate,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .limit(TRENDING_TOP_RESULT_COUNT)
+                .collect(Collectors.toList());
+
+        log.info("Trending topics: {} results from {} candidates", sorted.size(), results.size());
+        return sorted;
     }
 
     // ============================================

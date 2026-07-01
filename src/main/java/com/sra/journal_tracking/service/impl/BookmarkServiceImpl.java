@@ -10,6 +10,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.sra.journal_tracking.dto.bookmark.BookmarkedPaperResponse;
 import com.sra.journal_tracking.dto.bookmark.BookmarkRequest;
 import com.sra.journal_tracking.dto.bookmark.BookmarkResponse;
 import com.sra.journal_tracking.entity.jpa.Bookmark;
@@ -151,6 +152,30 @@ public class BookmarkServiceImpl implements BookmarkService {
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
         bookmarkRepository.deleteByUser_UserIdAndKeyword_KeywordId(user.getUserId(), keywordId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<BookmarkedPaperResponse> getRecentBookmarkedPapers(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        List<Bookmark> recentBookmarks = bookmarkRepository.findRecentPaperBookmarks(
+                user.getUserId(),
+                PageRequest.of(0, 5));
+
+        return recentBookmarks.stream()
+                .map(b -> BookmarkedPaperResponse.builder()
+                        .bookmarkId(b.getBookmarkId())
+                        .paperId(b.getPaper().getPaperId())
+                        .paperTitle(b.getPaper().getTitle())
+                        .journalName(b.getPaper().getJournal() != null
+                                ? b.getPaper().getJournal().getJournalName() : null)
+                        .citationCount(b.getPaper().getCitationCount())
+                        .pubYear(b.getPaper().getPubYear())
+                        .bookmarkedAt(b.getCreatedAt())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     private void checkBookmarkLimit(User user) {

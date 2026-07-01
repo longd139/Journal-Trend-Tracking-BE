@@ -3,6 +3,7 @@ package com.sra.journal_tracking.controller;
 import com.sra.journal_tracking.dto.report.AuthorImpactReportResponse;
 import com.sra.journal_tracking.dto.report.JournalQualityReportResponse;
 import com.sra.journal_tracking.dto.report.KeywordTrendReportResponse;
+import com.sra.journal_tracking.dto.report.TrendingTopicResponse;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
@@ -14,6 +15,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * Report generation API — provides analytical reports for keywords, authors, and journals.
@@ -80,5 +83,18 @@ public class ReportController {
         }
         JournalQualityReportResponse report = reportService.getJournalQualityReport(journalName);
         return ResponseEntity.ok(AppResponse.success("Journal quality report generated successfully", report));
+    }
+
+    @Operation(
+            summary = "Get trending research topics",
+            description = "Returns the top 5 research topics ranked by year-over-year growth rate. "
+                    + "Each topic includes total papers, growth rate, trend status (Bùng nổ/Ổn định/Bão hòa), "
+                    + "insight text, and yearly sparkline data for dashboard trend charts."
+    )
+    @ApiResponse(responseCode = "200", description = "Trending topics retrieved successfully")
+    @GetMapping("/trending-topics")
+    public ResponseEntity<AppResponse<List<TrendingTopicResponse>>> getTrendingTopics() {
+        List<TrendingTopicResponse> topics = reportService.getTrendingTopics();
+        return ResponseEntity.ok(AppResponse.success("Trending topics retrieved successfully", topics));
     }
 }

@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.sra.journal_tracking.dto.follow.FollowRequest;
 import com.sra.journal_tracking.dto.follow.FollowResponse;
+import com.sra.journal_tracking.dto.follow.QuickInsightResponse;
+import com.sra.journal_tracking.dto.follow.WatchlistItemResponse;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.service.FollowService;
 
@@ -68,5 +70,31 @@ public class FollowController {
             @PathVariable UUID followId) {
         followService.deleteFollow(authentication.getName(), followId);
         return ResponseEntity.ok(AppResponse.success("Unfollowed successfully"));
+    }
+
+    @Operation(
+            summary = "Get my watchlist",
+            description = "Returns the current user's followed keywords, journals, and topics "
+                    + "enriched with total paper counts and new-papers-this-week counts. "
+                    + "Sorted by new papers this week descending."
+    )
+    @GetMapping("/watchlist")
+    public ResponseEntity<AppResponse<List<WatchlistItemResponse>>> getMyWatchlist(
+            Authentication authentication) {
+        List<WatchlistItemResponse> watchlist = followService.getMyWatchlist(authentication.getName());
+        return ResponseEntity.ok(AppResponse.success("Watchlist retrieved successfully", watchlist));
+    }
+
+    @Operation(
+            summary = "Get quick analytical insight",
+            description = "Generates a personalized Vietnamese natural-language summary "
+                    + "analyzing the user's followed keywords and journals. "
+                    + "Includes growth trends, journal rankings, and actionable suggestions."
+    )
+    @GetMapping("/insight")
+    public ResponseEntity<AppResponse<QuickInsightResponse>> getQuickInsight(
+            Authentication authentication) {
+        QuickInsightResponse insight = followService.getQuickInsight(authentication.getName());
+        return ResponseEntity.ok(AppResponse.success("Insight generated successfully", insight));
     }
 }

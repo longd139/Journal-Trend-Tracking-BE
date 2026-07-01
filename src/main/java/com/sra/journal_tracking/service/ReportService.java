@@ -3,6 +3,9 @@ package com.sra.journal_tracking.service;
 import com.sra.journal_tracking.dto.report.AuthorImpactReportResponse;
 import com.sra.journal_tracking.dto.report.JournalQualityReportResponse;
 import com.sra.journal_tracking.dto.report.KeywordTrendReportResponse;
+import com.sra.journal_tracking.dto.report.TrendingTopicResponse;
+
+import java.util.List;
 
 /**
  * Report generation service — produces analytical reports for keywords, authors, and journals.
@@ -33,4 +36,13 @@ public interface ReportService {
      * @return JournalQualityReportResponse with quartile, impact factor, editorial taste, and insight
      */
     JournalQualityReportResponse getJournalQualityReport(String journalName);
+
+    /**
+     * Get the top 5 trending research topics ranked by year-over-year growth rate.
+     * Uses a candidate-pool approach: fetches the most-connected keywords from Neo4j,
+     * computes YoY growth for each, and returns the top 5 by growth rate descending.
+     *
+     * @return list of up to 5 TrendingTopicResponse, each with keyword, growth rate, status, insight, and sparkline
+     */
+    List<TrendingTopicResponse> getTrendingTopics();
 }

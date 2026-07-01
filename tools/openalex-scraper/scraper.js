@@ -147,36 +147,48 @@ function loadIdsFromFile(filePath) {
 
 // ── HTTP helper with retry ──────────────────────────────────────────
 
-async function fetchWithRetry(url, retries = 3) {
+async function fetchWithRetry(url, retries = 5) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const res = await fetch(url);
       if (!res.ok) {
-        const body = await res.text();
         if (res.status === 429) {
-          const wait = (attempt + 1) * 5;
-          console.warn(`  ⚠ 429 Rate limited — waiting ${wait}s...`);
-          await sleep(wait * 1000);
+          // Honor Retry-After header if present; otherwise use exponential backoff
+          const retryAfter = res.headers.get("Retry-After");
+          let waitSec;
+          if (retryAfter) {
+            waitSec = parseInt(retryAfter, 10) + 1; // add 1s buffer
+            console.warn(`  ⚠ 429 Rate limited — Retry-After: ${retryAfter}s, waiting ${waitSec}s...`);
+          } else {
+            // Exponential backoff: 5s, 10s, 20s, 40s, 80s + jitter
+            waitSec = Math.min(5 * Math.pow(2, attempt) + Math.random() * 3, 120);
+            console.warn(`  ⚠ 429 Rate limited — waiting ${waitSec.toFixed(1)}s (attempt ${attempt + 1}/${retries})...`);
+          }
+          await sleep(waitSec * 1000);
           continue;
         }
         if (res.status === 504) {
-          console.warn(`  ⚠ 504 Gateway Timeout (attempt ${attempt + 1}/${retries}) — retrying in ${(attempt + 1) * 3}s...`);
-          await sleep((attempt + 1) * 3000);
+          const wait = Math.min((attempt + 1) * 3, 30);
+          console.warn(`  ⚠ 504 Gateway Timeout (attempt ${attempt + 1}/${retries}) — retrying in ${wait}s...`);
+          await sleep(wait * 1000);
           continue;
         }
+        const body = await res.text();
         throw new Error(`HTTP ${res.status}: ${body.substring(0, 300)}`);
       }
       return await res.json();
     } catch (e) {
       if (attempt < retries - 1) {
-        console.warn(`  ⚠ Fetch failed (attempt ${attempt + 1}/${retries}): ${e.message}`);
-        await sleep((attempt + 1) * 2000);
+        const wait = Math.min((attempt + 1) * 2 + Math.random() * 2, 30);
+        console.warn(`  ⚠ Fetch failed (attempt ${attempt + 1}/${retries}): ${e.message} — retrying in ${wait.toFixed(1)}s...`);
+        await sleep(wait * 1000);
       } else {
         console.error(`  ✗ All ${retries} attempts failed: ${e.message}`);
         return null;
       }
     }
   }
+  return null;
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }

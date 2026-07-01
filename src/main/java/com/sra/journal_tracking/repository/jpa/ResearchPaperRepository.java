@@ -355,4 +355,27 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 	    List<Object[]> countPapersByYearForIds(
 	            @Param("ids") List<UUID> ids,
 	            @Param("startYear") Short startYear);
+
+    // ── Watchlist / Dashboard Queries ──
+
+    /** Count papers in a journal created after a given date (for "new this week"). */
+    long countByJournal_JournalIdAndCreatedAtAfter(
+            @Param("journalId") UUID journalId,
+            @Param("since") LocalDateTime since);
+
+    /** Count papers containing a specific keyword created after a given date. */
+    @Query("SELECT COUNT(DISTINCT p) FROM ResearchPaper p "
+         + "JOIN p.keywords pk "
+         + "WHERE pk.keyword.keywordId = :keywordId AND p.createdAt >= :since")
+    long countByKeywordIdAndCreatedAtAfter(
+            @Param("keywordId") UUID keywordId,
+            @Param("since") LocalDateTime since);
+
+    /** Count papers in a research field created after a given date (for topic follows). */
+    long countByField_FieldIdAndCreatedAtAfter(
+            @Param("fieldId") UUID fieldId,
+            @Param("since") LocalDateTime since);
+
+    /** Count total papers in a research field (for topic follows). */
+    long countByField_FieldId(@Param("fieldId") UUID fieldId);
 }
