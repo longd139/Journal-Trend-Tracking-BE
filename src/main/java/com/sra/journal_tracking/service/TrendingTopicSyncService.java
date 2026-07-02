@@ -41,6 +41,9 @@ public class TrendingTopicSyncService {
     @Value("${app.openalex-email:}")
     private String openalexEmail;
 
+    @Value("${app.openalex-api-key:}")
+    private String openalexApiKey;
+
     /** Prevents concurrent sync executions (startup + scheduled overlap). */
     private final AtomicBoolean syncing = new AtomicBoolean(false);
 
@@ -120,6 +123,9 @@ public class TrendingTopicSyncService {
                     + "&select=title,concepts,keywords";
             if (openalexEmail != null && !openalexEmail.isBlank()) {
                 url += "&mailto=" + openalexEmail;
+            }
+            if (openalexApiKey != null && !openalexApiKey.isBlank()) {
+                url += "&api_key=" + openalexApiKey;
             }
 
             log.info("Trending sync: Fetching from OpenAlex — {}", url);

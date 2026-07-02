@@ -53,6 +53,9 @@ public class ScheduledDataSyncService {
     @Value("${app.openalex-email:}")
     private String openalexEmail;
 
+    @Value("${app.openalex-api-key:}")
+    private String openalexApiKey;
+
     // ═══════════════════════════════════════════════════════════
     //  Startup Sync — runs once when app boots (async, high volume)
     // ═══════════════════════════════════════════════════════════
@@ -265,6 +268,9 @@ public class ScheduledDataSyncService {
                     + "&select=title,keywords";
             if (openalexEmail != null && !openalexEmail.isBlank()) {
                 url += "&mailto=" + openalexEmail;
+            }
+            if (openalexApiKey != null && !openalexApiKey.isBlank()) {
+                url += "&api_key=" + openalexApiKey;
             }
             log.debug("Fetching trending from OpenAlex: {}", url);
 

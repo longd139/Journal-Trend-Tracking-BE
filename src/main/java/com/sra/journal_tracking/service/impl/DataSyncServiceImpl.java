@@ -101,6 +101,9 @@ public class DataSyncServiceImpl implements DataSyncService {
     @Value("${app.openalex-email:}")
     private String openalexEmail;
 
+    @Value("${app.openalex-api-key:}")
+    private String openalexApiKey;
+
     @Override
     public SyncLog syncFromOpenAlex(String query, int limit) {
         int currentYear = Year.now().getValue();
@@ -663,7 +666,6 @@ public class DataSyncServiceImpl implements DataSyncService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public DatabaseStatsResponse getDatabaseStats() {
         // ── Cache: 1-hour TTL ──
         long now = System.currentTimeMillis();
@@ -672,24 +674,54 @@ public class DataSyncServiceImpl implements DataSyncService {
             return cachedStats.data;
         }
 
-        log.info("Computing database statistics...");
+        // ── Cache miss: trigger async refresh so next call is instant ──
+        log.info("Stats cache miss — triggering async refresh, returning empty stats for now");
+        self.refreshStatsCache();
+
+        // Return immediately with empty stats — client should retry in a few seconds
+        return buildEmptyStats();
+    }
+
+    /**
+     * Pre-compute stats asynchronously and store in cache.
+     * Called after every sync and on cache miss to keep stats always warm.
+     */
+    @Async("taskExecutor")
+    public void refreshStatsCache() {
+        log.info("Refreshing stats cache in background...");
         long startTime = System.currentTimeMillis();
+        try {
+            DatabaseStatsResponse.Neo4jStats neo4jStats = getNeo4jStats();
+            DatabaseStatsResponse stats = self.buildStatsFromJpa(neo4jStats);
+            cachedStats = new StatsCacheEntry(stats);
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.info("Stats cache refreshed in {}ms: papers={}, authors={}, keywords={}, neo4j=[papers={}, kw={}, rels={}]",
+                    elapsed,
+                    stats.getPapers().getTotal(), stats.getAuthors().getTotal(), stats.getKeywords().getTotal(),
+                    neo4jStats.getPaperNodes(), neo4jStats.getKeywordNodes(), neo4jStats.getRelationships());
+        } catch (Exception e) {
+            log.warn("Stats cache refresh failed: {}", e.getMessage());
+        }
+    }
 
-        // ── Neo4j stats — runs in separate thread with 10s timeout, no JPA connection held ──
-        DatabaseStatsResponse.Neo4jStats neo4jStats = getNeo4jStats();
-
-        // ── JPA queries inside this transaction (short, no Neo4j blocking) ──
-        DatabaseStatsResponse stats = buildStatsFromJpa(neo4jStats);
-
-        long elapsed = System.currentTimeMillis() - startTime;
-        log.info("Database stats computed in {}ms: papers={}, authors={}, keywords={}, neo4j=[papers={}, kw={}, rels={}]",
-                elapsed,
-                stats.getPapers().getTotal(), stats.getAuthors().getTotal(), stats.getKeywords().getTotal(),
-                neo4jStats.getPaperNodes(), neo4jStats.getKeywordNodes(), neo4jStats.getRelationships());
-
-        // ── Store in cache ──
-        cachedStats = new StatsCacheEntry(stats);
-        return stats;
+    /**
+     * Lightweight empty stats response returned immediately on cache miss.
+     * Client can retry in a few seconds after async refresh completes.
+     */
+    private DatabaseStatsResponse buildEmptyStats() {
+        return DatabaseStatsResponse.builder()
+                .papers(DatabaseStatsResponse.PaperStats.builder()
+                        .total(0L).bySource(Map.of()).byYear(Map.of())
+                        .openAccess(0L).hasPdfUrl(0L).build())
+                .authors(DatabaseStatsResponse.AuthorStats.builder().total(0L).build())
+                .keywords(DatabaseStatsResponse.KeywordStats.builder().total(0L).build())
+                .journals(DatabaseStatsResponse.CountStat.builder().total(0L).build())
+                .researchFields(DatabaseStatsResponse.CountStat.builder().total(0L).build())
+                .researchTopics(DatabaseStatsResponse.TopicStats.builder().total(0L).trending(0L).build())
+                .neo4j(DatabaseStatsResponse.Neo4jStats.builder()
+                        .paperNodes(0L).keywordNodes(0L).relationships(0L).build())
+                .syncLogs(DatabaseStatsResponse.SyncStats.builder().total(0L).lastSync(null).build())
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -783,22 +815,29 @@ public class DataSyncServiceImpl implements DataSyncService {
     private StatsCacheEntry cachedStats;
 
     private DatabaseStatsResponse.Neo4jStats getNeo4jStats() {
-        // Run Neo4j query with a hard timeout — if it takes > 10s, return zeros immediately.
-        // This prevents the stats endpoint from hanging when Neo4j AuraDB is slow.
-        var future = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-            Map<String, Long> stats = graphService.getStats();
-            return DatabaseStatsResponse.Neo4jStats.builder()
-                    .paperNodes(stats.getOrDefault("paperNodes", 0L))
-                    .keywordNodes(stats.getOrDefault("keywordNodes", 0L))
-                    .relationships(stats.getOrDefault("relationships", 0L))
-                    .build();
+        // Run Neo4j query in a dedicated thread with a hard 8s timeout.
+        // Uses its own single-thread executor — never blocks the common ForkJoinPool.
+        java.util.concurrent.ExecutorService neo4jExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "neo4j-stats-ds");
+            t.setDaemon(true);
+            return t;
         });
         try {
-            return future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            var future = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                Map<String, Long> stats = graphService.getStats();
+                return DatabaseStatsResponse.Neo4jStats.builder()
+                        .paperNodes(stats.getOrDefault("paperNodes", 0L))
+                        .keywordNodes(stats.getOrDefault("keywordNodes", 0L))
+                        .relationships(stats.getOrDefault("relationships", 0L))
+                        .build();
+            }, neo4jExecutor);
+            return future.get(8, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {
-            log.warn("Neo4j stats timed out or failed — returning zeros: {}", e.getMessage());
+            log.warn("Neo4j stats timed out or failed after 8s — returning zeros: {}", e.getMessage());
             return DatabaseStatsResponse.Neo4jStats.builder()
                     .paperNodes(0L).keywordNodes(0L).relationships(0L).build();
+        } finally {
+            neo4jExecutor.shutdownNow();
         }
     }
 
@@ -1016,6 +1055,10 @@ public class DataSyncServiceImpl implements DataSyncService {
         result.put("totalInserted", totalInserted);
         result.put("yearRange", yrFrom + "-" + yrTo);
         result.put("keywordStats", keywordStats);
+
+        // Pre-compute fresh stats in background so GET /stats is always instant
+        self.refreshStatsCache();
+
         return result;
     }
 
@@ -1184,6 +1227,10 @@ public class DataSyncServiceImpl implements DataSyncService {
         result.put("totalInserted", totalInserted);
         result.put("yearRange", yrFrom + "-" + yrTo);
         result.put("keywordStats", keywordStats);
+
+        // Pre-compute fresh stats in background so GET /stats is always instant
+        self.refreshStatsCache();
+
         return result;
     }
 
@@ -1741,6 +1788,11 @@ public class DataSyncServiceImpl implements DataSyncService {
      * This puts requests in the "polite pool" with much higher rate limits.
      */
     private UriComponentsBuilder withOpenAlexMailto(UriComponentsBuilder builder) {
+        // API key (required since Feb 2026 — replaces the deprecated mailto polite pool)
+        if (openalexApiKey != null && !openalexApiKey.isBlank()) {
+            builder.queryParam("api_key", openalexApiKey);
+        }
+        // mailto kept for backward compatibility (no longer works for auth, but doesn't hurt)
         if (openalexEmail != null && !openalexEmail.isBlank()) {
             builder.queryParam("mailto", openalexEmail);
         }
@@ -1748,9 +1800,13 @@ public class DataSyncServiceImpl implements DataSyncService {
     }
 
     /**
-     * Add mailto param with explicit email (for team members using their own polite pool quota).
+     * Add API key and optional mailto (for team members using their own quota).
+     * API key is REQUIRED since Feb 2026 — the old mailto polite pool is deprecated.
      */
     private UriComponentsBuilder withMailto(UriComponentsBuilder builder, String mailto) {
+        if (openalexApiKey != null && !openalexApiKey.isBlank()) {
+            builder.queryParam("api_key", openalexApiKey);
+        }
         if (mailto != null && !mailto.isBlank()) {
             builder.queryParam("mailto", mailto);
         }
@@ -1762,17 +1818,22 @@ public class DataSyncServiceImpl implements DataSyncService {
      */
     @SuppressWarnings("unchecked")
     private <T> T fetchOpenAlexWithRetry(String url, Class<T> responseType, String context) {
-        int maxRetries = 3;
+        int maxRetries = 5;
         for (int attempt = 0; attempt < maxRetries; attempt++) {
             try {
                 return restTemplate.getForObject(url, responseType);
             } catch (Exception e) {
                 String msg = e.getMessage() != null ? e.getMessage() : "";
                 boolean isRateLimited = msg.contains("429") || msg.contains("Rate limit") || msg.contains("Too Many Requests");
-                if (isRateLimited && attempt < maxRetries - 1) {
-                    long waitMs = (attempt + 1) * 3000L;
-                    log.warn("OpenAlex 429 rate limited for '{}', waiting {}s (attempt {}/{})",
-                            context, waitMs / 1000, attempt + 1, maxRetries);
+                boolean isServerError = msg.contains("503") || msg.contains("Service Unavailable")
+                        || msg.contains("Search temporarily unavailable");
+                if ((isRateLimited || isServerError) && attempt < maxRetries - 1) {
+                    long waitMs = isServerError
+                            ? (attempt + 1) * 5000L   // 5s, 10s, 15s, 20s — server overload needs longer wait
+                            : (attempt + 1) * 3000L;  // 3s, 6s, 9s, 12s — rate limit
+                    log.warn("OpenAlex {} for '{}' (attempt {}/{}), waiting {}s...",
+                            isServerError ? "503 overload" : "429 rate-limited",
+                            context, attempt + 1, maxRetries, waitMs / 1000);
                     try { Thread.sleep(waitMs); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
                 } else {
                     throw new RuntimeException("OpenAlex API error for '" + context + "': " + msg, e);
