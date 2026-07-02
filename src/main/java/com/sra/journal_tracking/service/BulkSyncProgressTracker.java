@@ -113,4 +113,22 @@ public class BulkSyncProgressTracker {
             return isDone && isOld;
         });
     }
+
+    /**
+     * Get all currently RUNNING tasks (for admin monitoring).
+     */
+    public java.util.List<BulkSyncProgress> getRunningTasks() {
+        return tasks.values().stream()
+                .filter(p -> "RUNNING".equals(p.getStatus()))
+                .toList();
+    }
+
+    /**
+     * Get all tasks (running + recently completed/failed).
+     */
+    public java.util.List<BulkSyncProgress> getAllTasks() {
+        return tasks.values().stream()
+                .sorted((a, b) -> b.getStartedAt().compareTo(a.getStartedAt()))
+                .toList();
+    }
 }

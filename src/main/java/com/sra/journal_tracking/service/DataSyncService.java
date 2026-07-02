@@ -73,4 +73,10 @@ public interface DataSyncService {
      * @return Map with processed/total counts
      */
     java.util.Map<String, Object> reExtractKeywords();
+
+    /**
+     * Get papers recently added by sync (last N hours, paginated).
+     * Useful for admin to see what was just imported.
+     */
+    org.springframework.data.domain.Page<com.sra.journal_tracking.entity.jpa.ResearchPaper> getRecentSyncedPapers(int hours, int page, int size);
 }

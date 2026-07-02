@@ -169,6 +169,12 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 
     // ---- Overview Statistics Queries ----
 
+    @Query("SELECT p FROM ResearchPaper p "
+         + "LEFT JOIN FETCH p.source "
+         + "WHERE p.createdAt >= :since "
+         + "ORDER BY p.createdAt DESC")
+    Page<ResearchPaper> findRecentPapers(@Param("since") LocalDateTime since, Pageable pageable);
+
     @Query("SELECT COUNT(p) FROM ResearchPaper p WHERE p.createdAt >= :start AND p.createdAt < :end")
     long countByCreatedAtBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 

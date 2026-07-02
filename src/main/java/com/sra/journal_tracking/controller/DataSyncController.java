@@ -239,6 +239,61 @@ public class DataSyncController {
         return ResponseEntity.ok(AppResponse.success("Notification data retrieved", data));
     }
 
+    // ═══════════════════════════════════════════════════
+    //  Recent synced papers + bulk task monitoring
+    // ═══════════════════════════════════════════════════
+
+    @Operation(summary = "Get recently synced papers", description = "Returns papers added in the last N hours (default 24h). Paginated.")
+    @GetMapping("/papers/recent")
+    public ResponseEntity<AppResponse<Map<String, Object>>> getRecentPapers(
+            @RequestParam(defaultValue = "24") int hours,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        var paperPage = dataSyncService.getRecentSyncedPapers(hours, page, size);
+
+        List<Map<String, Object>> papers = paperPage.getContent().stream()
+                .map(p -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("paperId", p.getPaperId());
+                    m.put("title", p.getTitle());
+                    m.put("doi", p.getDoi());
+                    m.put("pubYear", p.getPubYear());
+                    m.put("citationCount", p.getCitationCount());
+                    m.put("isOpenAccess", p.getIsOpenAccess());
+                    m.put("source", p.getSource() != null ? p.getSource().getSourceName() : null);
+                    m.put("createdAt", p.getCreatedAt() != null ? p.getCreatedAt().toString() : null);
+                    return m;
+                }).toList();
+
+        Map<String, Object> data = Map.of(
+                "papers", papers,
+                "totalPages", paperPage.getTotalPages(),
+                "totalElements", paperPage.getTotalElements(),
+                "page", page,
+                "size", size,
+                "hours", hours
+        );
+        return ResponseEntity.ok(AppResponse.success("Recent papers retrieved", data));
+    }
+
+    @Operation(summary = "List bulk sync tasks", description = "Returns all bulk sync tasks (running + recently completed/failed). Use to monitor sync progress.")
+    @GetMapping("/bulk/tasks")
+    public ResponseEntity<AppResponse<Map<String, Object>>> listBulkTasks() {
+        // Clean tasks older than 30 min
+        bulkSyncProgressTracker.cleanOldTasks(30);
+
+        var allTasks = bulkSyncProgressTracker.getAllTasks();
+        var runningTasks = bulkSyncProgressTracker.getRunningTasks();
+
+        Map<String, Object> data = Map.of(
+                "total", allTasks.size(),
+                "running", runningTasks.size(),
+                "tasks", allTasks
+        );
+        return ResponseEntity.ok(AppResponse.success("Bulk sync tasks retrieved", data));
+    }
+
     private ResponseEntity<AppResponse<Map<String, Object>>> buildSyncResponse(String sourceName, String query, SyncLog syncLog) {
         Map<String, Object> data = Map.of(
                 "source", sourceName,

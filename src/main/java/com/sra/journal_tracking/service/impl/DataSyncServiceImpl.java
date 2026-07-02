@@ -910,6 +910,13 @@ public class DataSyncServiceImpl implements DataSyncService {
         );
     }
 
+    @Override
+    public org.springframework.data.domain.Page<ResearchPaper> getRecentSyncedPapers(int hours, int page, int size) {
+        LocalDateTime since = LocalDateTime.now().minusHours(Math.max(1, Math.min(hours, 720))); // clamp 1-720 hours
+        return researchPaperRepository.findRecentPapers(
+                since, org.springframework.data.domain.PageRequest.of(page, size));
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  Bulk sync (OpenAlex pagination)
     // ═══════════════════════════════════════════════════════════
