@@ -2,9 +2,11 @@ package com.sra.journal_tracking.controller;
 
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.dto.user.ChangePasswordRequest;
+import com.sra.journal_tracking.dto.user.UpdateBackgroundRequest;
 import com.sra.journal_tracking.dto.user.UpdateProfileRequest;
 import com.sra.journal_tracking.dto.user.UserDTO;
 import com.sra.journal_tracking.service.UserService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -31,6 +33,13 @@ public class UserController {
             Authentication authentication,
             @RequestBody UpdateProfileRequest request) {
         return ResponseEntity.ok(AppResponse.success("Profile updated", userService.updateProfile(authentication.getName(), request)));
+    }
+
+    @PutMapping("/me/background")
+    public ResponseEntity<AppResponse<UserDTO>> updateBackground(
+            Authentication authentication,
+            @Valid @RequestBody UpdateBackgroundRequest request) {
+        return ResponseEntity.ok(AppResponse.success("Background updated", userService.updateBackground(authentication.getName(), request)));
     }
 
     @PutMapping("/me/password")

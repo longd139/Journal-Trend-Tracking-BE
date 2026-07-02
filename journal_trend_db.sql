@@ -26,6 +26,7 @@ DROP TABLE IF EXISTS SYSTEM_CONFIG;
 DROP TABLE IF EXISTS DASHBOARD_WIDGET;
 DROP TABLE IF EXISTS REPORT;
 DROP TABLE IF EXISTS NOTIFICATION;
+DROP TABLE IF EXISTS PDF_REQUEST;
 DROP TABLE IF EXISTS FOLLOW;
 DROP TABLE IF EXISTS BOOKMARK;
 DROP TABLE IF EXISTS PUBLICATION_TREND;
@@ -71,6 +72,7 @@ CREATE TABLE [USER] (
     PasswordHash    NVARCHAR(255)       NOT NULL,   -- bcrypt hash, khong luu plaintext
     FullName        NVARCHAR(200)       NOT NULL,
     Institution     NVARCHAR(300)       NULL,
+    BackgroundUrl   NVARCHAR(500)       NULL,
     IsActive        BIT                 NOT NULL  DEFAULT 1,
     CreatedAt       DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
     LastLoginAt     DATETIME2(0)        NULL,
@@ -430,6 +432,30 @@ CREATE TABLE NOTIFICATION (
 );
 GO
 
+-- ── PDF_REQUEST ──────────────────────────────────────────────
+-- User requests for missing paper PDFs. Admin can resolve manually or accept a found candidate.
+CREATE TABLE PDF_REQUEST (
+    RequestID           UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    UserID              UNIQUEIDENTIFIER    NOT NULL,
+    PaperID             UNIQUEIDENTIFIER    NOT NULL,
+    Status              NVARCHAR(20)        NOT NULL  DEFAULT 'pending'
+                            CHECK (Status IN ('pending', 'fulfilled', 'rejected')),
+    UserMessage         NVARCHAR(1000)      NULL,
+    AdminNote           NVARCHAR(1000)      NULL,
+    RequestedAt         DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+    ResolvedAt          DATETIME2(0)        NULL,
+    ResolvedByAdminID   UNIQUEIDENTIFIER    NULL,
+
+    CONSTRAINT PK_PDF_REQUEST        PRIMARY KEY (RequestID),
+    CONSTRAINT FK_PDF_REQUEST_User   FOREIGN KEY (UserID)
+                                      REFERENCES [USER](UserID),
+    CONSTRAINT FK_PDF_REQUEST_Paper  FOREIGN KEY (PaperID)
+                                      REFERENCES RESEARCH_PAPER(PaperID),
+    CONSTRAINT FK_PDF_REQUEST_Admin  FOREIGN KEY (ResolvedByAdminID)
+                                      REFERENCES [USER](UserID)
+);
+GO
+
 -- ============================================================
 --  NHOM 5: BAO CAO & DASHBOARD (chi Researcher)
 -- ============================================================
@@ -619,6 +645,13 @@ CREATE UNIQUE INDEX UK_FOLLOW_Keyword   ON FOLLOW(UserID, KeywordID) WHERE Keywo
 -- NOTIFICATION
 CREATE INDEX IX_NOTIF_UserUnread    ON NOTIFICATION(UserID, IsRead, CreatedAt DESC);
 CREATE INDEX IX_NOTIF_CreatedAt     ON NOTIFICATION(CreatedAt DESC);
+
+-- PDF_REQUEST
+CREATE INDEX IX_PDF_REQUEST_StatusRequestedAt
+    ON PDF_REQUEST(Status, RequestedAt DESC);
+CREATE UNIQUE INDEX UX_PDF_REQUEST_UserPaperPending
+    ON PDF_REQUEST(UserID, PaperID)
+    WHERE Status = 'pending';
 
 -- REPORT
 CREATE INDEX IX_REPORT_UserID       ON REPORT(UserID);

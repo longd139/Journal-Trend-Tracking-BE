@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.sra.journal_tracking.dto.user.ChangePasswordRequest;
+import com.sra.journal_tracking.dto.user.UpdateBackgroundRequest;
 import com.sra.journal_tracking.dto.user.UpdateProfileRequest;
 import com.sra.journal_tracking.dto.user.UserDTO;
 import com.sra.journal_tracking.entity.jpa.Role;
@@ -42,6 +43,20 @@ public class UserServiceImpl implements UserService {
 
         if (request.getFullName() != null) user.setFullName(request.getFullName());
         if (request.getInstitution() != null) user.setInstitution(request.getInstitution());
+
+        return mapToDTO(userRepository.save(user));
+    }
+
+    @Override
+    @Transactional
+    public UserDTO updateBackground(String email, UpdateBackgroundRequest request) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        String backgroundUrl = request.getBackgroundUrl();
+        user.setBackgroundUrl(backgroundUrl != null && !backgroundUrl.isBlank()
+                ? backgroundUrl.trim()
+                : null);
 
         return mapToDTO(userRepository.save(user));
     }
@@ -117,6 +132,7 @@ public class UserServiceImpl implements UserService {
                 .email(user.getEmail())
                 .institution(user.getInstitution())
                 .avatarUrl(null)
+                .backgroundUrl(user.getBackgroundUrl())
                 .roleName(user.getRole() != null ? user.getRole().getRoleName() : null)
                 .isActive(user.getIsActive())
                 .remainingSearches(null)

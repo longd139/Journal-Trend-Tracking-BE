@@ -40,7 +40,51 @@ BEGIN
             ON TRENDING_TOPIC (DisplayOrder ASC)'
 END
 
--- 3. RESEARCH_FIELD — Seed additional top-level fields if missing
+-- 3. USER.BackgroundUrl
+IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'USER' AND COLUMN_NAME = 'BackgroundUrl'
+)
+BEGIN
+    ALTER TABLE [USER] ADD BackgroundUrl NVARCHAR(500) NULL
+END
+
+-- 4. PDF_REQUEST
+IF OBJECT_ID('PDF_REQUEST', 'U') IS NULL
+   AND OBJECT_ID('RESEARCH_PAPER', 'U') IS NOT NULL
+   AND OBJECT_ID('USER', 'U') IS NOT NULL
+BEGIN
+    EXEC sp_executesql N'
+        CREATE TABLE PDF_REQUEST (
+            RequestID UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+            UserID UNIQUEIDENTIFIER NOT NULL,
+            PaperID UNIQUEIDENTIFIER NOT NULL,
+            Status NVARCHAR(20) NOT NULL DEFAULT ''pending'',
+            UserMessage NVARCHAR(1000) NULL,
+            AdminNote NVARCHAR(1000) NULL,
+            RequestedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+            ResolvedAt DATETIME2 NULL,
+            ResolvedByAdminID UNIQUEIDENTIFIER NULL,
+            CONSTRAINT PK_PDF_REQUEST PRIMARY KEY (RequestID),
+            CONSTRAINT FK_PDF_REQUEST_User FOREIGN KEY (UserID)
+                REFERENCES [USER](UserID),
+            CONSTRAINT FK_PDF_REQUEST_Paper FOREIGN KEY (PaperID)
+                REFERENCES RESEARCH_PAPER(PaperID),
+            CONSTRAINT FK_PDF_REQUEST_Admin FOREIGN KEY (ResolvedByAdminID)
+                REFERENCES [USER](UserID),
+            CONSTRAINT CK_PDF_REQUEST_Status
+                CHECK (Status IN (''pending'', ''fulfilled'', ''rejected''))
+        )'
+    EXEC sp_executesql N'
+        CREATE INDEX IX_PDF_REQUEST_StatusRequestedAt
+            ON PDF_REQUEST(Status, RequestedAt DESC)'
+    EXEC sp_executesql N'
+        CREATE UNIQUE INDEX UX_PDF_REQUEST_UserPaperPending
+            ON PDF_REQUEST(UserID, PaperID)
+            WHERE Status = ''pending'''
+END
+
+-- 5. RESEARCH_FIELD — Seed additional top-level fields if missing
 IF NOT EXISTS (SELECT 1 FROM RESEARCH_FIELD WHERE FieldName = N'Engineering')
     INSERT INTO RESEARCH_FIELD (FieldID, ParentFieldID, FieldName, IsTracked, Description)
     VALUES (NEWID(), NULL, N'Engineering', 1, N'Engineering and technology disciplines');

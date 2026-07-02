@@ -7,10 +7,11 @@ import com.sra.journal_tracking.repository.jpa.AuthorRepository;
 import com.sra.journal_tracking.repository.jpa.PaperAuthorRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchFieldRepository;
 import com.sra.journal_tracking.service.AuthorSuggestionService;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -32,7 +33,7 @@ public class AuthorSuggestionServiceImpl implements AuthorSuggestionService {
 
     /** Pre-warm cache on startup — async, không block app. */
     @Async
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     public void warmUpCache() {
         try {
             Thread.sleep(3000); // chờ connection pool

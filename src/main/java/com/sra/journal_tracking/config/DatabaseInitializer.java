@@ -79,6 +79,49 @@ public class DatabaseInitializer {
                     """);
             log.info("DB init: USER.RoleExpiryAt column ensured");
 
+            stmt.execute("""
+                    IF NOT EXISTS (
+                        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_NAME = 'USER' AND COLUMN_NAME = 'BackgroundUrl'
+                    )
+                    BEGIN
+                        ALTER TABLE [USER] ADD BackgroundUrl NVARCHAR(500) NULL
+                    END
+                    """);
+            log.info("DB init: USER.BackgroundUrl column ensured");
+
+            stmt.execute("""
+                    IF OBJECT_ID('PDF_REQUEST', 'U') IS NULL
+                    BEGIN
+                        CREATE TABLE PDF_REQUEST (
+                            RequestID UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+                            UserID UNIQUEIDENTIFIER NOT NULL,
+                            PaperID UNIQUEIDENTIFIER NOT NULL,
+                            Status NVARCHAR(20) NOT NULL DEFAULT 'pending',
+                            UserMessage NVARCHAR(1000) NULL,
+                            AdminNote NVARCHAR(1000) NULL,
+                            RequestedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+                            ResolvedAt DATETIME2 NULL,
+                            ResolvedByAdminID UNIQUEIDENTIFIER NULL,
+                            CONSTRAINT PK_PDF_REQUEST PRIMARY KEY (RequestID),
+                            CONSTRAINT FK_PDF_REQUEST_User FOREIGN KEY (UserID)
+                                REFERENCES [USER](UserID),
+                            CONSTRAINT FK_PDF_REQUEST_Paper FOREIGN KEY (PaperID)
+                                REFERENCES RESEARCH_PAPER(PaperID),
+                            CONSTRAINT FK_PDF_REQUEST_Admin FOREIGN KEY (ResolvedByAdminID)
+                                REFERENCES [USER](UserID),
+                            CONSTRAINT CK_PDF_REQUEST_Status
+                                CHECK (Status IN ('pending', 'fulfilled', 'rejected'))
+                        );
+                        CREATE INDEX IX_PDF_REQUEST_StatusRequestedAt
+                            ON PDF_REQUEST(Status, RequestedAt DESC);
+                        CREATE UNIQUE INDEX UX_PDF_REQUEST_UserPaperPending
+                            ON PDF_REQUEST(UserID, PaperID)
+                            WHERE Status = 'pending';
+                    END
+                    """);
+            log.info("DB init: PDF_REQUEST table ensured");
+
         } catch (Exception e) {
             log.error("Database initialization failed: {}", e.getMessage(), e);
         }
