@@ -37,6 +37,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -88,6 +90,10 @@ public class DataSyncServiceImpl implements DataSyncService {
 
     @PersistenceContext
     private EntityManager entityManager;
+
+    @Lazy
+    @Autowired
+    private DataSyncServiceImpl self;
 
     @Value("${app.core-api-key:}")
     private String coreApiKey;
@@ -659,17 +665,35 @@ public class DataSyncServiceImpl implements DataSyncService {
     @Override
     @Transactional(readOnly = true)
     public DatabaseStatsResponse getDatabaseStats() {
-        // ── Cache: 1-hour TTL (same pattern as GraphService/WeeklyBreakoutService) ──
+        // ── Cache: 1-hour TTL ──
         long now = System.currentTimeMillis();
         if (cachedStats != null && now < cachedStats.expiryTime) {
-            log.info("CACHE HIT: database stats ({}s old)", (now - (cachedStats.expiryTime - CACHE_TTL_MS)) / 1000);
+            log.info("CACHE HIT: database stats");
             return cachedStats.data;
         }
 
         log.info("Computing database statistics...");
         long startTime = System.currentTimeMillis();
 
-        // Papers — single query with aggregation instead of 3 separate queries
+        // ── Neo4j stats — runs in separate thread with 10s timeout, no JPA connection held ──
+        DatabaseStatsResponse.Neo4jStats neo4jStats = getNeo4jStats();
+
+        // ── JPA queries inside this transaction (short, no Neo4j blocking) ──
+        DatabaseStatsResponse stats = buildStatsFromJpa(neo4jStats);
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.info("Database stats computed in {}ms: papers={}, authors={}, keywords={}, neo4j=[papers={}, kw={}, rels={}]",
+                elapsed,
+                stats.getPapers().getTotal(), stats.getAuthors().getTotal(), stats.getKeywords().getTotal(),
+                neo4jStats.getPaperNodes(), neo4jStats.getKeywordNodes(), neo4jStats.getRelationships());
+
+        // ── Store in cache ──
+        cachedStats = new StatsCacheEntry(stats);
+        return stats;
+    }
+
+    @Transactional(readOnly = true)
+    public DatabaseStatsResponse buildStatsFromJpa(DatabaseStatsResponse.Neo4jStats neo4jStats) {
         @SuppressWarnings("unchecked")
         List<Object[]> paperAggRows = entityManager
                 .createQuery("SELECT COUNT(p), "
@@ -726,9 +750,6 @@ public class DataSyncServiceImpl implements DataSyncService {
             if (lastSyncObj != null) lastSync = lastSyncObj.toString();
         } catch (Exception ignored) {}
 
-        // Neo4j stats (single call)
-        DatabaseStatsResponse.Neo4jStats neo4jStats = getNeo4jStats();
-
         DatabaseStatsResponse stats = DatabaseStatsResponse.builder()
                 .papers(DatabaseStatsResponse.PaperStats.builder()
                         .total(totalPapers).bySource(bySource).byYear(byYear)
@@ -746,13 +767,6 @@ public class DataSyncServiceImpl implements DataSyncService {
                         .total(totalSyncLogs).lastSync(lastSync).build())
                 .build();
 
-        long elapsed = System.currentTimeMillis() - startTime;
-        log.info("Database stats computed in {}ms: papers={}, authors={}, keywords={}, neo4j=[papers={}, kw={}, rels={}]",
-                elapsed, totalPapers, totalAuthors, totalKeywords,
-                neo4jStats.getPaperNodes(), neo4jStats.getKeywordNodes(), neo4jStats.getRelationships());
-
-        // ── Store in cache ──
-        cachedStats = new StatsCacheEntry(stats);
         return stats;
     }
 
@@ -769,12 +783,23 @@ public class DataSyncServiceImpl implements DataSyncService {
     private StatsCacheEntry cachedStats;
 
     private DatabaseStatsResponse.Neo4jStats getNeo4jStats() {
-        Map<String, Long> stats = graphService.getStats();
-        return DatabaseStatsResponse.Neo4jStats.builder()
-                .paperNodes(stats.getOrDefault("paperNodes", 0L))
-                .keywordNodes(stats.getOrDefault("keywordNodes", 0L))
-                .relationships(stats.getOrDefault("relationships", 0L))
-                .build();
+        // Run Neo4j query with a hard timeout — if it takes > 10s, return zeros immediately.
+        // This prevents the stats endpoint from hanging when Neo4j AuraDB is slow.
+        var future = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            Map<String, Long> stats = graphService.getStats();
+            return DatabaseStatsResponse.Neo4jStats.builder()
+                    .paperNodes(stats.getOrDefault("paperNodes", 0L))
+                    .keywordNodes(stats.getOrDefault("keywordNodes", 0L))
+                    .relationships(stats.getOrDefault("relationships", 0L))
+                    .build();
+        });
+        try {
+            return future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("Neo4j stats timed out or failed — returning zeros: {}", e.getMessage());
+            return DatabaseStatsResponse.Neo4jStats.builder()
+                    .paperNodes(0L).keywordNodes(0L).relationships(0L).build();
+        }
     }
 
     // ═══════════════════════════════════════════════════════════

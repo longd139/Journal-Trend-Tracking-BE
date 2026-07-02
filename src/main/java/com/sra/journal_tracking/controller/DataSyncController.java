@@ -6,6 +6,7 @@ import com.sra.journal_tracking.dto.sync.BulkSyncProgress;
 import com.sra.journal_tracking.entity.jpa.SyncLog;
 import com.sra.journal_tracking.service.BulkSyncProgressTracker;
 import com.sra.journal_tracking.service.DataSyncService;
+import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.ScheduledDataSyncService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -38,6 +39,7 @@ public class DataSyncController {
     private final DataSyncService dataSyncService;
     private final ScheduledDataSyncService scheduledDataSyncService;
     private final BulkSyncProgressTracker bulkSyncProgressTracker;
+    private final GraphService graphService;
 
     @Operation(summary = "Manual trigger OpenAlex Sync", description = "Fetch papers from OpenAlex based on keyword and year range")
     @PostMapping("/openalex")
@@ -115,6 +117,20 @@ public class DataSyncController {
     public ResponseEntity<AppResponse<Map<String, Object>>> clearAllPapers() {
         Map<String, Object> result = dataSyncService.clearAllPapers();
         return ResponseEntity.ok(AppResponse.success("All papers and related data deleted successfully", result));
+    }
+
+    @Operation(summary = "Clear Neo4j only", description = "Delete ALL nodes and relationships from Neo4j. SQL Server data is preserved.")
+    @DeleteMapping("/clear-neo4j")
+    public ResponseEntity<AppResponse<Map<String, Object>>> clearNeo4j() {
+        try {
+            graphService.clearAll();
+            return ResponseEntity.ok(AppResponse.success("Neo4j data cleared successfully",
+                    Map.of("neo4jCleared", true)));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(AppResponse.of(500, "Failed to clear Neo4j: " + e.getMessage(),
+                            Map.of("neo4jCleared", false)));
+        }
     }
 
     @Operation(summary = "Get database statistics", description = "Comprehensive overview of all data in SQL and Neo4j")

@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * Remove this file after the first successful run.
  */
 @Slf4j
-@Component
+// @Component  — disabled: one-time migration already completed, kept for reference
 @RequiredArgsConstructor
 public class KeywordMigrationRunner implements CommandLineRunner {
 

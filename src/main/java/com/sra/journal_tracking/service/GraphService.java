@@ -747,22 +747,39 @@ public class GraphService {
     }
 
     /**
-     * Get Neo4j graph statistics.
+     * Get Neo4j graph statistics with a 15-second timeout to avoid hanging.
      */
+    private static final java.util.concurrent.ExecutorService STATS_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "neo4j-stats");
+                t.setDaemon(true);
+                return t;
+            });
+
     public java.util.Map<String, Long> getStats() {
         java.util.Map<String, Long> stats = new java.util.LinkedHashMap<>();
         try {
-            Long papers = neo4jClient.query("MATCH (p:Paper) RETURN COUNT(p) AS cnt")
-                    .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
-            Long keywords = neo4jClient.query("MATCH (k:Keyword) RETURN COUNT(k) AS cnt")
-                    .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
-            Long rels = neo4jClient.query("MATCH ()-[r:HAS_KEYWORD]->() RETURN COUNT(r) AS cnt")
-                    .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
-            stats.put("paperNodes", papers);
-            stats.put("keywordNodes", keywords);
-            stats.put("relationships", rels);
+            var future = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                java.util.Map<String, Long> s = new java.util.LinkedHashMap<>();
+                Long papers = neo4jClient.query("MATCH (p:Paper) RETURN COUNT(p) AS cnt")
+                        .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
+                Long keywords = neo4jClient.query("MATCH (k:Keyword) RETURN COUNT(k) AS cnt")
+                        .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
+                Long rels = neo4jClient.query("MATCH ()-[r:HAS_KEYWORD]->() RETURN COUNT(r) AS cnt")
+                        .fetch().one().map(r -> (Long) r.get("cnt")).orElse(0L);
+                s.put("paperNodes", papers);
+                s.put("keywordNodes", keywords);
+                s.put("relationships", rels);
+                return s;
+            }, STATS_EXECUTOR);
+            stats = future.get(15, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            log.warn("Neo4j stats timed out after 15s — returning zeros");
+            stats.put("paperNodes", 0L);
+            stats.put("keywordNodes", 0L);
+            stats.put("relationships", 0L);
         } catch (Exception e) {
-            log.debug("Neo4j stats unavailable: {}", e.getMessage());
+            log.warn("Neo4j stats unavailable: {}", e.getMessage());
             stats.putIfAbsent("paperNodes", 0L);
             stats.putIfAbsent("keywordNodes", 0L);
             stats.putIfAbsent("relationships", 0L);
