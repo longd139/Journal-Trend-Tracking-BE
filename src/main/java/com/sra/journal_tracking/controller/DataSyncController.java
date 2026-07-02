@@ -52,14 +52,15 @@ public class DataSyncController {
         return buildSyncResponse("OpenAlex", query, syncLog);
     }
 
-    @Operation(summary = "Deep sync keywords from OpenAlex", description = "Fetch up to 40k papers per keyword using cursor pagination. Supports multiple keywords separated by comma or newline. Each team member must provide their own email for polite pool.")
+    @Operation(summary = "Deep sync keywords from OpenAlex", description = "Fetch up to 40k papers per keyword using cursor pagination. Supports multiple keywords separated by comma or newline. Each team member can provide their own API key from https://openalex.org/settings/api")
     @PostMapping("/openalex/deep")
     public ResponseEntity<AppResponse<Map<String, Object>>> triggerDeepSync(
             @RequestParam String query,
             @RequestParam(defaultValue = "500") int limit,
             @RequestParam(required = false) Integer yearFrom,
             @RequestParam(required = false) Integer yearTo,
-            @RequestParam String mailto) {
+            @RequestParam(required = false) String mailto,
+            @RequestParam(required = false) String apiKey) {
 
         // Split by comma, newline, or semicolon — support paste multiple keywords
         List<String> keywords = java.util.Arrays.stream(query.split("[,;\n]+"))
@@ -74,7 +75,7 @@ public class DataSyncController {
         }
 
         Map<String, Object> result = dataSyncService.bulkSyncFromOpenAlex(
-                keywords, limit, yearFrom, yearTo, mailto);
+                keywords, limit, yearFrom, yearTo, mailto, apiKey);
         return ResponseEntity.ok(AppResponse.success(
                 "Deep sync completed for " + keywords.size() + " keyword(s)", result));
     }

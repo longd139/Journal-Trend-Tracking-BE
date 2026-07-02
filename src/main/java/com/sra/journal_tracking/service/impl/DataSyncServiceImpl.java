@@ -916,11 +916,16 @@ public class DataSyncServiceImpl implements DataSyncService {
 
     @Override
     public Map<String, Object> bulkSyncFromOpenAlex(List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo) {
-        return bulkSyncFromOpenAlex(keywords, papersPerKeyword, yearFrom, yearTo, openalexEmail);
+        return bulkSyncFromOpenAlex(keywords, papersPerKeyword, yearFrom, yearTo, null, null);
     }
 
     @Override
     public Map<String, Object> bulkSyncFromOpenAlex(List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo, String mailto) {
+        return bulkSyncFromOpenAlex(keywords, papersPerKeyword, yearFrom, yearTo, mailto, null);
+    }
+
+    @Override
+    public Map<String, Object> bulkSyncFromOpenAlex(List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo, String mailto, String apiKey) {
         log.info("Starting BULK sync: {} keywords, {} papers each", keywords.size(), papersPerKeyword);
 
         int yrFrom = yearFrom != null ? yearFrom : 1900;
@@ -951,7 +956,7 @@ public class DataSyncServiceImpl implements DataSyncService {
                                     .queryParam("per-page", perPage)
                                     .queryParam("cursor", nextCursor)
                                     .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,cited_by_count,abstract_inverted_index,open_access,primary_location,best_oa_location,topics,keywords,authorships"),
-                            mailto
+                            mailto, apiKey
                     ).build().encode().toUriString();
 
                     OpenAlexResponseDTO response = fetchOpenAlexWithRetry(url, OpenAlexResponseDTO.class, keyword);
@@ -1804,8 +1809,17 @@ public class DataSyncServiceImpl implements DataSyncService {
      * API key is REQUIRED since Feb 2026 — the old mailto polite pool is deprecated.
      */
     private UriComponentsBuilder withMailto(UriComponentsBuilder builder, String mailto) {
-        if (openalexApiKey != null && !openalexApiKey.isBlank()) {
-            builder.queryParam("api_key", openalexApiKey);
+        return withMailto(builder, mailto, null);
+    }
+
+    /**
+     * Add API key and optional mailto with user-provided API key override.
+     * Uses user's apiKey if provided, otherwise falls back to server-wide openalexApiKey.
+     */
+    private UriComponentsBuilder withMailto(UriComponentsBuilder builder, String mailto, String apiKey) {
+        String effectiveKey = (apiKey != null && !apiKey.isBlank()) ? apiKey : openalexApiKey;
+        if (effectiveKey != null && !effectiveKey.isBlank()) {
+            builder.queryParam("api_key", effectiveKey);
         }
         if (mailto != null && !mailto.isBlank()) {
             builder.queryParam("mailto", mailto);

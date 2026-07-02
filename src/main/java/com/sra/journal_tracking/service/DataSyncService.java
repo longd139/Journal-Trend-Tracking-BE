@@ -53,6 +53,12 @@ public interface DataSyncService {
     java.util.Map<String, Object> bulkSyncFromOpenAlex(java.util.List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo, String mailto);
 
     /**
+     * Bulk sync with custom API key (for team members to use their own OpenAlex quota).
+     * Falls back to server-wide api key if not provided.
+     */
+    java.util.Map<String, Object> bulkSyncFromOpenAlex(java.util.List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo, String mailto, String apiKey);
+
+    /**
      * Async version of bulkSyncFromOpenAlex with progress tracking.
      * Updates {@link BulkSyncProgressTracker} as each keyword completes.
      *
