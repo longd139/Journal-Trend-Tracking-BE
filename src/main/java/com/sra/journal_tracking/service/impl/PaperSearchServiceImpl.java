@@ -142,7 +142,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
 
         int page = Math.max(0, request.getPage());
         int size = Math.min(50, Math.max(1, request.getSize()));
-        Pageable pageable = PageRequest.of(page, size);
+        Pageable pageable = PageRequest.of(page, size, buildSort(request.getSortBy(), request.getSortDirection()));
 
         Page<ResearchPaper> results = researchPaperRepository.searchByAuthorName(
                 authorName,
@@ -225,7 +225,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
 
         int page = Math.max(0, request.getPage());
         int size = Math.min(50, Math.max(1, request.getSize()));
-        Pageable pageable = PageRequest.of(page, size);
+        Pageable pageable = PageRequest.of(page, size, buildSort(request.getSortBy(), request.getSortDirection()));
 
         Page<ResearchPaper> results = researchPaperRepository.findByJournal_JournalIdAndPubYearBetween(
                 journalId,
@@ -256,7 +256,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
 
         int page = Math.max(0, filterRequest.getPage());
         int size = Math.min(50, Math.max(1, filterRequest.getSize()));
-        Pageable pageable = PageRequest.of(page, size);
+        Pageable pageable = PageRequest.of(page, size, buildSort(filterRequest.getSortBy(), filterRequest.getSortDirection()));
 
         Page<ResearchPaper> results = researchPaperRepository.advancedFilter(
                 pubYearFrom,
@@ -752,5 +752,31 @@ public class PaperSearchServiceImpl implements PaperSearchService {
     }
 
     private record RankedSearchResult(List<ResearchPaper> papers, long totalElements) {
+    }
+
+    /**
+     * Build Spring Sort from user-facing sortBy/sortDirection params.
+     * Maps user-friendly names to DB column names.
+     */
+    private org.springframework.data.domain.Sort buildSort(String sortBy, String sortDirection) {
+        if (sortBy == null || sortBy.isBlank()) sortBy = "relevance";
+        if (sortDirection == null || sortDirection.isBlank()) sortDirection = "desc";
+
+        org.springframework.data.domain.Sort.Direction direction =
+                "asc".equalsIgnoreCase(sortDirection)
+                        ? org.springframework.data.domain.Sort.Direction.ASC
+                        : org.springframework.data.domain.Sort.Direction.DESC;
+
+        String column = switch (sortBy.toLowerCase()) {
+            case "citations" -> "citationCount";
+            case "title" -> "title";
+            case "date" -> "pubDate";
+            default -> "relevance";  // handled separately — no DB-level sort
+        };
+
+        if ("relevance".equals(column)) {
+            return org.springframework.data.domain.Sort.unsorted();
+        }
+        return org.springframework.data.domain.Sort.by(direction, column);
     }
 }

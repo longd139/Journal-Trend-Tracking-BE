@@ -68,4 +68,16 @@ public class PaperAdvancedFilterRequestDTO {
     @Max(value = 50, message = "Page size must not be greater than 50")
     @Builder.Default
     private Integer size = 10;
+
+    /**
+     * Sort field: "relevance", "citations", "title", "date"
+     */
+    @Builder.Default
+    private String sortBy = "relevance";
+
+    /**
+     * Sort direction: "asc" or "desc"
+     */
+    @Builder.Default
+    private String sortDirection = "desc";
 }

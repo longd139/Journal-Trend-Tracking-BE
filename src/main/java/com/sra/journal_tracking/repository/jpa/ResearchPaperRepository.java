@@ -157,6 +157,13 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
            "WHERE p.paperId = :paperId")
     Optional<ResearchPaper> findByIdWithDetails(@Param("paperId") UUID paperId);
 
+    @Query("SELECT DISTINCT p FROM ResearchPaper p " +
+           "LEFT JOIN FETCH p.journal " +
+           "LEFT JOIN FETCH p.authors pa " +
+           "LEFT JOIN FETCH pa.author " +
+           "WHERE p.paperId = :paperId")
+    Optional<ResearchPaper> findByIdWithAuthors(@Param("paperId") UUID paperId);
+
     Optional<ResearchPaper> findByDoi(String doi);
 
     @Query("SELECT COUNT(p) FROM ResearchPaper p " +

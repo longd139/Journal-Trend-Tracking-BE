@@ -46,4 +46,21 @@ public class PaperSearchRequestDTO {
     @Max(value = 50, message = "Page size must not be greater than 50")
     @Builder.Default
     private Integer size = 10;
+
+    /**
+     * Sort field. Supported values:
+     * - "relevance" (default) — Neo4j graph relevance or full-text match score
+     * - "citations" — sort by citationCount DESC
+     * - "title" — sort by title alphabetically
+     * - "date" — sort by pubDate DESC (newest first)
+     */
+    @Builder.Default
+    private String sortBy = "relevance";
+
+    /**
+     * Sort direction. "asc" or "desc" (default: "desc").
+     * Ignored when sortBy = "relevance".
+     */
+    @Builder.Default
+    private String sortDirection = "desc";
 }

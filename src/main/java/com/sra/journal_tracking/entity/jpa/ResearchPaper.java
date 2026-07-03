@@ -6,6 +6,7 @@ import java.util.UUID;
 
 // import org.springframework.data.neo4j.core.schema.Id;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -26,7 +27,11 @@ import lombok.NoArgsConstructor;
 import lombok.ToString;
 
 @Entity
-@Table(name = "RESEARCH_PAPER")
+@Table(name = "RESEARCH_PAPER", indexes = {
+    @Index(name = "IDX_PAPER_PUBYEAR", columnList = "PubYear"),
+    @Index(name = "IDX_PAPER_CREATEDAT", columnList = "CreatedAt"),
+    @Index(name = "IDX_PAPER_CITATIONS", columnList = "CitationCount")
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
