@@ -4,6 +4,8 @@ import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.dto.dashboard.DatabaseStatsResponse;
 import com.sra.journal_tracking.dto.sync.BulkSyncProgress;
 import com.sra.journal_tracking.entity.jpa.SyncLog;
+import com.sra.journal_tracking.entity.jpa.TrendingTopic;
+import com.sra.journal_tracking.repository.jpa.TrendingTopicRepository;
 import com.sra.journal_tracking.service.BulkSyncProgressTracker;
 import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.GraphService;
@@ -40,6 +42,37 @@ public class DataSyncController {
     private final ScheduledDataSyncService scheduledDataSyncService;
     private final BulkSyncProgressTracker bulkSyncProgressTracker;
     private final GraphService graphService;
+    private final TrendingTopicRepository trendingTopicRepository;
+
+    /**
+     * Fallback trending keywords used when TRENDING_TOPIC table is empty.
+     */
+    private static final List<String> FALLBACK_KEYWORDS = List.of(
+            "artificial intelligence", "machine learning", "deep learning",
+            "data science", "computer vision", "natural language processing",
+            "large language models", "neural networks", "reinforcement learning",
+            "generative AI", "healthcare AI", "robotics", "quantum computing",
+            "climate change", "cybersecurity", "bioinformatics", "edge computing",
+            "internet of things", "blockchain", "augmented reality",
+            "federated learning", "explainable AI", "transfer learning",
+            "sentiment analysis", "speech recognition", "autonomous vehicles",
+            "smart grid", "digital twin", "5G networks", "drug discovery"
+    );
+
+    /**
+     * Load trending keywords from TRENDING_TOPIC table (refreshed every 12h by TrendingTopicSyncService).
+     * Falls back to a hardcoded list if the table is empty.
+     */
+    private List<String> getTrendingKeywords() {
+        List<TrendingTopic> topics = trendingTopicRepository.findAllByOrderByDisplayOrderAsc();
+        if (!topics.isEmpty()) {
+            return topics.stream()
+                    .map(TrendingTopic::getTopicName)
+                    .filter(name -> name != null && !name.isBlank())
+                    .toList();
+        }
+        return FALLBACK_KEYWORDS;
+    }
 
     @Operation(summary = "Manual trigger OpenAlex Sync", description = "Fetch papers from OpenAlex based on keyword and year range")
     @PostMapping("/openalex")
@@ -74,10 +107,19 @@ public class DataSyncController {
                     .body(AppResponse.of(400, "No valid keywords found in query", null));
         }
 
-        Map<String, Object> result = dataSyncService.bulkSyncFromOpenAlex(
-                keywords, limit, yearFrom, yearTo, mailto, apiKey);
-        return ResponseEntity.ok(AppResponse.success(
-                "Deep sync completed for " + keywords.size() + " keyword(s)", result));
+        // Register in progress tracker so it shows up in GET /bulk/tasks
+        String taskId = UUID.randomUUID().toString();
+
+        try {
+            Map<String, Object> result = dataSyncService.bulkSyncFromOpenAlex(
+                    taskId, keywords, limit, yearFrom, yearTo, mailto, apiKey);
+            bulkSyncProgressTracker.markCompleted(taskId, result);
+            return ResponseEntity.ok(AppResponse.success(
+                    "Deep sync completed for " + keywords.size() + " keyword(s)", result));
+        } catch (Exception e) {
+            bulkSyncProgressTracker.markFailed(taskId, e.getMessage());
+            throw e;
+        }
     }
 
     @Operation(summary = "Manual trigger Semantic Scholar Sync", description = "Fetch papers from Semantic Scholar based on keyword and year range")
@@ -113,6 +155,171 @@ public class DataSyncController {
         return buildSyncResponse("CORE", query, syncLog);
     }
 
+    @Operation(summary = "Deep sync keywords from CORE", description = "Fetch papers from CORE API using offset pagination. Supports multiple keywords separated by comma, newline, or semicolon. Requires CORE_API_KEY in .env or pass apiKey parameter.")
+    @PostMapping("/core/deep")
+    public ResponseEntity<AppResponse<Map<String, Object>>> triggerCoreDeepSync(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "500") int limit,
+            @RequestParam(required = false) Integer yearFrom,
+            @RequestParam(required = false) Integer yearTo,
+            @RequestParam(required = false) String apiKey) {
+
+        // Split by comma, newline, or semicolon — support paste multiple keywords
+        List<String> keywords = java.util.Arrays.stream(query.split("[,;\n]+"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .toList();
+
+        if (keywords.isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(AppResponse.of(400, "No valid keywords found in query", null));
+        }
+
+        // Register in progress tracker so it shows up in GET /bulk/tasks
+        String taskId = UUID.randomUUID().toString();
+
+        try {
+            Map<String, Object> result = dataSyncService.bulkSyncFromCore(
+                    taskId, keywords, limit, yearFrom, yearTo, apiKey);
+            bulkSyncProgressTracker.markCompleted(taskId, result);
+            return ResponseEntity.ok(AppResponse.success(
+                    "CORE deep sync completed for " + keywords.size() + " keyword(s)", result));
+        } catch (Exception e) {
+            bulkSyncProgressTracker.markFailed(taskId, e.getMessage());
+            throw e;
+        }
+    }
+
+    @Operation(summary = "Bulk sync from CORE (async)", description = "Start async bulk sync from CORE API. Returns a taskId immediately — use GET /bulk/{taskId}/progress to track. Uses trending AI keywords by default if no keywords provided.")
+    @PostMapping("/core/bulk")
+    public ResponseEntity<AppResponse<Map<String, Object>>> coreBulkSync(
+            @RequestBody(required = false) Map<String, Object> request) {
+        List<String> keywords;
+        int papersPerKeyword;
+        Integer yearFrom, yearTo;
+        String apiKey;
+
+        if (request != null && request.containsKey("keywords")) {
+            @SuppressWarnings("unchecked")
+            List<String> kw = (List<String>) request.get("keywords");
+            keywords = kw;
+            papersPerKeyword = request.containsKey("papersPerKeyword")
+                    ? ((Number) request.get("papersPerKeyword")).intValue() : 500;
+            yearFrom = request.containsKey("yearFrom")
+                    ? ((Number) request.get("yearFrom")).intValue() : null;
+            yearTo = request.containsKey("yearTo")
+                    ? ((Number) request.get("yearTo")).intValue() : null;
+            apiKey = request.containsKey("apiKey")
+                    ? (String) request.get("apiKey") : null;
+        } else {
+            // Default: trending keywords from TRENDING_TOPIC table (refreshed every 12h)
+            keywords = getTrendingKeywords();
+            papersPerKeyword = 500;
+            yearFrom = 2023;
+            yearTo = null;
+            apiKey = null;
+        }
+
+        String taskId = UUID.randomUUID().toString();
+
+        // Register the task BEFORE spawning async so GET /progress works immediately
+        bulkSyncProgressTracker.createTask(taskId, keywords.size());
+
+        dataSyncService.bulkSyncFromCoreAsync(taskId, keywords, papersPerKeyword, yearFrom, yearTo, apiKey);
+
+        Map<String, Object> response = Map.of(
+                "taskId", taskId,
+                "totalKeywords", keywords.size(),
+                "papersPerKeyword", papersPerKeyword,
+                "estimatedMaxPapers", keywords.size() * papersPerKeyword,
+                "message", "CORE bulk sync started. Poll GET /bulk/" + taskId + "/progress for status."
+        );
+        return ResponseEntity.accepted().body(AppResponse.success("CORE bulk sync started", response));
+    }
+
+    @Operation(summary = "Bulk sync from Semantic Scholar (async)", description = "Start async bulk sync from Semantic Scholar. Returns a taskId immediately. Uses trending keywords if none provided. Pass apiKey for higher rate limits (get key at https://www.semanticscholar.org/product/api#api-key-form)")
+    @PostMapping("/semantic-scholar/bulk")
+    public ResponseEntity<AppResponse<Map<String, Object>>> semanticScholarBulkSync(
+            @RequestBody(required = false) Map<String, Object> request) {
+        List<String> keywords;
+        int papersPerKeyword;
+        Integer yearFrom, yearTo;
+        String apiKey;
+
+        if (request != null && request.containsKey("keywords")) {
+            @SuppressWarnings("unchecked")
+            List<String> kw = (List<String>) request.get("keywords");
+            keywords = kw;
+            papersPerKeyword = request.containsKey("papersPerKeyword")
+                    ? ((Number) request.get("papersPerKeyword")).intValue() : 200;
+            yearFrom = request.containsKey("yearFrom")
+                    ? ((Number) request.get("yearFrom")).intValue() : null;
+            yearTo = request.containsKey("yearTo")
+                    ? ((Number) request.get("yearTo")).intValue() : null;
+            apiKey = request.containsKey("apiKey")
+                    ? (String) request.get("apiKey") : null;
+        } else {
+            keywords = getTrendingKeywords();
+            papersPerKeyword = 200;
+            yearFrom = 2023;
+            yearTo = null;
+            apiKey = null;
+        }
+
+        String taskId = UUID.randomUUID().toString();
+        bulkSyncProgressTracker.createTask(taskId, keywords.size());
+        dataSyncService.bulkSyncFromSemanticScholarAsync(taskId, keywords, papersPerKeyword, yearFrom, yearTo, apiKey);
+
+        Map<String, Object> response = Map.of(
+                "taskId", taskId,
+                "totalKeywords", keywords.size(),
+                "papersPerKeyword", papersPerKeyword,
+                "estimatedMaxPapers", keywords.size() * papersPerKeyword,
+                "message", "Semantic Scholar bulk sync started. Poll GET /bulk/" + taskId + "/progress for status."
+        );
+        return ResponseEntity.accepted().body(AppResponse.success("Semantic Scholar bulk sync started", response));
+    }
+
+    @Operation(summary = "Bulk sync from arXiv (async)", description = "Start async bulk sync from arXiv. Returns a taskId immediately. arXiv rate limit is strict (1 req/3.5s). Uses trending keywords if none provided.")
+    @PostMapping("/arxiv/bulk")
+    public ResponseEntity<AppResponse<Map<String, Object>>> arxivBulkSync(
+            @RequestBody(required = false) Map<String, Object> request) {
+        List<String> keywords;
+        int papersPerKeyword;
+        Integer yearFrom, yearTo;
+
+        if (request != null && request.containsKey("keywords")) {
+            @SuppressWarnings("unchecked")
+            List<String> kw = (List<String>) request.get("keywords");
+            keywords = kw;
+            papersPerKeyword = request.containsKey("papersPerKeyword")
+                    ? ((Number) request.get("papersPerKeyword")).intValue() : 100;
+            yearFrom = request.containsKey("yearFrom")
+                    ? ((Number) request.get("yearFrom")).intValue() : null;
+            yearTo = request.containsKey("yearTo")
+                    ? ((Number) request.get("yearTo")).intValue() : null;
+        } else {
+            keywords = getTrendingKeywords();
+            papersPerKeyword = 100;
+            yearFrom = 2023;
+            yearTo = null;
+        }
+
+        String taskId = UUID.randomUUID().toString();
+        bulkSyncProgressTracker.createTask(taskId, keywords.size());
+        dataSyncService.bulkSyncFromArxivAsync(taskId, keywords, papersPerKeyword, yearFrom, yearTo);
+
+        Map<String, Object> response = Map.of(
+                "taskId", taskId,
+                "totalKeywords", keywords.size(),
+                "papersPerKeyword", papersPerKeyword,
+                "estimatedMaxPapers", keywords.size() * papersPerKeyword,
+                "message", "arXiv bulk sync started. Poll GET /bulk/" + taskId + "/progress for status."
+        );
+        return ResponseEntity.accepted().body(AppResponse.success("arXiv bulk sync started", response));
+    }
+
     @Operation(summary = "Clear all papers", description = "Delete ALL papers from SQL Server and Neo4j. WARNING: Irreversible!")
     @DeleteMapping("/clear-all")
     public ResponseEntity<AppResponse<Map<String, Object>>> clearAllPapers() {
@@ -145,35 +352,37 @@ public class DataSyncController {
     //  Auto-sync toggle & notification
     // ═══════════════════════════════════════════════════
 
-    @Operation(summary = "Bulk sync from OpenAlex", description = "Start async bulk sync. Returns a taskId immediately — use GET /bulk/{taskId}/progress to track progress percentage.")
+    @Operation(summary = "Bulk sync from OpenAlex", description = "Start async bulk sync. Returns a taskId immediately — use GET /bulk/{taskId}/progress to track. Each team member can provide their own API key from https://openalex.org/settings/api")
     @PostMapping("/bulk")
     public ResponseEntity<AppResponse<Map<String, Object>>> bulkSync(
             @RequestBody(required = false) Map<String, Object> request) {
         List<String> keywords;
         int papersPerKeyword;
         Integer yearFrom, yearTo;
+        String mailto, apiKey;
 
         if (request != null && request.containsKey("keywords")) {
             @SuppressWarnings("unchecked")
             List<String> kw = (List<String>) request.get("keywords");
             keywords = kw;
             papersPerKeyword = request.containsKey("papersPerKeyword")
-                    ? ((Number) request.get("papersPerKeyword")).intValue() : 50;
+                    ? ((Number) request.get("papersPerKeyword")).intValue() : 100;
             yearFrom = request.containsKey("yearFrom")
                     ? ((Number) request.get("yearFrom")).intValue() : null;
             yearTo = request.containsKey("yearTo")
                     ? ((Number) request.get("yearTo")).intValue() : null;
+            mailto = request.containsKey("mailto")
+                    ? (String) request.get("mailto") : null;
+            apiKey = request.containsKey("apiKey")
+                    ? (String) request.get("apiKey") : null;
         } else {
-            // Default: trending keywords from 2023+
-            keywords = List.of("artificial intelligence", "machine learning", "deep learning",
-                    "data science", "computer vision", "natural language processing",
-                    "large language models", "neural networks", "reinforcement learning",
-                    "generative AI", "healthcare AI", "robotics", "quantum computing",
-                    "climate change", "cybersecurity", "bioinformatics", "edge computing",
-                    "internet of things", "blockchain", "augmented reality");
+            // Default: trending keywords from TRENDING_TOPIC table (refreshed every 12h)
+            keywords = getTrendingKeywords();
             papersPerKeyword = 100;
             yearFrom = 2023;
             yearTo = null;
+            mailto = null;
+            apiKey = null;
         }
 
         String taskId = UUID.randomUUID().toString();
@@ -181,11 +390,13 @@ public class DataSyncController {
         // Register the task BEFORE spawning async so GET /progress works immediately
         bulkSyncProgressTracker.createTask(taskId, keywords.size());
 
-        dataSyncService.bulkSyncFromOpenAlexAsync(taskId, keywords, papersPerKeyword, yearFrom, yearTo);
+        dataSyncService.bulkSyncFromOpenAlexAsync(taskId, keywords, papersPerKeyword, yearFrom, yearTo, mailto, apiKey);
 
         Map<String, Object> response = Map.of(
                 "taskId", taskId,
                 "totalKeywords", keywords.size(),
+                "papersPerKeyword", papersPerKeyword,
+                "estimatedMaxPapers", keywords.size() * papersPerKeyword,
                 "message", "Bulk sync started. Poll GET /bulk/" + taskId + "/progress for status."
         );
         return ResponseEntity.accepted().body(AppResponse.success("Bulk sync started", response));

@@ -206,18 +206,17 @@ public class GraphService {
     /**
      * Lưu Paper node và Keyword nodes vào Neo4j, tạo relationship HAS_KEYWORD.
      * Dùng MERGE để tránh duplicate nodes.
+     * Paper node chỉ lưu paperId + pubYear (title/doi đã có trong SQL).
      *
      * @param paperId  UUID của paper (từ SQL)
-     * @param title    tiêu đề bài báo
-     * @param doi      DOI để deduplicate
      * @param pubYear  năm xuất bản
      * @param keywords danh sách keyword text
      */
-    public void savePaperWithKeywords(String paperId, String title, String doi,
+    public void savePaperWithKeywords(String paperId,
                                        Integer pubYear, List<String> keywords) {
         if (keywords == null || keywords.isEmpty()) {
             // Vẫn lưu paper node dù không có keyword
-            mergePaperOnly(paperId, title, doi, pubYear);
+            mergePaperOnly(paperId, pubYear);
             return;
         }
 
@@ -244,17 +243,18 @@ public class GraphService {
         }
 
         if (uniqueKws.isEmpty()) {
-            mergePaperOnly(paperId, title, doi, pubYear);
+            mergePaperOnly(paperId, pubYear);
             return;
         }
 
         List<Map<String, String>> kwList = new ArrayList<>(uniqueKws.values());
 
         // Single Cypher query with UNWIND — batches all keywords for one paper
+        // Paper node: only paperId + pubYear (title/doi in SQL, saves Neo4j storage)
         String cypherQuery = """
                 MERGE (p:Paper {paperId: $paperId})
-                ON CREATE SET p.title = $title, p.doi = $doi, p.pubYear = $pubYear
-                ON MATCH SET p.title = $title, p.doi = $doi, p.pubYear = $pubYear
+                ON CREATE SET p.pubYear = $pubYear
+                ON MATCH SET p.pubYear = $pubYear
                 WITH p
                 UNWIND $keywords AS kw
                 MERGE (k:Keyword {keywordId: kw.keywordId})
@@ -266,13 +266,11 @@ public class GraphService {
         try {
             neo4jClient.query(cypherQuery)
                     .bind(paperId).to("paperId")
-                    .bind(title).to("title")
-                    .bind(doi != null ? doi : "").to("doi")
                     .bind(pubYear != null ? pubYear : 0).to("pubYear")
                     .bind(kwList).to("keywords")
                     .run();
 
-            log.info("Neo4j: saved paper '{}' with {} keywords (batched UNWIND)", title, kwList.size());
+            log.info("Neo4j: saved paper '{}' with {} keywords (batched UNWIND)", paperId, kwList.size());
         } catch (Exception e) {
             log.error("Neo4j batch save failed for paper {}: {}", paperId, e.getMessage());
             log.error("Full stack trace:", e);
@@ -287,7 +285,7 @@ public class GraphService {
         String cypherQuery =
                 "MATCH (p:Paper {paperId: $paperId})-[r:HAS_KEYWORD]->(k:Keyword) " +
                 "OPTIONAL MATCH (k)<-[:HAS_KEYWORD]-(otherP:Paper) " +
-                "RETURN p.paperId AS pId, p.title AS pTitle, " +
+                "RETURN p.paperId AS pId, " +
                 "k.keywordId AS kId, k.text AS kText, " +
                 "COUNT(DISTINCT otherP) AS keywordSize";
 
@@ -300,13 +298,12 @@ public class GraphService {
                 .all()
                 .forEach(record -> {
                     String pId = record.get("pId").toString();
-                    String pTitle = record.get("pTitle") != null ? record.get("pTitle").toString() : "Untitled";
                     String kId = record.get("kId").toString();
                     String kText = record.get("kText") != null ? record.get("kText").toString() : "";
                     int kwSize = record.get("keywordSize") != null ? ((Number) record.get("keywordSize")).intValue() : 0;
 
                     nodeMap.put(pId, GraphNode.builder()
-                            .id(pId).label(pTitle).group("PAPER").size(1).build());
+                            .id(pId).label("Paper").group("PAPER").size(1).build());
                     nodeMap.put(kId, GraphNode.builder()
                             .id(kId).label(kText).group("KEYWORD").size(kwSize).build());
 
@@ -360,7 +357,7 @@ public class GraphService {
                 LIMIT 200
                 MATCH (k)<-[:HAS_KEYWORD]-(otherP:Paper)
                 WITH p, k, COUNT(otherP) AS keywordSize
-                RETURN p.paperId AS paperId, p.title AS paperTitle,
+                RETURN p.paperId AS paperId,
                        k.keywordId AS keywordId, k.text AS keywordText,
                        keywordSize
                 """;
@@ -375,14 +372,13 @@ public class GraphService {
                     .all()
                     .forEach(record -> {
                         String pId = record.get("paperId").toString();
-                        String pTitle = record.get("paperTitle") != null ? record.get("paperTitle").toString() : "Untitled";
                         String kId = record.get("keywordId").toString();
                         String kText = record.get("keywordText") != null ? record.get("keywordText").toString() : "";
                         int kwSize = record.get("keywordSize") != null ? ((Number) record.get("keywordSize")).intValue() : 0;
 
-                        // Paper nodes: default size 1 (could later use citationCount)
+                        // Paper nodes: label = "Paper" (title/detail from SQL via paperId)
                         nodeMap.putIfAbsent(pId, GraphNode.builder()
-                                .id(pId).label(pTitle).group("PAPER").size(1).build());
+                                .id(pId).label("Paper").group("PAPER").size(1).build());
 
                         // Keyword nodes: size = global paper count
                         if (!nodeMap.containsKey(kId)) {
@@ -791,18 +787,16 @@ public class GraphService {
     //  PRIVATE HELPERS
     // ============================================
 
-    private void mergePaperOnly(String paperId, String title, String doi, Integer pubYear) {
+    private void mergePaperOnly(String paperId, Integer pubYear) {
         String cypherQuery = """
                 MERGE (p:Paper {paperId: $paperId})
-                ON CREATE SET p.title = $title, p.doi = $doi, p.pubYear = $pubYear
-                ON MATCH SET p.title = $title, p.doi = $doi, p.pubYear = $pubYear
+                ON CREATE SET p.pubYear = $pubYear
+                ON MATCH SET p.pubYear = $pubYear
                 """;
 
         try {
             neo4jClient.query(cypherQuery)
                     .bind(paperId).to("paperId")
-                    .bind(title).to("title")
-                    .bind(doi != null ? doi : "").to("doi")
                     .bind(pubYear != null ? pubYear : 0).to("pubYear")
                     .run();
         } catch (Exception e) {

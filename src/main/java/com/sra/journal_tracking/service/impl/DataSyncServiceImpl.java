@@ -72,6 +72,20 @@ public class DataSyncServiceImpl implements DataSyncService {
     private static final int MAX_KEYWORDS_PER_PAPER = 8;
     private static final int MAX_BULK_PAGES_PER_KEYWORD = 200; // safety cap (200 pages × 200 per page = 40k papers max per keyword)
 
+    // Rate limit tracking — shared across all keywords to avoid 429
+    // CORE: 60 rpm → target 50 rpm (1200ms interval) for safety margin
+    // OpenAlex: 100k/day for authenticated, but polite pool ~100 rpm → target 90 rpm (666ms)
+    // Semantic Scholar: 100 req/5min without key → 1 req/3s → target 3500ms for safety
+    // arXiv: 1 req/3s recommended → target 3500ms interval (strict but safe)
+    private static final long CORE_MIN_INTERVAL_MS = 1200;
+    private static final long OPENALEX_MIN_INTERVAL_MS = 700;
+    private static final long SEMANTIC_SCHOLAR_MIN_INTERVAL_MS = 3500;
+    private static final long ARXIV_MIN_INTERVAL_MS = 3500;
+    private volatile long lastCoreRequestTime = 0;
+    private volatile long lastOpenAlexRequestTime = 0;
+    private volatile long lastSemanticScholarRequestTime = 0;
+    private volatile long lastArxivRequestTime = 0;
+
     private final ResearchPaperRepository researchPaperRepository;
     private final AuthorRepository authorRepository;
     private final PaperAuthorRepository paperAuthorRepository;
@@ -97,6 +111,9 @@ public class DataSyncServiceImpl implements DataSyncService {
 
     @Value("${app.core-api-key:}")
     private String coreApiKey;
+
+    @Value("${app.semantic-scholar-api-key:}")
+    private String semanticScholarApiKey;
 
     @Value("${app.openalex-email:}")
     private String openalexEmail;
@@ -614,6 +631,570 @@ public class DataSyncServiceImpl implements DataSyncService {
     }
 
     @Override
+    public java.util.Map<String, Object> bulkSyncFromCore(String taskId, java.util.List<String> keywords,
+                                                           int papersPerKeyword, Integer yearFrom, Integer yearTo,
+                                                           String apiKey) {
+        log.info("Starting CORE BULK sync [{}]: {} keywords, {} papers each", taskId, keywords.size(), papersPerKeyword);
+
+        // Resolve API key: use provided key or fall back to configured key
+        String resolvedApiKey = (apiKey != null && !apiKey.isBlank()) ? apiKey : coreApiKey;
+        if (resolvedApiKey == null || resolvedApiKey.isBlank()) {
+            throw new RuntimeException("CORE_API_KEY not configured. Add it to .env file or pass apiKey parameter.");
+        }
+
+        int yrFrom = yearFrom != null ? yearFrom : 1900;
+        int yrTo = yearTo != null ? yearTo : Year.now().getValue();
+        int perPage = Math.min(100, Math.max(10, papersPerKeyword));
+        int perKeyword = Math.max(1, papersPerKeyword);
+
+        ApiSource source = getOrCreateCoreSource();
+        int totalFetched = 0, totalInserted = 0;
+        java.util.Map<String, java.util.Map<String, Integer>> keywordStats = new LinkedHashMap<>();
+
+        // Ensure task is registered in progress tracker
+        if (bulkSyncProgressTracker.getProgress(taskId) == null) {
+            bulkSyncProgressTracker.createTask(taskId, keywords.size());
+        }
+
+        // Prepare reusable HTTP entity with auth header
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.set("Authorization", "Bearer " + resolvedApiKey);
+        org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>(headers);
+
+        for (String keyword : keywords) {
+            int kwScanned = 0, kwInserted = 0, pageCount = 0;
+            int skippedByYear = 0, skippedByDuplicate = 0;
+            int offset = 0;
+            boolean hasMore = true;
+
+            while (hasMore && kwInserted < perKeyword && pageCount < MAX_BULK_PAGES_PER_KEYWORD) {
+                try {
+                    String url = UriComponentsBuilder
+                            .fromHttpUrl(source.getBaseUrl() + "/search/works")
+                            .queryParam("q", keyword)
+                            .queryParam("limit", perPage)
+                            .queryParam("offset", offset)
+                            .queryParam("yearFilter", yrFrom + "-" + yrTo)
+                            .build().encode().toUriString();
+                    log.debug("CORE bulk [{}] '{}' page {}: {}", taskId, keyword, pageCount + 1, url);
+
+                    rateLimitCore(); // ensure minimum interval before every API call
+                    java.util.Map<String, Object> body = fetchCoreWithRetry(url, entity, keyword);
+                    pageCount++;
+
+                    if (body == null) {
+                        hasMore = false;
+                        break;
+                    }
+
+                    @SuppressWarnings("unchecked")
+                    java.util.List<java.util.Map<String, Object>> results =
+                            (java.util.List<java.util.Map<String, Object>>) body.get("results");
+                    if (results == null || results.isEmpty()) {
+                        hasMore = false;
+                        break;
+                    }
+
+                    // Immediate UI update: show fetched count before processing
+                    int fetchedThisPage = results.size();
+                    bulkSyncProgressTracker.updatePageProgress(taskId, keyword,
+                            kwScanned + fetchedThisPage, kwInserted,
+                            totalFetched + kwScanned + fetchedThisPage,
+                            totalInserted + kwInserted);
+
+                    for (java.util.Map<String, Object> work : results) {
+                        if (kwInserted >= perKeyword) break;
+                        kwScanned++;
+
+                        String title = stringFromMap(work, "title", "Untitled");
+                        String abstractText = stringFromMap(work, "abstract", null);
+                        String doi = normalizeDoi(stringFromMap(work, "doi", null));
+                        Integer pubYear = intFromMap(work, "yearPublished");
+                        Short pubYearShort = pubYear != null ? pubYear.shortValue() : null;
+
+                        // Year filter (double-check — CORE yearFilter is not always strict)
+                        if (pubYearShort != null && (pubYearShort < yrFrom || pubYearShort > yrTo)) {
+                            skippedByYear++;
+                            continue;
+                        }
+
+                        if (isDuplicatePaper(doi, truncateTitle(title), pubYearShort)) {
+                            skippedByDuplicate++;
+                            continue;
+                        }
+
+                        ResearchPaper paper = ResearchPaper.builder()
+                                .source(source)
+                                .title(truncateTitle(title))
+                                .abstractText(abstractText)
+                                .doi(doi)
+                                .pubYear(pubYearShort)
+                                .citationCount(intFromMap(work, "citationCount", 0))
+                                .isOpenAccess(true)
+                                .pdfUrl(stringFromMap(work, "downloadUrl", null))
+                                .build();
+
+                        ResearchPaper savedPaper = researchPaperRepository.save(paper);
+                        kwInserted++;
+
+                        java.util.List<String> kws = extractKeywordsFromTitle(title);
+                        savePaperToNeo4j(savedPaper, kws, keyword);
+
+                        // Trigger notification for users following related journal/keyword
+                        notificationTriggerService.notifyNewPaper(savedPaper);
+
+                        @SuppressWarnings("unchecked")
+                        java.util.List<java.util.Map<String, Object>> authors =
+                                (java.util.List<java.util.Map<String, Object>>) work.get("authors");
+                        if (authors != null) {
+                            int order = 1;
+                            for (java.util.Map<String, Object> a : authors) {
+                                if (order > MAX_AUTHORS_PER_PAPER) break;
+                                String name = stringFromMap(a, "name", "Unknown Author");
+                                Author author = authorRepository
+                                        .findByFullNameAndSource_SourceId(name, source.getSourceId())
+                                        .orElseGet(() -> authorRepository.saveAndFlush(Author.builder()
+                                                .source(source).fullName(name).build()));
+                                savePaperAuthor(savedPaper, author, order++);
+                            }
+                        }
+                    }
+
+                    // CORE pagination: check totalHits to determine if more pages exist
+                    Object totalHitsObj = body.get("totalHits");
+                    int totalHits = totalHitsObj instanceof Number
+                            ? ((Number) totalHitsObj).intValue() : 0;
+                    offset += perPage;
+                    if (offset >= totalHits) {
+                        hasMore = false;
+                    }
+
+                    // Log progress every 5 pages
+                    if (pageCount % 5 == 0) {
+                        log.info("CORE bulk [{}] '{}': page {}, inserted {} so far (scanned: {}, totalHits: {})",
+                                taskId, keyword, pageCount, kwInserted, kwScanned, totalHits);
+                    }
+
+                    // Update progress tracker after each page for real-time UI
+                    bulkSyncProgressTracker.updatePageProgress(taskId, keyword, kwScanned, kwInserted,
+                            totalFetched + kwScanned, totalInserted + kwInserted);
+
+                    rateLimitCore();
+                } catch (Exception e) {
+                    String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                    log.warn("CORE bulk [{}] page failed for '{}': {}", taskId, keyword, errorMsg);
+                    bulkSyncProgressTracker.addKeywordError(taskId, keyword, errorMsg);
+                    hasMore = false;
+                }
+            }
+
+            totalFetched += kwScanned;
+            totalInserted += kwInserted;
+            keywordStats.put(keyword, java.util.Map.of(
+                    "scanned", kwScanned, "inserted", kwInserted,
+                    "skippedByYear", skippedByYear, "skippedByDuplicate", skippedByDuplicate));
+
+            // Update progress after each keyword
+            bulkSyncProgressTracker.updateKeywordProgress(taskId, keyword, kwScanned, kwInserted,
+                    totalFetched, totalInserted);
+
+            log.info("CORE bulk [{}]: '{}' → scanned {}, inserted {} (pages: {}, {}%, skipped: year={} dup={})",
+                    taskId, keyword, kwScanned, kwInserted, pageCount,
+                    (keywordStats.size() * 100) / keywords.size(),
+                    skippedByYear, skippedByDuplicate);
+        }
+
+        log.info("CORE BULK SYNC [{}] DONE: {} keywords, {} total fetched, {} total inserted",
+                taskId, keywords.size(), totalFetched, totalInserted);
+
+        java.util.Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalKeywords", keywords.size());
+        result.put("totalFetched", totalFetched);
+        result.put("totalInserted", totalInserted);
+        result.put("yearRange", yrFrom + "-" + yrTo);
+        result.put("keywordStats", keywordStats);
+
+        // Pre-compute fresh stats in background so GET /stats is always instant
+        self.refreshStatsCache();
+
+        return result;
+    }
+
+    @Override
+    @Async("taskExecutor")
+    public void bulkSyncFromCoreAsync(String taskId, java.util.List<String> keywords,
+                                       int papersPerKeyword, Integer yearFrom, Integer yearTo,
+                                       String apiKey) {
+        try {
+            java.util.Map<String, Object> result = bulkSyncFromCore(
+                    taskId, keywords, papersPerKeyword, yearFrom, yearTo, apiKey);
+            bulkSyncProgressTracker.markCompleted(taskId, result);
+            log.info("CORE async bulk sync [{}] completed: {} papers inserted across {} keywords",
+                    taskId, result.getOrDefault("totalInserted", 0), keywords.size());
+        } catch (Exception e) {
+            log.error("CORE async bulk sync [{}] failed: {}", taskId, e.getMessage(), e);
+            bulkSyncProgressTracker.markFailed(taskId, e.getMessage());
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Semantic Scholar bulk sync
+    // ═══════════════════════════════════════════════════════════
+
+    @Override
+    public java.util.Map<String, Object> bulkSyncFromSemanticScholar(String taskId,
+                                                                      java.util.List<String> keywords,
+                                                                      int papersPerKeyword, Integer yearFrom,
+                                                                      Integer yearTo, String apiKey) {
+        // Resolve API key: use provided key or fall back to configured key
+        String resolvedApiKey = (apiKey != null && !apiKey.isBlank()) ? apiKey : semanticScholarApiKey;
+        boolean hasKey = resolvedApiKey != null && !resolvedApiKey.isBlank();
+
+        log.info("Starting Semantic Scholar BULK sync [{}]: {} keywords, {} papers each (API key: {})",
+                taskId, keywords.size(), papersPerKeyword, hasKey ? "yes" : "no");
+
+        int yrFrom = yearFrom != null ? yearFrom : 1900;
+        int yrTo = yearTo != null ? yearTo : Year.now().getValue();
+        int perPage = Math.min(100, Math.max(10, papersPerKeyword));
+        int perKeyword = Math.max(1, papersPerKeyword);
+
+        ApiSource source = getOrCreateSemanticScholarSource();
+        int totalFetched = 0, totalInserted = 0;
+        java.util.Map<String, java.util.Map<String, Integer>> keywordStats = new LinkedHashMap<>();
+
+        if (bulkSyncProgressTracker.getProgress(taskId) == null) {
+            bulkSyncProgressTracker.createTask(taskId, keywords.size());
+        }
+
+        String fields = "paperId,title,abstract,year,publicationDate,isOpenAccess,citationCount,authors,externalIds";
+        String baseUrl = source.getBaseUrl().replaceAll("/graph/v1$", "");
+
+        // Prepare headers with API key if available
+        org.springframework.http.HttpHeaders headers = null;
+        org.springframework.http.HttpEntity<String> entity = null;
+        if (hasKey) {
+            headers = new org.springframework.http.HttpHeaders();
+            headers.set("x-api-key", resolvedApiKey);
+            entity = new org.springframework.http.HttpEntity<>(headers);
+        }
+
+        for (String keyword : keywords) {
+            int kwScanned = 0, kwInserted = 0, pageCount = 0;
+            int skippedByYear = 0, skippedByDuplicate = 0;
+            int offset = 0;
+            boolean hasMore = true;
+
+            while (hasMore && kwInserted < perKeyword && pageCount < MAX_BULK_PAGES_PER_KEYWORD) {
+                try {
+                    String url = UriComponentsBuilder
+                            .fromHttpUrl(baseUrl + "/graph/v1/paper/search")
+                            .queryParam("query", keyword)
+                            .queryParam("fields", fields)
+                            .queryParam("limit", perPage)
+                            .queryParam("offset", offset)
+                            .queryParam("year", yrFrom + "-" + yrTo)
+                            .build().encode().toUriString();
+
+                    // Dynamic rate limit: 500ms with key, 3500ms without
+                    if (hasKey) {
+                        rateLimitOpenAlex(); // reuse 700ms interval for authenticated S2
+                    } else {
+                        rateLimitSemanticScholar(); // 3500ms for unauthenticated
+                    }
+
+                    SemanticScholarResponseDTO response = fetchSemanticScholarWithRetry(url, keyword, entity);
+                    pageCount++;
+
+                    if (response == null || response.getData() == null || response.getData().isEmpty()) {
+                        hasMore = false;
+                        break;
+                    }
+
+                    // Immediate UI update
+                    int fetchedThisPage = response.getData().size();
+                    bulkSyncProgressTracker.updatePageProgress(taskId, keyword,
+                            kwScanned + fetchedThisPage, kwInserted,
+                            totalFetched + kwScanned + fetchedThisPage,
+                            totalInserted + kwInserted);
+
+                    for (SemanticScholarResponseDTO.SemanticScholarPaperDTO paperDTO : response.getData()) {
+                        if (kwInserted >= perKeyword) break;
+                        kwScanned++;
+
+                        String doi = paperDTO.getExternalIds() != null
+                                ? normalizeDoi(paperDTO.getExternalIds().getDOI()) : null;
+
+                        if (paperDTO.getYear() != null && (paperDTO.getYear() < yrFrom || paperDTO.getYear() > yrTo)) {
+                            skippedByYear++;
+                            continue;
+                        }
+
+                        String title = trimToLength(paperDTO.getTitle() != null ? paperDTO.getTitle() : "Untitled", 1000);
+                        if (isDuplicatePaper(doi, title, paperDTO.getYear())) {
+                            skippedByDuplicate++;
+                            continue;
+                        }
+
+                        ResearchPaper newPaper = ResearchPaper.builder()
+                                .source(source).title(title)
+                                .abstractText(paperDTO.getAbstractText()).doi(doi)
+                                .pubYear(paperDTO.getYear())
+                                .citationCount(paperDTO.getCitationCount() != null ? paperDTO.getCitationCount() : 0)
+                                .isOpenAccess(paperDTO.getIsOpenAccess() != null ? paperDTO.getIsOpenAccess() : false)
+                                .build();
+                        setPublicationDate(newPaper, paperDTO.getPublicationDate());
+
+                        ResearchPaper savedPaper = researchPaperRepository.save(newPaper);
+                        kwInserted++;
+
+                        savePaperToNeo4j(savedPaper, java.util.List.of(), keyword);
+                        notificationTriggerService.notifyNewPaper(savedPaper);
+
+                        if (paperDTO.getAuthors() != null) {
+                            int order = 1;
+                            for (SemanticScholarResponseDTO.SemanticScholarPaperDTO.AuthorDTO a : paperDTO.getAuthors()) {
+                                if (order > MAX_AUTHORS_PER_PAPER) break;
+                                Author author = getOrCreateSemanticScholarAuthor(a, source);
+                                savePaperAuthor(savedPaper, author, order++);
+                            }
+                        }
+                    }
+
+                    // Pagination
+                    if (response.getTotal() != null && offset + perPage < response.getTotal()) {
+                        offset += perPage;
+                    } else {
+                        hasMore = false;
+                    }
+
+                    if (pageCount % 5 == 0) {
+                        log.info("S2 bulk [{}] '{}': page {}, inserted {} (scanned: {}, total: {})",
+                                taskId, keyword, pageCount, kwInserted, kwScanned, response.getTotal());
+                    }
+
+                    bulkSyncProgressTracker.updatePageProgress(taskId, keyword, kwScanned, kwInserted,
+                            totalFetched + kwScanned, totalInserted + kwInserted);
+                } catch (Exception e) {
+                    String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                    log.warn("S2 bulk [{}] page failed for '{}': {}", taskId, keyword, errorMsg);
+                    bulkSyncProgressTracker.addKeywordError(taskId, keyword, errorMsg);
+                    hasMore = false;
+                }
+            }
+
+            totalFetched += kwScanned;
+            totalInserted += kwInserted;
+            keywordStats.put(keyword, java.util.Map.of(
+                    "scanned", kwScanned, "inserted", kwInserted,
+                    "skippedByYear", skippedByYear, "skippedByDuplicate", skippedByDuplicate));
+            bulkSyncProgressTracker.updateKeywordProgress(taskId, keyword, kwScanned, kwInserted,
+                    totalFetched, totalInserted);
+
+            log.info("S2 bulk [{}]: '{}' → scanned {}, inserted {} (pages: {}, {}%)",
+                    taskId, keyword, kwScanned, kwInserted, pageCount,
+                    (keywordStats.size() * 100) / keywords.size());
+        }
+
+        log.info("S2 BULK SYNC [{}] DONE: {} keywords, {} total fetched, {} total inserted",
+                taskId, keywords.size(), totalFetched, totalInserted);
+
+        java.util.Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalKeywords", keywords.size());
+        result.put("totalFetched", totalFetched);
+        result.put("totalInserted", totalInserted);
+        result.put("yearRange", yrFrom + "-" + yrTo);
+        result.put("keywordStats", keywordStats);
+        self.refreshStatsCache();
+        return result;
+    }
+
+    @Override
+    @Async("taskExecutor")
+    public void bulkSyncFromSemanticScholarAsync(String taskId, java.util.List<String> keywords,
+                                                  int papersPerKeyword, Integer yearFrom, Integer yearTo,
+                                                  String apiKey) {
+        try {
+            java.util.Map<String, Object> result = bulkSyncFromSemanticScholar(
+                    taskId, keywords, papersPerKeyword, yearFrom, yearTo, apiKey);
+            bulkSyncProgressTracker.markCompleted(taskId, result);
+            log.info("S2 async bulk sync [{}] completed: {} papers", taskId,
+                    result.getOrDefault("totalInserted", 0));
+        } catch (Exception e) {
+            log.error("S2 async bulk sync [{}] failed: {}", taskId, e.getMessage(), e);
+            bulkSyncProgressTracker.markFailed(taskId, e.getMessage());
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  arXiv bulk sync (XML Atom feed)
+    // ═══════════════════════════════════════════════════════════
+
+    @Override
+    public java.util.Map<String, Object> bulkSyncFromArxiv(String taskId,
+                                                            java.util.List<String> keywords,
+                                                            int papersPerKeyword, Integer yearFrom,
+                                                            Integer yearTo) {
+        log.info("Starting arXiv BULK sync [{}]: {} keywords, {} papers each",
+                taskId, keywords.size(), papersPerKeyword);
+
+        int yrFrom = yearFrom != null ? yearFrom : 1900;
+        int yrTo = yearTo != null ? yearTo : Year.now().getValue();
+        int perPage = Math.min(100, Math.max(10, papersPerKeyword));
+        int perKeyword = Math.max(1, papersPerKeyword);
+
+        ApiSource source = getOrCreateArxivSource();
+        int totalFetched = 0, totalInserted = 0;
+        java.util.Map<String, java.util.Map<String, Integer>> keywordStats = new LinkedHashMap<>();
+
+        if (bulkSyncProgressTracker.getProgress(taskId) == null) {
+            bulkSyncProgressTracker.createTask(taskId, keywords.size());
+        }
+
+        for (String keyword : keywords) {
+            int kwScanned = 0, kwInserted = 0, pageCount = 0;
+            int skippedByYear = 0, skippedByDuplicate = 0;
+            int start = 0;
+            boolean hasMore = true;
+
+            while (hasMore && kwInserted < perKeyword && pageCount < MAX_BULK_PAGES_PER_KEYWORD) {
+                try {
+                    // arXiv uses + as AND/TO operator — cannot use UriComponentsBuilder
+                    String searchQuery = "all:" + keyword.replace(" ", "+")
+                            + "+AND+submittedDate:[" + yrFrom + "01010000+TO+" + yrTo + "12312359]";
+                    String url = source.getBaseUrl() + "/query?search_query=" + searchQuery
+                            + "&start=" + start + "&max_results=" + perPage;
+                    log.debug("arXiv bulk [{}] '{}' page {}: {}", taskId, keyword, pageCount + 1, url);
+
+                    rateLimitArxiv();
+                    String xmlResponse = fetchArxivWithRetry(url, keyword);
+                    pageCount++;
+
+                    if (xmlResponse == null || xmlResponse.isBlank()) {
+                        hasMore = false;
+                        break;
+                    }
+
+                    java.util.List<ParsedPaper> parsedPapers = parseArxivXml(xmlResponse);
+
+                    // Extract totalResults from XML for pagination control
+                    int totalResults = extractArxivTotalResults(xmlResponse);
+
+                    if (parsedPapers.isEmpty()) {
+                        hasMore = false;
+                        break;
+                    }
+
+                    // Immediate UI update
+                    bulkSyncProgressTracker.updatePageProgress(taskId, keyword,
+                            kwScanned + parsedPapers.size(), kwInserted,
+                            totalFetched + kwScanned + parsedPapers.size(),
+                            totalInserted + kwInserted);
+
+                    for (ParsedPaper pp : parsedPapers) {
+                        if (kwInserted >= perKeyword) break;
+                        kwScanned++;
+
+                        if (pp.pubYear() != null && (pp.pubYear() < yrFrom || pp.pubYear() > yrTo)) {
+                            skippedByYear++;
+                            continue;
+                        }
+
+                        if (isDuplicatePaper(pp.doi(), pp.title(), pp.pubYear())) {
+                            skippedByDuplicate++;
+                            continue;
+                        }
+
+                        ResearchPaper paper = ResearchPaper.builder()
+                                .source(source).title(pp.title())
+                                .abstractText(pp.abstractText()).doi(pp.doi())
+                                .pubYear(pp.pubYear()).citationCount(0).isOpenAccess(true)
+                                .pdfUrl(pp.pdfUrl()).build();
+                        setPublicationDate(paper, pp.pubDate());
+
+                        ResearchPaper savedPaper = researchPaperRepository.save(paper);
+                        kwInserted++;
+
+                        java.util.List<String> kws = extractKeywordsFromTitle(pp.title());
+                        savePaperToNeo4j(savedPaper, kws, keyword);
+                        notificationTriggerService.notifyNewPaper(savedPaper);
+
+                        if (pp.authors() != null) {
+                            int order = 1;
+                            for (String authorName : pp.authors()) {
+                                if (order > MAX_AUTHORS_PER_PAPER) break;
+                                Author author = authorRepository
+                                        .findByFullNameAndSource_SourceId(authorName, source.getSourceId())
+                                        .orElseGet(() -> authorRepository.saveAndFlush(Author.builder()
+                                                .source(source).fullName(authorName).build()));
+                                savePaperAuthor(savedPaper, author, order++);
+                            }
+                        }
+                    }
+
+                    // arXiv pagination: check totalResults
+                    start += perPage;
+                    if (start >= totalResults) {
+                        hasMore = false;
+                    }
+
+                    if (pageCount % 5 == 0) {
+                        log.info("arXiv bulk [{}] '{}': page {}, inserted {} (scanned: {}, totalResults: {})",
+                                taskId, keyword, pageCount, kwInserted, kwScanned, totalResults);
+                    }
+
+                    bulkSyncProgressTracker.updatePageProgress(taskId, keyword, kwScanned, kwInserted,
+                            totalFetched + kwScanned, totalInserted + kwInserted);
+                } catch (Exception e) {
+                    String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                    log.warn("arXiv bulk [{}] page failed for '{}': {}", taskId, keyword, errorMsg);
+                    bulkSyncProgressTracker.addKeywordError(taskId, keyword, errorMsg);
+                    hasMore = false;
+                }
+            }
+
+            totalFetched += kwScanned;
+            totalInserted += kwInserted;
+            keywordStats.put(keyword, java.util.Map.of(
+                    "scanned", kwScanned, "inserted", kwInserted,
+                    "skippedByYear", skippedByYear, "skippedByDuplicate", skippedByDuplicate));
+            bulkSyncProgressTracker.updateKeywordProgress(taskId, keyword, kwScanned, kwInserted,
+                    totalFetched, totalInserted);
+
+            log.info("arXiv bulk [{}]: '{}' → scanned {}, inserted {} (pages: {}, {}%)",
+                    taskId, keyword, kwScanned, kwInserted, pageCount,
+                    (keywordStats.size() * 100) / keywords.size());
+        }
+
+        log.info("arXiv BULK SYNC [{}] DONE: {} keywords, {} total fetched, {} total inserted",
+                taskId, keywords.size(), totalFetched, totalInserted);
+
+        java.util.Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalKeywords", keywords.size());
+        result.put("totalFetched", totalFetched);
+        result.put("totalInserted", totalInserted);
+        result.put("yearRange", yrFrom + "-" + yrTo);
+        result.put("keywordStats", keywordStats);
+        self.refreshStatsCache();
+        return result;
+    }
+
+    @Override
+    @Async("taskExecutor")
+    public void bulkSyncFromArxivAsync(String taskId, java.util.List<String> keywords,
+                                        int papersPerKeyword, Integer yearFrom, Integer yearTo) {
+        try {
+            java.util.Map<String, Object> result = bulkSyncFromArxiv(
+                    taskId, keywords, papersPerKeyword, yearFrom, yearTo);
+            bulkSyncProgressTracker.markCompleted(taskId, result);
+            log.info("arXiv async bulk sync [{}] completed: {} papers", taskId,
+                    result.getOrDefault("totalInserted", 0));
+        } catch (Exception e) {
+            log.error("arXiv async bulk sync [{}] failed: {}", taskId, e.getMessage(), e);
+            bulkSyncProgressTracker.markFailed(taskId, e.getMessage());
+        }
+    }
+
+    @Override
     @Transactional
     public java.util.Map<String, Object> clearAllPapers() {
         log.info("=== CLEAR ALL: Deleting all papers and related data ===");
@@ -931,7 +1512,6 @@ public class DataSyncServiceImpl implements DataSyncService {
         return bulkSyncFromOpenAlex(keywords, papersPerKeyword, yearFrom, yearTo, mailto, null);
     }
 
-    @Override
     public Map<String, Object> bulkSyncFromOpenAlex(List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo, String mailto, String apiKey) {
         log.info("Starting BULK sync: {} keywords, {} papers each", keywords.size(), papersPerKeyword);
 
@@ -1038,7 +1618,7 @@ public class DataSyncServiceImpl implements DataSyncService {
                         log.info("Bulk sync '{}': page {}, inserted {} so far (scanned: {})", keyword, pageCount, kwInserted, kwScanned);
                     }
 
-                    Thread.sleep(500); // Rate limit
+                    rateLimitOpenAlex(); // Rate limit
                 } catch (Exception e) {
                     log.warn("Bulk sync page failed for '{}': {}", keyword, e.getMessage());
                     hasMore = false;
@@ -1075,13 +1655,157 @@ public class DataSyncServiceImpl implements DataSyncService {
     }
 
     @Override
+    public Map<String, Object> bulkSyncFromOpenAlex(String taskId, List<String> keywords,
+                                                     int papersPerKeyword, Integer yearFrom, Integer yearTo,
+                                                     String mailto, String apiKey) {
+        log.info("Starting BULK sync [{}]: {} keywords, {} papers each", taskId, keywords.size(), papersPerKeyword);
+
+        int yrFrom = yearFrom != null ? yearFrom : 1900;
+        int yrTo = yearTo != null ? yearTo : Year.now().getValue();
+        int perPage = Math.min(200, Math.max(10, papersPerKeyword));
+        int perKeyword = Math.max(1, papersPerKeyword);
+
+        ApiSource source = getOrCreateOpenAlexSource();
+        LocalDate today = LocalDate.now();
+        int totalFetched = 0, totalInserted = 0;
+        Map<String, Map<String, Integer>> keywordStats = new LinkedHashMap<>();
+
+        // Ensure task is registered
+        if (bulkSyncProgressTracker.getProgress(taskId) == null) {
+            bulkSyncProgressTracker.createTask(taskId, keywords.size());
+        }
+
+        for (String keyword : keywords) {
+            int kwScanned = 0, kwInserted = 0, pageCount = 0;
+            int skippedByYear = 0, skippedByDuplicate = 0;
+            String nextCursor = "*";
+            boolean hasMore = true;
+
+            while (hasMore && kwInserted < perKeyword && pageCount < MAX_BULK_PAGES_PER_KEYWORD) {
+                try {
+                    String url = withMailto(
+                            UriComponentsBuilder
+                                    .fromHttpUrl(source.getBaseUrl() + "/works")
+                                    .queryParam("search", normalizeOpenAlexSearchQuery(keyword))
+                                    .queryParam("filter", "from_publication_date:" + yrFrom + "-01-01,to_publication_date:" + today)
+                                    .queryParam("sort", "publication_date:desc")
+                                    .queryParam("per-page", perPage)
+                                    .queryParam("cursor", nextCursor)
+                                    .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,cited_by_count,abstract_inverted_index,open_access,primary_location,best_oa_location,topics,keywords,authorships"),
+                            mailto, apiKey
+                    ).build().encode().toUriString();
+
+                    OpenAlexResponseDTO response = fetchOpenAlexWithRetry(url, OpenAlexResponseDTO.class, keyword);
+                    pageCount++;
+
+                    if (response == null || response.getResults() == null || response.getResults().isEmpty()) {
+                        hasMore = false;
+                        break;
+                    }
+
+                    for (OpenAlexResponseDTO.OpenAlexWorkDTO work : response.getResults()) {
+                        if (kwInserted >= perKeyword) break;
+                        kwScanned++;
+
+                        if (!isRecentPublication(work.getPublicationYear(), work.getPublicationDate(), yrFrom, yrTo, today)) {
+                            skippedByYear++;
+                            continue;
+                        }
+
+                        String abstractText = rebuildAbstract(work.getAbstractInvertedIndex());
+                        String doi = normalizeDoi(work.getDoi());
+                        String title = trimToLength(resolveTitle(work), 1000);
+                        if (isDuplicatePaper(doi, title, work.getPublicationYear())) {
+                            skippedByDuplicate++;
+                            continue;
+                        }
+
+                        ResearchField field = resolveResearchField(work);
+                        ResearchPaper newPaper = ResearchPaper.builder()
+                                .source(source).title(title).abstractText(abstractText).doi(doi)
+                                .journal(resolveJournal(work, source, field)).field(field)
+                                .pubYear(work.getPublicationYear())
+                                .citationCount(work.getCitedByCount() != null ? work.getCitedByCount() : 0)
+                                .isOpenAccess(work.getOpenAccess() != null && Boolean.TRUE.equals(work.getOpenAccess().getIsOa()))
+                                .pdfUrl(resolvePdfUrl(work)).build();
+                        setPublicationDate(newPaper, work.getPublicationDate());
+
+                        ResearchPaper savedPaper = researchPaperRepository.save(newPaper);
+                        kwInserted++;
+
+                        List<String> kws = saveOpenAlexKeywords(savedPaper, work, keyword);
+                        savePaperToNeo4j(savedPaper, kws, keyword);
+                        notificationTriggerService.notifyNewPaper(savedPaper);
+
+                        if (work.getAuthorships() != null) {
+                            int order = 1;
+                            for (OpenAlexResponseDTO.Authorship authorship : work.getAuthorships()) {
+                                if (order > MAX_AUTHORS_PER_PAPER) break;
+                                Author author = getOrCreateOpenAlexAuthor(authorship, source);
+                                savePaperAuthor(savedPaper, author, order++);
+                            }
+                        }
+                    }
+
+                    if (response.getMeta() != null && response.getMeta().getNextCursor() != null) {
+                        nextCursor = response.getMeta().getNextCursor();
+                    } else {
+                        hasMore = false;
+                    }
+
+                    if (pageCount % 5 == 0) {
+                        log.info("Bulk sync [{}] '{}': page {}, inserted {} (scanned: {})",
+                                taskId, keyword, pageCount, kwInserted, kwScanned);
+                    }
+
+                    rateLimitOpenAlex();
+                } catch (Exception e) {
+                    String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                    log.warn("Bulk sync [{}] page failed for '{}': {}", taskId, keyword, errorMsg);
+                    bulkSyncProgressTracker.addKeywordError(taskId, keyword, errorMsg);
+                    hasMore = false;
+                }
+            }
+
+            totalFetched += kwScanned;
+            totalInserted += kwInserted;
+            keywordStats.put(keyword, Map.of("scanned", kwScanned, "inserted", kwInserted,
+                    "skippedByYear", skippedByYear, "skippedByDuplicate", skippedByDuplicate));
+
+            // Update progress after each keyword
+            bulkSyncProgressTracker.updateKeywordProgress(taskId, keyword, kwScanned, kwInserted, totalFetched, totalInserted);
+
+            log.info("Bulk sync [{}]: '{}' → scanned {}, inserted {} (pages: {}, {}%)",
+                    taskId, keyword, kwScanned, kwInserted, pageCount,
+                    (keywordStats.size() * 100) / keywords.size());
+        }
+
+        log.info("BULK SYNC [{}] DONE: {} keywords, {} total fetched, {} total inserted",
+                taskId, keywords.size(), totalFetched, totalInserted);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalKeywords", keywords.size());
+        result.put("totalFetched", totalFetched);
+        result.put("totalInserted", totalInserted);
+        result.put("yearRange", yrFrom + "-" + yrTo);
+        result.put("keywordStats", keywordStats);
+
+        self.refreshStatsCache();
+        return result;
+    }
+
+    @Override
     @Async("taskExecutor")
-    public void bulkSyncFromOpenAlexAsync(String taskId, List<String> keywords, int papersPerKeyword, Integer yearFrom, Integer yearTo) {
+    public void bulkSyncFromOpenAlexAsync(String taskId, List<String> keywords, int papersPerKeyword,
+                                          Integer yearFrom, Integer yearTo, String mailto, String apiKey) {
         try {
-            Map<String, Object> result = bulkSyncFromOpenAlexWithProgress(taskId, keywords, papersPerKeyword, yearFrom, yearTo);
+            Map<String, Object> result = bulkSyncFromOpenAlex(
+                    taskId, keywords, papersPerKeyword, yearFrom, yearTo, mailto, apiKey);
             bulkSyncProgressTracker.markCompleted(taskId, result);
+            log.info("OpenAlex async bulk sync [{}] completed: {} papers inserted across {} keywords",
+                    taskId, result.getOrDefault("totalInserted", 0), keywords.size());
         } catch (Exception e) {
-            log.error("Bulk sync task {} failed: {}", taskId, e.getMessage(), e);
+            log.error("OpenAlex async bulk sync [{}] failed: {}", taskId, e.getMessage(), e);
             bulkSyncProgressTracker.markFailed(taskId, e.getMessage());
         }
     }
@@ -1207,7 +1931,7 @@ public class DataSyncServiceImpl implements DataSyncService {
                         log.info("Bulk sync '{}': page {}, inserted {} so far (scanned: {})", keyword, pageCount, kwInserted, kwScanned);
                     }
 
-                    Thread.sleep(500); // Rate limit
+                    rateLimitOpenAlex(); // Rate limit
                 } catch (Exception e) {
                     String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     log.warn("Bulk sync [{}] page failed for '{}': {}", taskId, keyword, errorMsg);
@@ -1296,6 +2020,23 @@ public class DataSyncServiceImpl implements DataSyncService {
                         .sourceName("arxiv")
                         .baseUrl("http://export.arxiv.org/api")
                         .rateLimitRpm(30)
+                        .isActive(true)
+                        .build()));
+    }
+
+    private ApiSource getOrCreateSemanticScholarSource() {
+        return apiSourceRepository.findBySourceName("semantic_scholar")
+                .map(s -> {
+                    if (s.getBaseUrl() != null && s.getBaseUrl().endsWith("/graph/v1")) {
+                        s.setBaseUrl("https://api.semanticscholar.org");
+                        apiSourceRepository.save(s);
+                    }
+                    return s;
+                })
+                .orElseGet(() -> apiSourceRepository.save(ApiSource.builder()
+                        .sourceName("semantic_scholar")
+                        .baseUrl("https://api.semanticscholar.org")
+                        .rateLimitRpm(100)
                         .isActive(true)
                         .build()));
     }
@@ -1835,6 +2576,66 @@ public class DataSyncServiceImpl implements DataSyncService {
     }
 
     /**
+     * Dynamic rate limiter: sleeps only the remaining time needed to maintain
+     * the minimum interval since the last request. No wasted sleep.
+     */
+    private void rateLimitCore() {
+        long now = System.currentTimeMillis();
+        long elapsed = now - lastCoreRequestTime;
+        long waitMs = CORE_MIN_INTERVAL_MS - elapsed;
+        if (waitMs > 0) {
+            try {
+                Thread.sleep(waitMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        lastCoreRequestTime = System.currentTimeMillis();
+    }
+
+    private void rateLimitOpenAlex() {
+        long now = System.currentTimeMillis();
+        long elapsed = now - lastOpenAlexRequestTime;
+        long waitMs = OPENALEX_MIN_INTERVAL_MS - elapsed;
+        if (waitMs > 0) {
+            try {
+                Thread.sleep(waitMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        lastOpenAlexRequestTime = System.currentTimeMillis();
+    }
+
+    private void rateLimitSemanticScholar() {
+        long now = System.currentTimeMillis();
+        long elapsed = now - lastSemanticScholarRequestTime;
+        long waitMs = SEMANTIC_SCHOLAR_MIN_INTERVAL_MS - elapsed;
+        if (waitMs > 0) {
+            try {
+                Thread.sleep(waitMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        lastSemanticScholarRequestTime = System.currentTimeMillis();
+    }
+
+    private void rateLimitArxiv() {
+        long now = System.currentTimeMillis();
+        long elapsed = now - lastArxivRequestTime;
+        long waitMs = ARXIV_MIN_INTERVAL_MS - elapsed;
+        if (waitMs > 0) {
+            try {
+                Thread.sleep(waitMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        lastArxivRequestTime = System.currentTimeMillis();
+    }
+
+    /**
      * Call OpenAlex API with retry on 429 rate limit.
      */
     @SuppressWarnings("unchecked")
@@ -1862,6 +2663,134 @@ public class DataSyncServiceImpl implements DataSyncService {
             }
         }
         return null;
+    }
+
+    /**
+     * Call CORE API with retry on 429 rate limit.
+     * CORE API uses Bearer token auth via HttpEntity, so we wrap exchange() instead of getForObject().
+     */
+    @SuppressWarnings("unchecked")
+    private java.util.Map<String, Object> fetchCoreWithRetry(String url,
+                                                              org.springframework.http.HttpEntity<String> entity,
+                                                              String context) {
+        int maxRetries = 5;
+        for (int attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                var response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET,
+                        entity, java.util.Map.class);
+                return response.getBody();
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "";
+                boolean isRateLimited = msg.contains("429") || msg.contains("Rate limit")
+                        || msg.contains("Too Many Requests");
+                boolean isServerError = msg.contains("503") || msg.contains("Service Unavailable")
+                        || msg.contains("Server Error");
+                boolean isCancelled = msg.contains("cancelled") || msg.contains("Cancel");
+                // Treat cancellation as rate-limit (proxy/circuit-breaker killing the request)
+                boolean retryable = isRateLimited || isServerError || isCancelled;
+                if (retryable && attempt < maxRetries - 1) {
+                    long waitMs = isServerError
+                            ? (attempt + 1) * 5000L   // 5s, 10s, 15s, 20s
+                            : (attempt + 1) * 4000L;  // 4s, 8s, 12s, 16s — CORE rate limit is stricter
+                    log.warn("CORE {} for '{}' (attempt {}/{}), waiting {}s...",
+                            isServerError ? "503" : isCancelled ? "connection-cancelled (likely rate-limited)" : "429",
+                            context, attempt + 1, maxRetries, waitMs / 1000);
+                    try {
+                        Thread.sleep(waitMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                } else {
+                    throw new RuntimeException("CORE API error for '" + context + "': " + msg, e);
+                }
+            }
+        }
+        return null;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Semantic Scholar & arXiv retry helpers
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Call Semantic Scholar API with retry on 429/503.
+     */
+    private SemanticScholarResponseDTO fetchSemanticScholarWithRetry(String url, String context,
+                                                                       org.springframework.http.HttpEntity<String> entity) {
+        int maxRetries = 5;
+        for (int attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                if (entity != null) {
+                    // Authenticated request with x-api-key header
+                    var response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET,
+                            entity, SemanticScholarResponseDTO.class);
+                    return response.getBody();
+                }
+                return restTemplate.getForObject(url, SemanticScholarResponseDTO.class);
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "";
+                boolean retryable = msg.contains("429") || msg.contains("503")
+                        || msg.contains("Rate limit") || msg.contains("Too Many Requests");
+                if (retryable && attempt < maxRetries - 1) {
+                    long waitMs = (attempt + 1) * 5000L; // 5s, 10s, 15s, 20s
+                    log.warn("Semantic Scholar rate-limited for '{}' (attempt {}/{}), waiting {}s...",
+                            context, attempt + 1, maxRetries, waitMs / 1000);
+                    try { Thread.sleep(waitMs); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                } else {
+                    throw new RuntimeException("Semantic Scholar API error for '" + context + "': " + msg, e);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Call arXiv API with retry. arXiv returns XML string.
+     */
+    private String fetchArxivWithRetry(String url, String context) {
+        int maxRetries = 3; // arXiv is strict — fewer retries, longer waits
+        for (int attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                return restTemplate.getForObject(url, String.class);
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "";
+                boolean retryable = msg.contains("503") || msg.contains("429")
+                        || msg.contains("Rate limit") || msg.contains("Too Many Requests");
+                if (retryable && attempt < maxRetries - 1) {
+                    long waitMs = (attempt + 1) * 10000L; // 10s, 20s — arXiv needs very long waits
+                    log.warn("arXiv rate-limited for '{}' (attempt {}/{}), waiting {}s...",
+                            context, attempt + 1, maxRetries, waitMs / 1000);
+                    try { Thread.sleep(waitMs); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                } else {
+                    throw new RuntimeException("arXiv API error for '" + context + "': " + msg, e);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Extract totalResults from arXiv XML Atom feed for pagination control.
+     */
+    private int extractArxivTotalResults(String xml) {
+        try {
+            // <opensearch:totalResults>123</opensearch:totalResults>
+            int startIdx = xml.indexOf("<opensearch:totalResults>");
+            if (startIdx < 0) {
+                startIdx = xml.indexOf("<totalResults>");
+            }
+            if (startIdx >= 0) {
+                startIdx = xml.indexOf(">", startIdx) + 1;
+                int endIdx = xml.indexOf("<", startIdx);
+                if (endIdx > startIdx) {
+                    return Integer.parseInt(xml.substring(startIdx, endIdx).trim());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to extract arXiv totalResults: {}", e.getMessage());
+        }
+        return Integer.MAX_VALUE; // if we can't parse, assume more pages
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -2006,8 +2935,6 @@ public class DataSyncServiceImpl implements DataSyncService {
             }
             graphService.savePaperWithKeywords(
                     paper.getPaperId().toString(),
-                    paper.getTitle(),
-                    paper.getDoi(),
                     paper.getPubYear() != null ? paper.getPubYear().intValue() : null,
                     graphKeywords
             );

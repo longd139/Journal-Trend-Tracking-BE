@@ -56,6 +56,24 @@ public class BulkSyncProgressTracker {
     }
 
     /**
+     * Update running stats after each page (real-time UI).
+     * Unlike {@link #updateKeywordProgress}, this does NOT increment completedKeywords
+     * or recalculate percent — only updates the live scanned/inserted counts.
+     */
+    public void updatePageProgress(String taskId, String keyword, int keywordFetched,
+                                    int keywordInserted, int totalFetched, int totalInserted) {
+        BulkSyncProgress p = tasks.get(taskId);
+        if (p == null) return;
+
+        p.setCurrentKeyword(keyword);
+        p.setTotalFetched(totalFetched);
+        p.setTotalInserted(totalInserted);
+
+        // Update per-keyword stats in real-time
+        p.getKeywordStats().put(keyword, Map.of("scanned", keywordFetched, "inserted", keywordInserted));
+    }
+
+    /**
      * Record an error for a specific keyword.
      */
     public void addKeywordError(String taskId, String keyword, String error) {
