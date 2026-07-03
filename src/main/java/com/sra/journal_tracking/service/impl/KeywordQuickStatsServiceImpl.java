@@ -225,6 +225,7 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     @Cacheable(value = "search:keywordTopPapers", cacheManager = "searchCacheManager",
                key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
     public List<PaperDetailResponseDTO> getTopInfluentialPapers(String keyword) {

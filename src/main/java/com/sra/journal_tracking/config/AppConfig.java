@@ -25,15 +25,14 @@ public class AppConfig {
     }
 
     /**
-     * Fast RestTemplate for Gemini API calls.
-     * Short timeouts ensure we fall back to local expansion quickly
-     * instead of hanging the graph search.
+     * RestTemplate for DeepSeek API calls (OpenAI-compatible).
+     * Longer timeouts than search — AI models can be slow.
      */
-    @Bean(name = "geminiRestTemplate")
-    public RestTemplate geminiRestTemplate(RestTemplateBuilder builder) {
+    @Bean(name = "deepseekRestTemplate")
+    public RestTemplate deepseekRestTemplate(RestTemplateBuilder builder) {
         return builder
-                .connectTimeout(Duration.ofSeconds(5))
-                .readTimeout(Duration.ofSeconds(15))
+                .connectTimeout(Duration.ofSeconds(30))
+                .readTimeout(Duration.ofSeconds(120))
                 .build();
     }
 
