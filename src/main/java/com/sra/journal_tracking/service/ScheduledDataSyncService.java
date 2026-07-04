@@ -56,6 +56,9 @@ public class ScheduledDataSyncService {
     @Value("${app.openalex-api-key:}")
     private String openalexApiKey;
 
+    @Value("${app.auto-sync-enabled:}")
+    private String autoSyncEnabledEnv;
+
     // ═══════════════════════════════════════════════════════════
     //  Startup Sync — runs once when app boots (async, high volume)
     // ═══════════════════════════════════════════════════════════
@@ -344,6 +347,10 @@ public class ScheduledDataSyncService {
     // ═══════════════════════════════════════════════
 
     private boolean isAutoSyncEnabled() {
+        // Env var takes precedence (dễ tắt khi dev)
+        if (autoSyncEnabledEnv != null && !autoSyncEnabledEnv.isBlank()) {
+            return "true".equalsIgnoreCase(autoSyncEnabledEnv);
+        }
         return systemConfigRepository.findByConfigKey("auto_sync_enabled")
                 .map(c -> "true".equalsIgnoreCase(c.getConfigValue()))
                 .orElse(true); // Default: enabled

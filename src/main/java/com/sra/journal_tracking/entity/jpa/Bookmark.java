@@ -53,6 +53,10 @@ public class Bookmark {
     @Column(name = "Notes", length = 500)
     private String notes;
 
+    @Column(name = "LastNotifiedMilestone", nullable = false)
+    @Builder.Default
+    private Integer lastNotifiedMilestone = 0;
+
     @Column(name = "CreatedAt", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
