@@ -22,4 +22,7 @@ public interface NotificationService {
 
     /** Xóa 1 notification. */
     void deleteNotification(String email, UUID notifId);
+
+    /** Xóa nhiều notification cùng lúc. Returns số lượng đã xóa. */
+    int bulkDelete(String email, List<UUID> notifIds);
 }

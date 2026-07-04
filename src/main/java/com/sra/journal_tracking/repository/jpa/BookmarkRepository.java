@@ -1,11 +1,15 @@
 package com.sra.journal_tracking.repository.jpa;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.sra.journal_tracking.entity.jpa.Bookmark;
@@ -28,4 +32,12 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, UUID> {
     void deleteByUser_UserIdAndPaper_PaperId(UUID userId, UUID paperId);
 
     void deleteByUser_UserIdAndKeyword_KeywordId(UUID userId, UUID keywordId);
+
+    /**
+     * Batch delete bookmarks by their IDs, scoped to a specific user (ownership check).
+     * Returns the number of deleted rows.
+     */
+    @Modifying
+    @Query("DELETE FROM Bookmark b WHERE b.bookmarkId IN :ids AND b.user.userId = :userId")
+    int deleteByBookmarkIdInAndUser_UserId(@Param("ids") List<UUID> ids, @Param("userId") UUID userId);
 }
