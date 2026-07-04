@@ -1,6 +1,5 @@
 package com.sra.journal_tracking.repository.jpa;
 
-import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -12,6 +11,6 @@ import com.sra.journal_tracking.entity.jpa.UserSession;
 @Repository
 public interface UserSessionRepository extends JpaRepository<UserSession, UUID> {
     Optional<UserSession> findByTokenHash(String tokenHash);
-    void deleteByExpiresAtBefore(LocalDateTime now);
+    Optional<UserSession> findByRefreshTokenHash(String refreshTokenHash);
     void deleteByUser_UserId(UUID userId);
 }

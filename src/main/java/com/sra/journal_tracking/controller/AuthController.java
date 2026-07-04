@@ -13,6 +13,7 @@ import com.sra.journal_tracking.dto.auth.AuthResponse;
 import com.sra.journal_tracking.dto.auth.ForgotPasswordRequest;
 import com.sra.journal_tracking.dto.auth.GoogleLoginRequest;
 import com.sra.journal_tracking.dto.auth.LoginRequest;
+import com.sra.journal_tracking.dto.auth.RefreshTokenRequest;
 import com.sra.journal_tracking.dto.auth.RegisterRequest;
 import com.sra.journal_tracking.dto.auth.ResetPasswordRequest;
 import com.sra.journal_tracking.dto.response.AppResponse;
@@ -57,6 +58,15 @@ public class AuthController {
             @Valid @RequestBody GoogleLoginRequest request) {
         AuthResponse authResponse = authService.googleLogin(request);
         return ResponseEntity.ok(AppResponse.success("Google login successful", authResponse));
+    }
+
+    @Operation(summary = "Refresh token", description = "Issue a new access token using a valid refresh token.")
+    @ApiResponse(responseCode = "200", description = "Refresh token successful")
+    @PostMapping("/refresh-token")
+    public ResponseEntity<AppResponse<AuthResponse>> refreshToken(
+            @Valid @RequestBody RefreshTokenRequest request) {
+        AuthResponse authResponse = authService.refreshToken(request);
+        return ResponseEntity.ok(AppResponse.success("Refresh token successful", authResponse));
     }
 
     @Operation(summary = "Logout", description = "Invalidate current JWT token")

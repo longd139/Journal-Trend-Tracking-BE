@@ -1,6 +1,9 @@
 package com.sra.journal_tracking.service.impl;
 
+import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
 
@@ -10,7 +13,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ import org.springframework.web.client.RestTemplate;
 import com.sra.journal_tracking.dto.auth.AuthResponse;
 import com.sra.journal_tracking.dto.auth.GoogleLoginRequest;
 import com.sra.journal_tracking.dto.auth.LoginRequest;
+import com.sra.journal_tracking.dto.auth.RefreshTokenRequest;
 import com.sra.journal_tracking.dto.auth.RegisterRequest;
 import com.sra.journal_tracking.entity.jpa.Notification;
 import com.sra.journal_tracking.entity.jpa.NotificationType;
@@ -37,6 +40,7 @@ import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserSessionRepository;
 import com.sra.journal_tracking.repository.jpa.VerificationTokenRepository;
 import com.sra.journal_tracking.security.CustomUserDetails;
+import com.sra.journal_tracking.security.CustomUserDetailsService;
 import com.sra.journal_tracking.security.JwtTokenProvider;
 import com.sra.journal_tracking.service.AuthService;
 
@@ -47,6 +51,7 @@ import lombok.RequiredArgsConstructor;
 public class AuthServiceImpl implements AuthService {
 
         private static final Logger log = LoggerFactory.getLogger(AuthServiceImpl.class);
+        private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
         private final UserRepository userRepository;
         private final RoleRepository roleRepository;
@@ -57,6 +62,7 @@ public class AuthServiceImpl implements AuthService {
         private final PasswordEncoder passwordEncoder;
         private final AuthenticationManager authenticationManager;
         private final JwtTokenProvider tokenProvider;
+        private final CustomUserDetailsService customUserDetailsService;
 
         @Value("${app.frontend-url:http://localhost:3000}")
         private String frontendUrl;
@@ -66,6 +72,9 @@ public class AuthServiceImpl implements AuthService {
 
         @Value("${app.reset-token-expiration-ms:900000}")
         private long resetTokenExpirationMs;
+
+        @Value("${app.refresh-token-expiration-ms:604800000}")
+        private long refreshTokenExpirationMs;
 
         @Value("${app.google-client-id:}")
         private String googleClientId;
@@ -120,9 +129,9 @@ public class AuthServiceImpl implements AuthService {
                 SecurityContextHolder.getContext().setAuthentication(authentication);
 
                 String jwt = tokenProvider.generateToken(authentication);
-                saveUserSession(user, jwt);
+                TokenPair tokenPair = createUserSession(user, jwt);
 
-                return buildAuthResponse(jwt, user);
+                return buildAuthResponse(jwt, tokenPair.refreshToken(), user);
         }
 
         /**
@@ -225,9 +234,9 @@ public class AuthServiceImpl implements AuthService {
                 SecurityContextHolder.getContext().setAuthentication(authentication);
 
                 String jwt = tokenProvider.generateToken(authentication);
-                saveUserSession(user, jwt);
+                TokenPair tokenPair = createUserSession(user, jwt);
 
-                return buildAuthResponse(jwt, user);
+                return buildAuthResponse(jwt, tokenPair.refreshToken(), user);
         }
 
         @Override
@@ -245,8 +254,37 @@ public class AuthServiceImpl implements AuthService {
                 log.info("User logged in: email={}, role={}, roleExpiryAt={}",
                                 user.getEmail(), user.getRole().getRoleName(), user.getRoleExpiryAt());
 
-                saveUserSession(user, jwt);
-                return buildAuthResponse(jwt, user);
+                TokenPair tokenPair = createUserSession(user, jwt);
+                return buildAuthResponse(jwt, tokenPair.refreshToken(), user);
+        }
+
+        @Override
+        @Transactional
+        public AuthResponse refreshToken(RefreshTokenRequest request) {
+                String refreshTokenHash = tokenProvider.hashToken(request.getRefreshToken());
+                UserSession session = userSessionRepository.findByRefreshTokenHash(refreshTokenHash)
+                                .orElseThrow(() -> new AppException(ErrorCode.REFRESH_TOKEN_INVALID));
+
+                if (session.getRefreshExpiresAt() == null
+                                || session.getRefreshExpiresAt().isBefore(LocalDateTime.now())) {
+                        userSessionRepository.delete(session);
+                        throw new AppException(ErrorCode.REFRESH_TOKEN_INVALID);
+                }
+
+                CustomUserDetails userDetails = (CustomUserDetails) customUserDetailsService
+                                .loadUserByUsername(session.getUser().getEmail());
+                if (!userDetails.isEnabled()) {
+                        userSessionRepository.delete(session);
+                        throw new AppException(ErrorCode.USER_NOT_ACTIVE);
+                }
+
+                User user = userDetails.getUser();
+                Authentication authentication = new UsernamePasswordAuthenticationToken(
+                                userDetails, null, userDetails.getAuthorities());
+                String jwt = tokenProvider.generateToken(authentication);
+                TokenPair tokenPair = rotateUserSession(session, jwt);
+
+                return buildAuthResponse(jwt, tokenPair.refreshToken(), user);
         }
 
         @Override
@@ -385,14 +423,36 @@ public class AuthServiceImpl implements AuthService {
                 log.info("============================================");
         }
 
-        private void saveUserSession(User user, String jwt) {
+        private TokenPair createUserSession(User user, String jwt) {
+                String refreshToken = generateRefreshToken();
+                LocalDateTime now = LocalDateTime.now();
                 UserSession session = UserSession.builder()
                                 .user(user)
                                 .tokenHash(tokenProvider.hashToken(jwt))
-                                .createdAt(LocalDateTime.now())
-                                .expiresAt(LocalDateTime.now().plusDays(1))
+                                .refreshTokenHash(tokenProvider.hashToken(refreshToken))
+                                .createdAt(now)
+                                .expiresAt(now.plus(Duration.ofMillis(tokenProvider.getJwtExpirationInMs())))
+                                .refreshExpiresAt(now.plus(Duration.ofMillis(refreshTokenExpirationMs)))
                                 .build();
                 userSessionRepository.save(session);
+                return new TokenPair(jwt, refreshToken);
+        }
+
+        private TokenPair rotateUserSession(UserSession session, String jwt) {
+                String refreshToken = generateRefreshToken();
+                LocalDateTime now = LocalDateTime.now();
+                session.setTokenHash(tokenProvider.hashToken(jwt));
+                session.setRefreshTokenHash(tokenProvider.hashToken(refreshToken));
+                session.setExpiresAt(now.plus(Duration.ofMillis(tokenProvider.getJwtExpirationInMs())));
+                session.setRefreshExpiresAt(now.plus(Duration.ofMillis(refreshTokenExpirationMs)));
+                userSessionRepository.save(session);
+                return new TokenPair(jwt, refreshToken);
+        }
+
+        private String generateRefreshToken() {
+                byte[] randomBytes = new byte[64];
+                SECURE_RANDOM.nextBytes(randomBytes);
+                return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
         }
 
         private void createResearcherTrialNotification(User user) {
@@ -421,13 +481,15 @@ public class AuthServiceImpl implements AuthService {
                 if (token != null) {
                         String tokenHash = tokenProvider.hashToken(token);
                         userSessionRepository.findByTokenHash(tokenHash)
+                                        .or(() -> userSessionRepository.findByRefreshTokenHash(tokenHash))
                                         .ifPresent(userSessionRepository::delete);
                 }
         }
 
-        private AuthResponse buildAuthResponse(String token, User user) {
+        private AuthResponse buildAuthResponse(String token, String refreshToken, User user) {
                 return AuthResponse.builder()
                                 .accessToken(token)
+                                .refreshToken(refreshToken)
                                 .tokenType(token != null ? "Bearer" : null)
                                 .user(AuthResponse.UserAuthInfo.builder()
                                                 .id(user.getUserId().toString())
@@ -437,5 +499,8 @@ public class AuthServiceImpl implements AuthService {
                                                 .roleExpiryAt(user.getRoleExpiryAt())
                                                 .build())
                                 .build();
+        }
+
+        private record TokenPair(String accessToken, String refreshToken) {
         }
 }

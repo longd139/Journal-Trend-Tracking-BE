@@ -17,7 +17,11 @@ public class JwtTokenProvider {
     private String jwtSecret;
 
     @Value("${app.jwtExpirationInMs:86400000}") // 1 day default
-    private int jwtExpirationInMs;
+    private long jwtExpirationInMs;
+
+    public long getJwtExpirationInMs() {
+        return jwtExpirationInMs;
+    }
 
     private SecretKey getSigningKey() {
         byte[] keyBytes = Decoders.BASE64.decode(jwtSecret);
