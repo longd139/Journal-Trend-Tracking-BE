@@ -20,6 +20,7 @@ import com.sra.journal_tracking.repository.jpa.NotificationRepository;
 import com.sra.journal_tracking.repository.jpa.PdfRequestRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
+import com.sra.journal_tracking.service.NotificationEventPublisher;
 import com.sra.journal_tracking.service.PdfRequestService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +53,7 @@ public class PdfRequestServiceImpl implements PdfRequestService {
     private final ResearchPaperRepository researchPaperRepository;
     private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
+    private final NotificationEventPublisher eventPublisher;
     private final RestTemplate restTemplate;
 
     @Value("${app.openalex-email:}")
@@ -275,7 +277,7 @@ public class PdfRequestServiceImpl implements PdfRequestService {
     }
 
     private void notifyRequester(PdfRequest request, String title, String message) {
-        notificationRepository.save(Notification.builder()
+        Notification notification = notificationRepository.save(Notification.builder()
                 .user(request.getUser())
                 .type(NotificationType.SYSTEM)
                 .title(title)
@@ -284,6 +286,11 @@ public class PdfRequestServiceImpl implements PdfRequestService {
                 .relatedJournal(request.getPaper().getJournal())
                 .isRead(false)
                 .build());
+
+        // Push to connected SSE clients
+        try {
+            eventPublisher.publish(request.getUser().getUserId(), notification);
+        } catch (Exception ignored) { /* best-effort */ }
     }
 
     private PdfRequestResponse mapToResponse(PdfRequest request) {
