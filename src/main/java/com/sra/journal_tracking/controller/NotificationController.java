@@ -1,11 +1,13 @@
 package com.sra.journal_tracking.controller;
 
+import com.sra.journal_tracking.dto.common.BulkDeleteRequest;
 import com.sra.journal_tracking.dto.notification.NotificationResponse;
 import com.sra.journal_tracking.dto.notification.UnreadCountResponse;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -14,11 +16,13 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -103,5 +107,17 @@ public class NotificationController {
 
         notificationService.deleteNotification(authentication.getName(), notifId);
         return ResponseEntity.ok(AppResponse.success("Notification deleted"));
+    }
+
+    @Operation(
+            summary = "Xóa nhiều notification",
+            description = "Xóa nhiều notification cùng lúc theo danh sách ID. Ownership-verified.")
+    @DeleteMapping("/bulk")
+    public ResponseEntity<AppResponse<Map<String, Integer>>> bulkDelete(
+            Authentication authentication,
+            @Valid @RequestBody BulkDeleteRequest request) {
+        int deleted = notificationService.bulkDelete(authentication.getName(), request.getIds());
+        return ResponseEntity.ok(AppResponse.success(deleted + " notifications deleted",
+                Map.of("deleted", deleted)));
     }
 }

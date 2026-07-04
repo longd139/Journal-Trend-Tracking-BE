@@ -108,6 +108,17 @@ public class NotificationServiceImpl implements NotificationService {
         log.debug("Notification {} deleted for user {}", notifId, email);
     }
 
+    @Override
+    @Transactional
+    public int bulkDelete(String email, List<UUID> notifIds) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        int deleted = notificationRepository.deleteByNotifIdInAndUser_UserId(notifIds, user.getUserId());
+        log.info("Bulk notification delete: {} removed for user {}", deleted, email);
+        return deleted;
+    }
+
     private NotificationResponse mapToResponse(Notification n) {
         return NotificationResponse.builder()
                 .notifId(n.getNotifId())

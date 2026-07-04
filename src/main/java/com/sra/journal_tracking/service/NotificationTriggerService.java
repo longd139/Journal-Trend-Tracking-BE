@@ -34,6 +34,7 @@ public class NotificationTriggerService {
 
     private final FollowRepository followRepository;
     private final NotificationRepository notificationRepository;
+    private final NotificationEventPublisher eventPublisher;
 
     /**
      * Tạo notification cho tất cả user follow journal hoặc keyword của paper này.
@@ -82,6 +83,13 @@ public class NotificationTriggerService {
                 notificationRepository.saveAll(notifications);
                 log.info("Created {} notifications for new paper: '{}' ({} unique users)",
                         notifications.size(), paper.getTitle(), notifiedUserIds.size());
+
+                // Push to connected SSE clients
+                for (Notification n : notifications) {
+                    try {
+                        eventPublisher.publish(n.getUser().getUserId(), n);
+                    } catch (Exception ignored) { /* best-effort */ }
+                }
             }
         } catch (Exception e) {
             log.warn("Failed to create notifications for paper '{}': {}", paper.getTitle(), e.getMessage());

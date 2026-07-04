@@ -245,8 +245,12 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
         List<String> paperIdStrings = graphService.getAllPaperIdsByKeyword(normalized);
 
         if (paperIdStrings.isEmpty()) {
-            log.info("No papers found for '{}' in Neo4j", trimmedKeyword);
-            return List.of();
+            log.info("No papers found for '{}' in Neo4j, falling back to SQL full-text", trimmedKeyword);
+            List<ResearchPaper> sqlResults = researchPaperRepository.findTopCitedByKeyword(
+                    trimmedKeyword, PageRequest.of(0, 5));
+            return sqlResults.stream()
+                    .map(this::mapToSummaryDTO)
+                    .collect(Collectors.toList());
         }
 
         // Only take first 50 IDs — enough for top-5, faster SQL IN clause

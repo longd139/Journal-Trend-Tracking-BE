@@ -1,6 +1,7 @@
 package com.sra.journal_tracking.repository.jpa;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -368,4 +369,59 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 	    List<Object[]> countPapersByYearForIds(
 	            @Param("ids") List<UUID> ids,
 	            @Param("startYear") Short startYear);
+
+	// ── Recommendation Queries ──
+
+	/**
+	 * Find papers linked to any of the given keyword IDs, ordered by citation count.
+	 * Used for content-based recommendation candidate generation.
+	 */
+	@Query("SELECT DISTINCT rp FROM ResearchPaper rp "
+	     + "JOIN rp.keywords pk JOIN pk.keyword k "
+	     + "WHERE k.keywordId IN :keywordIds AND rp.pubYear >= :minYear "
+	     + "ORDER BY rp.citationCount DESC")
+	List<ResearchPaper> findTopCitedByKeywordIds(
+	        @Param("keywordIds") List<UUID> keywordIds,
+	        @Param("minYear") Short minYear,
+	        Pageable pageable);
+
+	/**
+	 * Find papers bookmarked by a set of similar users, excluding papers the
+	 * current user already has. Used for collaborative filtering.
+	 */
+	@Query("SELECT DISTINCT rp FROM ResearchPaper rp "
+	     + "JOIN Bookmark b ON b.paper.paperId = rp.paperId "
+	     + "WHERE b.user.userId IN :similarUserIds "
+	     + "AND rp.paperId NOT IN :excludePaperIds "
+	     + "AND rp.pubYear >= :minYear "
+	     + "ORDER BY rp.citationCount DESC")
+	List<ResearchPaper> findPapersBookmarkedByUsers(
+	        @Param("similarUserIds") List<UUID> similarUserIds,
+	        @Param("excludePaperIds") List<UUID> excludePaperIds,
+	        @Param("minYear") Short minYear,
+	        Pageable pageable);
+
+	/**
+	 * Find papers in the same research field, excluding the given paper.
+	 * Used for "Similar Papers" content-based recommendations.
+	 */
+	@Query("SELECT rp FROM ResearchPaper rp "
+	     + "LEFT JOIN FETCH rp.journal "
+	     + "LEFT JOIN FETCH rp.field "
+	     + "WHERE rp.field.fieldId = :fieldId AND rp.paperId <> :excludePaperId "
+	     + "ORDER BY rp.citationCount DESC")
+	List<ResearchPaper> findByFieldIdAndPaperIdNot(
+	        @Param("fieldId") UUID fieldId,
+	        @Param("excludePaperId") UUID excludePaperId,
+	        Pageable pageable);
+
+	/**
+	 * Find papers by their IDs with journal and field eagerly fetched.
+	 * Used by recommendation services to batch-load paper details.
+	 */
+	@Query("SELECT rp FROM ResearchPaper rp "
+	     + "LEFT JOIN FETCH rp.journal "
+	     + "LEFT JOIN FETCH rp.field "
+	     + "WHERE rp.paperId IN :ids")
+	List<ResearchPaper> findAllByIdWithDetails(@Param("ids") Collection<UUID> ids);
 }

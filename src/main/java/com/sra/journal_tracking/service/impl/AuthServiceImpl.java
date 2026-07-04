@@ -32,6 +32,7 @@ import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.repository.jpa.NotificationRepository;
 import com.sra.journal_tracking.repository.jpa.RoleRepository;
+import com.sra.journal_tracking.service.NotificationEventPublisher;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserSessionRepository;
 import com.sra.journal_tracking.repository.jpa.VerificationTokenRepository;
@@ -50,6 +51,7 @@ public class AuthServiceImpl implements AuthService {
         private final UserRepository userRepository;
         private final RoleRepository roleRepository;
         private final NotificationRepository notificationRepository;
+        private final NotificationEventPublisher eventPublisher;
         private final UserSessionRepository userSessionRepository;
         private final VerificationTokenRepository verificationTokenRepository;
         private final PasswordEncoder passwordEncoder;
@@ -398,7 +400,7 @@ public class AuthServiceImpl implements AuthService {
                         return;
                 }
 
-                notificationRepository.save(Notification.builder()
+                Notification notification = notificationRepository.save(Notification.builder()
                                 .user(user)
                                 .type(NotificationType.SYSTEM)
                                 .title("Researcher trial activated")
@@ -406,6 +408,11 @@ public class AuthServiceImpl implements AuthService {
                                 .isRead(false)
                                 .build());
                 log.info("Researcher trial notification created for {}", user.getEmail());
+
+                // Push to connected SSE clients
+                try {
+                        eventPublisher.publish(user.getUserId(), notification);
+                } catch (Exception ignored) { /* best-effort */ }
         }
 
         @Override

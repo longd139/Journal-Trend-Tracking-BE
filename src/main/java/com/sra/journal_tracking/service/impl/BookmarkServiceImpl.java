@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.sra.journal_tracking.dto.bookmark.BookmarkRequest;
 import com.sra.journal_tracking.dto.bookmark.BookmarkResponse;
+import com.sra.journal_tracking.dto.bookmark.BulkBookmarkRequest;
 import com.sra.journal_tracking.entity.jpa.Bookmark;
 import com.sra.journal_tracking.entity.jpa.BookmarkCollection;
 import com.sra.journal_tracking.entity.jpa.User;
@@ -24,11 +25,14 @@ import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.service.BookmarkService;
+import com.sra.journal_tracking.service.PaperRecommendationService;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class BookmarkServiceImpl implements BookmarkService {
 
     private final BookmarkRepository bookmarkRepository;
@@ -37,6 +41,7 @@ public class BookmarkServiceImpl implements BookmarkService {
     private final ResearchPaperRepository researchPaperRepository;
     private final KeywordRepository keywordRepository;
     private final SystemConfigRepository systemConfigRepository;
+    private final PaperRecommendationService paperRecommendationService;
 
     @Override
     @Transactional
@@ -94,6 +99,10 @@ public class BookmarkServiceImpl implements BookmarkService {
                 .build();
 
         bookmark = bookmarkRepository.save(bookmark);
+
+        // Evict cached recommendations
+        try { paperRecommendationService.evictUserCache(email); } catch (Exception ignored) {}
+
         return mapToResponse(bookmark);
     }
 
@@ -133,6 +142,8 @@ public class BookmarkServiceImpl implements BookmarkService {
         }
 
         bookmarkRepository.delete(bookmark);
+        // Evict cached recommendations
+        try { paperRecommendationService.evictUserCache(email); } catch (Exception ignored) {}
     }
 
     @Override
@@ -142,6 +153,8 @@ public class BookmarkServiceImpl implements BookmarkService {
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
         bookmarkRepository.deleteByUser_UserIdAndPaper_PaperId(user.getUserId(), paperId);
+        // Evict cached recommendations
+        try { paperRecommendationService.evictUserCache(email); } catch (Exception ignored) {}
     }
 
     @Override
@@ -151,7 +164,68 @@ public class BookmarkServiceImpl implements BookmarkService {
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
         bookmarkRepository.deleteByUser_UserIdAndKeyword_KeywordId(user.getUserId(), keywordId);
+        // Evict cached recommendations
+        try { paperRecommendationService.evictUserCache(email); } catch (Exception ignored) {}
     }
+
+    // ── Bulk Operations ──
+
+    @Override
+    @Transactional
+    public int bulkBookmark(String email, BulkBookmarkRequest request) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        // Validate optional collection
+        BookmarkCollection collection = null;
+        if (request.getCollectionId() != null) {
+            collection = collectionRepository.findById(request.getCollectionId())
+                    .orElseThrow(() -> new AppException(ErrorCode.COLLECTION_NOT_FOUND));
+            if (!collection.getUser().getUserId().equals(user.getUserId())) {
+                throw new AppException(ErrorCode.COLLECTION_NOT_FOUND);
+            }
+        }
+
+        int created = 0;
+        for (UUID paperId : request.getPaperIds()) {
+            if (!researchPaperRepository.existsById(paperId)) continue;
+            if (bookmarkRepository.findByUser_UserIdAndPaper_PaperId(user.getUserId(), paperId).isPresent())
+                continue; // already bookmarked — idempotent
+
+            checkBookmarkLimit(user);
+
+            Bookmark bm = Bookmark.builder()
+                    .user(user)
+                    .paper(researchPaperRepository.getReferenceById(paperId))
+                    .collection(collection)
+                    .build();
+            bookmarkRepository.save(bm);
+            created++;
+        }
+
+        // Evict cached recommendations
+        try { paperRecommendationService.evictUserCache(email); } catch (Exception ignored) {}
+
+        log.info("Bulk bookmark: {} created for user {}", created, email);
+        return created;
+    }
+
+    @Override
+    @Transactional
+    public int bulkDeleteBookmarks(String email, List<UUID> bookmarkIds) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        int deleted = bookmarkRepository.deleteByBookmarkIdInAndUser_UserId(bookmarkIds, user.getUserId());
+
+        // Evict cached recommendations
+        try { paperRecommendationService.evictUserCache(email); } catch (Exception ignored) {}
+
+        log.info("Bulk bookmark delete: {} removed for user {}", deleted, email);
+        return deleted;
+    }
+
+    // ── Private Helpers ──
 
     private void checkBookmarkLimit(User user) {
         // Researchers have unlimited bookmarks

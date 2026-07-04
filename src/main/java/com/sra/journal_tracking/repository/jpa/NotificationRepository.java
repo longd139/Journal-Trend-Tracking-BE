@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -27,4 +28,12 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     @Modifying
     @Query("UPDATE Notification n SET n.isRead = true WHERE n.user.userId = :userId AND n.isRead = false")
     int markAllAsRead(@Param("userId") UUID userId);
+
+    /**
+     * Batch delete notifications by their IDs, scoped to a specific user (ownership check).
+     * Returns the number of deleted rows.
+     */
+    @Modifying
+    @Query("DELETE FROM Notification n WHERE n.notifId IN :ids AND n.user.userId = :userId")
+    int deleteByNotifIdInAndUser_UserId(@Param("ids") List<UUID> ids, @Param("userId") UUID userId);
 }
