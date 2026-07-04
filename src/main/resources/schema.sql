@@ -85,6 +85,35 @@ BEGIN
 END
 
 -- 5. RESEARCH_FIELD — Seed additional top-level fields if missing
+-- 4b. USER_SESSION refresh token columns
+IF OBJECT_ID('USER_SESSION', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'USER_SESSION' AND COLUMN_NAME = 'RefreshTokenHash'
+   )
+BEGIN
+    ALTER TABLE USER_SESSION ADD RefreshTokenHash NVARCHAR(500) NULL
+END
+
+IF OBJECT_ID('USER_SESSION', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'USER_SESSION' AND COLUMN_NAME = 'RefreshExpiresAt'
+   )
+BEGIN
+    ALTER TABLE USER_SESSION ADD RefreshExpiresAt DATETIME2 NULL
+END
+
+IF OBJECT_ID('USER_SESSION', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM sys.indexes
+       WHERE name = 'IX_SESSION_RefreshTokenHash'
+         AND object_id = OBJECT_ID('USER_SESSION')
+   )
+BEGIN
+    CREATE INDEX IX_SESSION_RefreshTokenHash ON USER_SESSION(RefreshTokenHash)
+END
+
 IF NOT EXISTS (SELECT 1 FROM RESEARCH_FIELD WHERE FieldName = N'Engineering')
     INSERT INTO RESEARCH_FIELD (FieldID, ParentFieldID, FieldName, IsTracked, Description)
     VALUES (NEWID(), NULL, N'Engineering', 1, N'Engineering and technology disciplines');

@@ -41,8 +41,14 @@ public class UserSession {
     @Column(name = "TokenHash", nullable = false, length = 500)
     private String tokenHash;
 
+    @Column(name = "RefreshTokenHash", length = 500)
+    private String refreshTokenHash;
+
     @Column(name = "ExpiresAt", nullable = false)
     private LocalDateTime expiresAt;
+
+    @Column(name = "RefreshExpiresAt")
+    private LocalDateTime refreshExpiresAt;
 
     @Column(name = "CreatedAt", nullable = false, updatable = false)
     private LocalDateTime createdAt;
