@@ -41,4 +41,22 @@ public class PaperDetailResponseDTO {
     private Integer downloadCount;
     private Integer commentCount;
     private LocalDateTime createdAt;
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String aiSummary;
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String methodology;
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<AiSummarySection> aiSummarySections;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AiSummarySection {
+        private String heading;
+        private String content;
+    }
 }

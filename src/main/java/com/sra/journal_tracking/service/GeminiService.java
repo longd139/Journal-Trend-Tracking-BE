@@ -1,21 +1,14 @@
 package com.sra.journal_tracking.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * Finds academically related keywords using Gemini API with local fallback.
+ * Finds academically related keywords using DeepSeek AI with local fallback.
  * When the API is unavailable (quota, network), falls back to a built-in
  * academic keyword relationship map organized by research domains.
  */
@@ -24,6 +17,8 @@ import java.util.stream.Collectors;
 public class GeminiService {
 
     private static final int DEFAULT_MAX_RELATED = 6;
+    private static final int KEYWORD_MAX_TOKENS = 256;
+    private static final double KEYWORD_TEMPERATURE = 0.2;
     private static final int MAX_RETRIES = 0; // No retries — RestTemplate has short timeout, fallback to local
 
     // ── In-memory cache: 1 hour TTL ──
@@ -38,26 +33,17 @@ public class GeminiService {
 
     private final ConcurrentHashMap<String, CacheEntry<List<String>>> relatedKeywordsCache = new ConcurrentHashMap<>();
 
-    private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
+    private final AIClient aiClient;
     private final KeywordExpansionService keywordExpansionService;
 
-    @Value("${gemini.api.url}")
-    private String geminiApiUrl;
-
-    @Value("${gemini.api.key}")
-    private String geminiApiKey;
-
-    public GeminiService(@Qualifier("geminiRestTemplate") RestTemplate restTemplate,
-                         ObjectMapper objectMapper,
+    public GeminiService(AIClient aiClient,
                          KeywordExpansionService keywordExpansionService) {
-        this.restTemplate = restTemplate;
-        this.objectMapper = objectMapper;
+        this.aiClient = aiClient;
         this.keywordExpansionService = keywordExpansionService;
     }
 
     /**
-     * Get academically related keywords. Tries Gemini first,
+     * Get academically related keywords. Tries DeepSeek first,
      * falls back to local expansion if the API is unavailable.
      * Results are cached for 1 hour — subsequent calls for the same keyword
      * return instantly without any API call.
@@ -80,21 +66,18 @@ public class GeminiService {
 
         int limit = Math.max(1, Math.min(maxTerms, DEFAULT_MAX_RELATED));
 
-        // ── Try Gemini API ──
+        // ── Try AI API ──
         List<String> result;
-        if (geminiApiUrl != null && !geminiApiUrl.isBlank()
-                && geminiApiKey != null && !geminiApiKey.isBlank()) {
-            try {
-                result = tryGeminiExpansion(keyword, limit);
-                if (!result.isEmpty()) {
-                    // Cache and return
-                    relatedKeywordsCache.put(cacheKey, new CacheEntry<>(new ArrayList<>(result)));
-                    log.info("CACHE STORE: relatedKeywords '{}' → {} terms (TTL=1h, source=Gemini)", keyword, result.size());
-                    return result;
-                }
-            } catch (Exception e) {
-                log.info("Gemini unavailable for '{}', using local fallback. Reason: {}", keyword, e.getMessage());
+        try {
+            result = tryAiExpansion(keyword, limit);
+            if (!result.isEmpty()) {
+                // Cache and return
+                relatedKeywordsCache.put(cacheKey, new CacheEntry<>(new ArrayList<>(result)));
+                log.info("CACHE STORE: relatedKeywords '{}' → {} terms (TTL=1h, source=AI)", keyword, result.size());
+                return result;
             }
+        } catch (Exception e) {
+            log.info("AI unavailable for '{}', using local fallback. Reason: {}", keyword, e.getMessage());
         }
 
         // ── Local fallback ──
@@ -110,111 +93,32 @@ public class GeminiService {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Gemini API call (with retry)
+    //  AI API call (via AIClient — currently DeepSeek)
     // ═══════════════════════════════════════════════════════════
 
-    private List<String> tryGeminiExpansion(String keyword, int limit) throws Exception {
-        String prompt = buildPrompt(keyword, limit);
-
-        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                String responseText = callGeminiApi(prompt);
-                List<String> keywords = parseKeywords(responseText, limit);
-                if (!keywords.isEmpty()) {
-                    log.info("Gemini expanded '{}' → {}", keyword, keywords);
-                    return keywords;
-                }
-                return keywords;
-            } catch (Exception e) {
-                String msg = e.getMessage() != null ? e.getMessage() : "";
-                boolean isQuotaError = msg.contains("429") || msg.contains("quota") || msg.contains("RESOURCE_EXHAUSTED");
-                boolean isRetryable = msg.contains("RetryInfo") || msg.contains("retryDelay");
-
-                if (isQuotaError && attempt < MAX_RETRIES) {
-                    long waitMs = (attempt + 1) * 3000L + 1000L; // 4s, 7s
-                    log.info("Gemini quota exhausted, retrying in {}s (attempt {}/{})", waitMs / 1000, attempt + 1, MAX_RETRIES);
-                    try { Thread.sleep(waitMs); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
-                } else if (isQuotaError) {
-                    log.info("Gemini quota exhausted after {} retries, switching to local fallback", MAX_RETRIES);
-                    return List.of();
-                } else {
-                    throw e;
-                }
-            }
+    private List<String> tryAiExpansion(String keyword, int limit) throws Exception {
+        String prompt = buildKeywordPrompt(keyword, limit);
+        String responseText = aiClient.call(prompt, KEYWORD_MAX_TOKENS, KEYWORD_TEMPERATURE);
+        List<String> keywords = parseKeywords(responseText, limit);
+        if (!keywords.isEmpty()) {
+            log.info("AI expanded '{}' → {}", keyword, keywords);
+            return keywords;
         }
-        return List.of();
+        return keywords;
     }
 
-    private String buildPrompt(String keyword, int limit) {
+    private String buildKeywordPrompt(String keyword, int limit) {
         return String.format(
                 "You are an academic research assistant. " +
                 "Given the research keyword \"%s\", list exactly %d closely related academic/research keywords or terminology. " +
-                "Rules:\\n" +
-                "1. Return ONLY the keywords, one per line, no numbering, no bullet points, no explanations.\\n" +
-                "2. Keywords should be specific academic/research terms commonly co-occurring with \"%s\".\\n" +
-                "3. Include synonyms, sub-topics, related technologies, methods, or concepts.\\n" +
-                "4. Each keyword should be 1-4 words, lowercase preferred.\\n" +
-                "5. Do NOT repeat the input keyword.\\n" +
+                "Rules:\n" +
+                "1. Return ONLY the keywords, one per line, no numbering, no bullet points, no explanations.\n" +
+                "2. Keywords should be specific academic/research terms commonly co-occurring with \"%s\".\n" +
+                "3. Include synonyms, sub-topics, related technologies, methods, or concepts.\n" +
+                "4. Each keyword should be 1-4 words, lowercase preferred.\n" +
+                "5. Do NOT repeat the input keyword.\n" +
                 "6. Prioritize terms that appear in research paper titles and abstracts.",
                 keyword, limit, keyword);
-    }
-
-    private String callGeminiApi(String prompt) throws Exception {
-        Map<String, Object> requestBody = new LinkedHashMap<>();
-        List<Map<String, Object>> contents = new ArrayList<>();
-        Map<String, Object> content = new LinkedHashMap<>();
-        List<Map<String, Object>> parts = new ArrayList<>();
-        Map<String, Object> part = new LinkedHashMap<>();
-        part.put("text", prompt);
-        parts.add(part);
-        content.put("parts", parts);
-        contents.add(content);
-        requestBody.put("contents", contents);
-
-        Map<String, Object> generationConfig = new LinkedHashMap<>();
-        generationConfig.put("temperature", 0.2);
-        generationConfig.put("maxOutputTokens", 256);
-        generationConfig.put("topP", 0.8);
-        requestBody.put("generationConfig", generationConfig);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-
-        String url = geminiApiUrl + "?key=" + geminiApiKey;
-        log.debug("Calling Gemini API at: {}", geminiApiUrl);
-
-        ResponseEntity<String> response;
-        try {
-            response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
-        } catch (RestClientException e) {
-            String msg = e.getMessage() != null ? e.getMessage() : "";
-            if (msg.contains("404") || msg.contains("not found")) {
-                throw new RuntimeException(
-                        "Gemini model not found. Update gemini.api.url in .env. Error: " + msg, e);
-            }
-            throw new RuntimeException(msg, e);
-        }
-
-        if (response.getBody() == null) {
-            throw new RuntimeException("Gemini returned empty response");
-        }
-
-        JsonNode root = objectMapper.readTree(response.getBody());
-        JsonNode candidates = root.path("candidates");
-        if (candidates.isEmpty()) {
-            throw new RuntimeException("Gemini returned no candidates");
-        }
-
-        String text = candidates.get(0)
-                .path("content").path("parts").get(0)
-                .path("text").asText("");
-
-        if (text.isBlank()) {
-            throw new RuntimeException("Gemini returned empty text");
-        }
-
-        return text;
     }
 
     private List<String> parseKeywords(String rawText, int maxTerms) {
