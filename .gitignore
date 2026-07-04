@@ -55,5 +55,6 @@ Thumbs.db
 # Personal tools
 web-scraper/
 app.log
+app-output.log
 research_page.html
 research_screenshot.png
