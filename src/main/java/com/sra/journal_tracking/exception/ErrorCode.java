@@ -47,6 +47,10 @@ public enum ErrorCode {
     AUTHOR_NOT_FOUND(HttpStatus.NOT_FOUND, "No author found matching the given keyword."),
     EXTERNAL_API_ERROR(HttpStatus.BAD_GATEWAY, "External API is currently unavailable. Please try again later."),
 
+    // ---- RECOMMENDATION ERRORS ----
+    PAPER_NOT_FOUND(HttpStatus.NOT_FOUND, "Paper not found."),
+    RECOMMENDATION_NOT_AVAILABLE(HttpStatus.NOT_FOUND, "Not enough data to generate recommendations yet."),
+
     // ---- LỖI HỆ THỐNG (Fallback) ----
     UNCATEGORIZED_EXCEPTION(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected system error occurred.");
 

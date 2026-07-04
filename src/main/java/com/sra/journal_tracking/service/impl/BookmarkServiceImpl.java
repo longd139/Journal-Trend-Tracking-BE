@@ -24,6 +24,7 @@ import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.service.BookmarkService;
+import com.sra.journal_tracking.service.PaperRecommendationService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -37,6 +38,7 @@ public class BookmarkServiceImpl implements BookmarkService {
     private final ResearchPaperRepository researchPaperRepository;
     private final KeywordRepository keywordRepository;
     private final SystemConfigRepository systemConfigRepository;
+    private final PaperRecommendationService paperRecommendationService;
 
     @Override
     @Transactional
@@ -94,6 +96,10 @@ public class BookmarkServiceImpl implements BookmarkService {
                 .build();
 
         bookmark = bookmarkRepository.save(bookmark);
+
+        // Evict cached recommendations
+        try { paperRecommendationService.evictUserCache(email); } catch (Exception ignored) {}
+
         return mapToResponse(bookmark);
     }
 
@@ -133,6 +139,8 @@ public class BookmarkServiceImpl implements BookmarkService {
         }
 
         bookmarkRepository.delete(bookmark);
+        // Evict cached recommendations
+        try { paperRecommendationService.evictUserCache(email); } catch (Exception ignored) {}
     }
 
     @Override
@@ -142,6 +150,8 @@ public class BookmarkServiceImpl implements BookmarkService {
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
         bookmarkRepository.deleteByUser_UserIdAndPaper_PaperId(user.getUserId(), paperId);
+        // Evict cached recommendations
+        try { paperRecommendationService.evictUserCache(email); } catch (Exception ignored) {}
     }
 
     @Override
@@ -151,6 +161,8 @@ public class BookmarkServiceImpl implements BookmarkService {
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
         bookmarkRepository.deleteByUser_UserIdAndKeyword_KeywordId(user.getUserId(), keywordId);
+        // Evict cached recommendations
+        try { paperRecommendationService.evictUserCache(email); } catch (Exception ignored) {}
     }
 
     private void checkBookmarkLimit(User user) {

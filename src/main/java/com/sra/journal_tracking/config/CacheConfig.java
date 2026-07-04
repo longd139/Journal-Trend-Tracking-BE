@@ -11,10 +11,12 @@ import org.springframework.context.annotation.Primary;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Kích hoạt Spring Cache với 2 CacheManager riêng biệt:
+ * Kích hoạt Spring Cache với 3 CacheManager riêng biệt:
  * - defaultCacheManager (1 giờ TTL) — dùng cho các cache ngắn hạn
  * - searchCacheManager (7 ngày TTL) — dùng cho các API /api/search/...
  *   để tránh query lại dữ liệu tốn thời gian trong vòng 1 tuần.
+ * - recommendationCacheManager (30 phút TTL) — dùng cho recommendation API
+ *   để cân bằng giữa freshness và performance.
  */
 @Configuration
 @EnableCaching
@@ -46,6 +48,21 @@ public class CacheConfig {
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .expireAfterWrite(7, TimeUnit.DAYS)
                 .maximumSize(1000)
+                .recordStats());
+        cacheManager.setAsyncCacheMode(false);
+        return cacheManager;
+    }
+
+    /**
+     * Cache manager cho recommendations — TTL 30 phút, tối đa 200 entries.
+     * User interests change gradually; 30-min TTL balances freshness with performance.
+     */
+    @Bean("recommendationCacheManager")
+    public CacheManager recommendationCacheManager() {
+        CaffeineCacheManager cacheManager = new CaffeineCacheManager();
+        cacheManager.setCaffeine(Caffeine.newBuilder()
+                .expireAfterWrite(30, TimeUnit.MINUTES)
+                .maximumSize(200)
                 .recordStats());
         cacheManager.setAsyncCacheMode(false);
         return cacheManager;

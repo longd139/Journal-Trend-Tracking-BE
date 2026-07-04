@@ -5,6 +5,7 @@ import com.sra.journal_tracking.entity.jpa.User;
 import com.sra.journal_tracking.entity.jpa.UserSearchHistory;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserSearchHistoryRepository;
+import com.sra.journal_tracking.service.PaperRecommendationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -24,6 +25,7 @@ public class UserSearchHistoryService {
 
     private final UserSearchHistoryRepository userSearchHistoryRepository;
     private final UserRepository userRepository;
+    private final PaperRecommendationService paperRecommendationService;
 
     /**
      * Record a user's search for the zero-state recent-searches feature.
@@ -57,6 +59,11 @@ public class UserSearchHistoryService {
 
             userSearchHistoryRepository.save(history);
             log.debug("Recorded {} search '{}' for user {}", searchType, trimmed, userEmail);
+
+            // Evict cached recommendations so the next request gets fresh results
+            try {
+                paperRecommendationService.evictUserCache(userEmail);
+            } catch (Exception ignored) { /* best-effort */ }
         } catch (Exception e) {
             log.warn("Failed to record {} search '{}' for user {}: {}",
                     searchType, trimmed, userEmail, e.getMessage());
