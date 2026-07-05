@@ -43,6 +43,7 @@ import com.sra.journal_tracking.security.CustomUserDetails;
 import com.sra.journal_tracking.security.CustomUserDetailsService;
 import com.sra.journal_tracking.security.JwtTokenProvider;
 import com.sra.journal_tracking.service.AuthService;
+import com.sra.journal_tracking.service.EmailService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -63,6 +64,7 @@ public class AuthServiceImpl implements AuthService {
         private final AuthenticationManager authenticationManager;
         private final JwtTokenProvider tokenProvider;
         private final CustomUserDetailsService customUserDetailsService;
+        private final EmailService emailService;
 
         @Value("${app.frontend-url:http://localhost:3000}")
         private String frontendUrl;
@@ -203,7 +205,7 @@ public class AuthServiceImpl implements AuthService {
                                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                                 .institution(request.getInstitution())
                                 .role(role)
-                                .isActive(true)
+                                .isActive(false) // Email verification required before login
                                 .build();
 
                 // If registering as researcher, set 3-day trial
@@ -222,6 +224,9 @@ public class AuthServiceImpl implements AuthService {
                 }
 
                 createResearcherTrialNotification(user);
+
+                // Generate verification token and send email
+                createAndSendVerificationToken(user);
 
                 log.info("User registered: email={}, role={}, roleExpiryAt={}",
                                 user.getEmail(), user.getRole().getRoleName(), user.getRoleExpiryAt());
@@ -348,17 +353,11 @@ public class AuthServiceImpl implements AuthService {
 
                 verificationTokenRepository.save(resetToken);
 
-                // ============================================
-                // LOG LINK RA TERMINAL ĐỂ TEST VỚI EMAIL ẢO
-                // ============================================
+                // Send real email + log fallback for dev testing
                 String resetLink = frontendUrl + "/reset-password?token=" + tokenValue;
-                log.info("============================================");
-                log.info("📧 PASSWORD RESET LINK (copy the link below):");
-                log.info("   {}", resetLink);
-                log.info("   Token: {}", tokenValue);
-                log.info("   Email: {}", email);
-                log.info("   Expires at: {}", expiresAt);
-                log.info("============================================");
+                emailService.sendPasswordResetEmail(email, user.getFullName(), resetLink);
+
+                log.info("Password reset requested for {}", email);
         }
 
         @Override
@@ -396,7 +395,7 @@ public class AuthServiceImpl implements AuthService {
         // PRIVATE HELPER METHODS
         // ============================================
 
-        private void createAndLogVerificationToken(User user) {
+        private void createAndSendVerificationToken(User user) {
                 String tokenValue = UUID.randomUUID().toString();
                 LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(verificationTokenExpirationMs / 1000);
 
@@ -410,17 +409,9 @@ public class AuthServiceImpl implements AuthService {
 
                 verificationTokenRepository.save(verificationToken);
 
-                // ============================================
-                // LOG LINK RA TERMINAL ĐỂ TEST VỚI EMAIL ẢO
-                // ============================================
+                // Send real email + log fallback for dev testing
                 String verificationLink = frontendUrl + "/verify-email?token=" + tokenValue;
-                log.info("============================================");
-                log.info("📧 EMAIL VERIFICATION LINK (copy the link below):");
-                log.info("   {}", verificationLink);
-                log.info("   Token: {}", tokenValue);
-                log.info("   Email: {}", user.getEmail());
-                log.info("   Expires at: {}", expiresAt);
-                log.info("============================================");
+                emailService.sendVerificationEmail(user.getEmail(), user.getFullName(), verificationLink);
         }
 
         private TokenPair createUserSession(User user, String jwt) {

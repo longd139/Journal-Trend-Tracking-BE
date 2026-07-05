@@ -12,11 +12,14 @@ import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserUsageRepository;
 import com.sra.journal_tracking.repository.jpa.JournalRepository;
+import com.sra.journal_tracking.repository.jpa.NotificationRepository;
+import com.sra.journal_tracking.service.NotificationEventPublisher;
 import com.sra.journal_tracking.service.AuthorQuickStatsService;
 import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.KeywordExpansionService;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperSearchService;
+import com.sra.journal_tracking.service.ReadingHistoryService;
 import com.sra.journal_tracking.service.SearchBackfillService;
 import com.sra.journal_tracking.service.UserSearchHistoryService;
 import lombok.RequiredArgsConstructor;
@@ -25,9 +28,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.Year;
 import java.time.format.DateTimeFormatter;
@@ -59,6 +64,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
     private final DataSyncService dataSyncService;
     private final UserSearchHistoryService userSearchHistoryService;
     private final JournalRepository journalRepository;
+    private final NotificationRepository notificationRepository;
+    private final NotificationEventPublisher eventPublisher;
+    private final ReadingHistoryService readingHistoryService;
 
     @Override
     public PaperSearchResultDTO searchPapers(PaperSearchRequestDTO request, String userEmail) {
@@ -285,6 +293,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         ResearchPaper paper = researchPaperRepository.findByIdWithDetails(paperId)
                 .orElseThrow(() -> new PaperNotFoundException("Paper not found with ID: " + paperId));
 
+        // Record reading history (async, non-blocking)
+        readingHistoryService.recordView(userEmail, paperId);
+
         return mapToDetailDTO(paper);
     }
 
@@ -311,7 +322,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         int currentCount = "search".equals(usageType) ? usage.getSearchCount() : usage.getViewCount();
 
         if (currentCount >= limit) {
-            // TODO: Generate upgrade_prompt notification if hit limit
+            // Generate UPGRADE_PROMPT notification before throwing (in a new txn to survive rollback)
+            createUpgradePromptNotification(userId, usageType, currentCount, limit, true);
             throw new UsageLimitExceededException(
                     String.format("You have reached your monthly %s limit (%d). Upgrade to Researcher?", usageType, limit)
             );
@@ -324,8 +336,62 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         }
 
         if (currentCount + 1 >= limit * 0.8) {
-            log.info("Usage at 80%: userId={}, type={}", userId, usageType);
-            // Could send a warning notification here
+            log.info("Usage at 80%: userId={}, type={}, current={}, limit={}", userId, usageType, currentCount + 1, limit);
+            createUpgradePromptNotification(userId, usageType, currentCount + 1, limit, false);
+        }
+    }
+
+    /**
+     * Create an UPGRADE_PROMPT notification in a separate transaction so it survives
+     * rollback of the calling transaction (which may throw UsageLimitExceededException).
+     * Dedup: only create one UPGRADE_PROMPT per user per month.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    void createUpgradePromptNotification(UUID userId, String usageType, int currentCount, int limit, boolean limitReached) {
+        try {
+            // Dedup: check if an UPGRADE_PROMPT already exists this month
+            LocalDateTime monthStart = YearMonth.now().atDay(1).atStartOfDay();
+            long existing = notificationRepository.countByUserAndTypeSince(
+                    userId, NotificationType.UPGRADE_PROMPT, monthStart);
+            if (existing > 0) {
+                log.debug("UPGRADE_PROMPT already exists for user {} this month — skipping", userId);
+                return;
+            }
+
+            User user = userRepository.findById(userId).orElse(null);
+            if (user == null) return;
+
+            String title;
+            String message;
+            if (limitReached) {
+                title = "Usage limit reached";
+                message = String.format(
+                        "You have used all %d %ss this month. Upgrade to Researcher for unlimited access.",
+                        limit, usageType);
+            } else {
+                title = "Usage limit warning";
+                message = String.format(
+                        "You have used %d of %d %ss this month (80%%). Consider upgrading to Researcher for unlimited access.",
+                        currentCount, limit, usageType);
+            }
+
+            Notification notification = notificationRepository.save(Notification.builder()
+                    .user(user)
+                    .type(NotificationType.UPGRADE_PROMPT)
+                    .title(title)
+                    .message(message)
+                    .isRead(false)
+                    .createdAt(LocalDateTime.now())
+                    .build());
+
+            log.info("Created UPGRADE_PROMPT notification {} for user {}", notification.getNotifId(), userId);
+
+            // Push to connected SSE clients
+            try {
+                eventPublisher.publish(userId, notification);
+            } catch (Exception ignored) { /* best-effort */ }
+        } catch (Exception e) {
+            log.warn("Failed to create UPGRADE_PROMPT notification for user {}: {}", userId, e.getMessage());
         }
     }
 

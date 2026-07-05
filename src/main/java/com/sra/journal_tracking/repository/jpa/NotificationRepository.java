@@ -1,6 +1,7 @@
 package com.sra.journal_tracking.repository.jpa;
 
 import com.sra.journal_tracking.entity.jpa.Notification;
+import com.sra.journal_tracking.entity.jpa.NotificationType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,4 +38,10 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     @Modifying
     @Query("DELETE FROM Notification n WHERE n.notifId IN :ids AND n.user.userId = :userId")
     int deleteByNotifIdInAndUser_UserId(@Param("ids") List<UUID> ids, @Param("userId") UUID userId);
+
+    /**
+     * Đếm số notification cùng type của user kể từ 1 thời điểm (dùng để dedup trong tháng).
+     */
+    @Query("SELECT COUNT(n) FROM Notification n WHERE n.user.userId = :userId AND n.type = :type AND n.createdAt >= :since")
+    long countByUserAndTypeSince(@Param("userId") UUID userId, @Param("type") NotificationType type, @Param("since") LocalDateTime since);
 }

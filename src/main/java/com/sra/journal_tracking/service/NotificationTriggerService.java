@@ -64,21 +64,44 @@ public class NotificationTriggerService {
                 }
             }
 
-            // ── 2. Keyword followers ──
-            if (paper.getKeywords() != null) {
-                for (PaperKeyword pk : paper.getKeywords()) {
-                    if (pk.getKeyword() == null) continue;
+            // ── 2. Keyword followers (batch query — avoids N+1) ──
+            if (paper.getKeywords() != null && !paper.getKeywords().isEmpty()) {
+                List<UUID> keywordIds = paper.getKeywords().stream()
+                        .map(pk -> pk.getKeyword() != null ? pk.getKeyword().getKeywordId() : null)
+                        .filter(java.util.Objects::nonNull)
+                        .distinct()
+                        .toList();
+                if (!keywordIds.isEmpty()) {
                     List<Follow> keywordFollowers = followRepository
-                            .findByKeyword_KeywordIdAndNotifyEnabledTrue(pk.getKeyword().getKeywordId());
+                            .findByKeyword_KeywordIdInAndNotifyEnabledTrue(keywordIds);
                     for (Follow follow : keywordFollowers) {
                         if (notifiedUserIds.add(follow.getUser().getUserId())) {
                             notifications.add(buildNotification(follow, paper));
                         }
                     }
+                    if (!keywordFollowers.isEmpty()) {
+                        log.debug("Found {} keyword followers for paper '{}' ({} keywords queried)",
+                                keywordFollowers.size(), paper.getTitle(), keywordIds.size());
+                    }
                 }
             }
 
-            // ── 3. Batch save ──
+            // ── 3. Topic / Research Field followers ──
+            if (paper.getField() != null) {
+                List<Follow> topicFollowers = followRepository
+                        .findByTopic_TopicIdAndNotifyEnabledTrue(paper.getField().getFieldId());
+                for (Follow follow : topicFollowers) {
+                    if (notifiedUserIds.add(follow.getUser().getUserId())) {
+                        notifications.add(buildNotification(follow, paper));
+                    }
+                }
+                if (!topicFollowers.isEmpty()) {
+                    log.debug("Found {} topic followers for paper '{}' (field: {})",
+                            topicFollowers.size(), paper.getTitle(), paper.getField().getFieldName());
+                }
+            }
+
+            // ── 4. Batch save ──
             if (!notifications.isEmpty()) {
                 notificationRepository.saveAll(notifications);
                 log.info("Created {} notifications for new paper: '{}' ({} unique users)",

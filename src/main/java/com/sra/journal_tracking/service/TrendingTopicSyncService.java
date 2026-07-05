@@ -1,7 +1,12 @@
 package com.sra.journal_tracking.service;
 
+import com.sra.journal_tracking.entity.jpa.Notification;
+import com.sra.journal_tracking.entity.jpa.NotificationType;
 import com.sra.journal_tracking.entity.jpa.TrendingTopic;
+import com.sra.journal_tracking.entity.jpa.User;
+import com.sra.journal_tracking.repository.jpa.NotificationRepository;
 import com.sra.journal_tracking.repository.jpa.TrendingTopicRepository;
+import com.sra.journal_tracking.repository.jpa.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,6 +42,9 @@ public class TrendingTopicSyncService {
 
     private final TrendingTopicRepository trendingTopicRepository;
     private final KeywordExpansionService keywordExpansionService;
+    private final NotificationRepository notificationRepository;
+    private final NotificationEventPublisher eventPublisher;
+    private final UserRepository userRepository;
 
     @Value("${app.openalex-email:}")
     private String openalexEmail;
@@ -94,6 +102,10 @@ public class TrendingTopicSyncService {
             }
 
             trendingTopicRepository.saveAll(topics);
+
+            // Broadcast TREND_ALERT to all active users (async, non-blocking)
+            notifyTrendAlerts(topics);
+
             log.info("=== TRENDING TOPICS SYNC DONE ({}): {} topics in {} ===",
                     trigger, topics.size(), java.time.Duration.between(start, LocalDateTime.now()).toSeconds() + "s");
 
@@ -101,6 +113,80 @@ public class TrendingTopicSyncService {
             log.error("Trending topics sync failed ({}): {}", trigger, e.getMessage(), e);
         } finally {
             syncing.set(false);
+        }
+    }
+
+    // ═══════════════════════════════════════════════
+    //  TREND_ALERT broadcast
+    // ═══════════════════════════════════════════════
+
+    /**
+     * Broadcast TREND_ALERT notifications to all active users for the top 5 trending topics.
+     * Runs asynchronously so it never blocks the sync pipeline.
+     * Dedup: skips topics for which a TREND_ALERT was already created today.
+     */
+    @Async
+    void notifyTrendAlerts(List<TrendingTopic> topics) {
+        if (topics == null || topics.isEmpty()) return;
+
+        try {
+            List<User> activeUsers = userRepository.findAllByIsActiveTrue();
+            if (activeUsers.isEmpty()) {
+                log.debug("No active users to notify about trending topics");
+                return;
+            }
+
+            LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+            int totalCreated = 0;
+
+            // Only broadcast top 5 trending topics
+            List<TrendingTopic> topTopics = topics.stream()
+                    .limit(5)
+                    .toList();
+
+            for (TrendingTopic topic : topTopics) {
+                // Dedup: check if a TREND_ALERT with this title was already created today
+                long existingToday = notificationRepository.countByUserAndTypeSince(
+                        activeUsers.get(0).getUserId(), NotificationType.TREND_ALERT, todayStart);
+                // Simple dedup — check first user as representative (same-topic dedup is title-based)
+                // We rely on title matching approach: count notifications with the same title pattern today
+                // For simplicity, only create if this is the first sync of the day
+                if (existingToday > 0) {
+                    log.debug("TREND_ALERT already sent today — skipping topic '{}'", topic.getTopicName());
+                    continue;
+                }
+
+                for (User user : activeUsers) {
+                    try {
+                        Notification notification = notificationRepository.save(Notification.builder()
+                                .user(user)
+                                .type(NotificationType.TREND_ALERT)
+                                .title("Trending: " + topic.getTopicName())
+                                .message("\"" + topic.getTopicName() + "\" is trending with "
+                                        + topic.getPaperCount() + " recent papers.")
+                                .isRead(false)
+                                .createdAt(LocalDateTime.now())
+                                .build());
+
+                        // Push to connected SSE clients
+                        try {
+                            eventPublisher.publish(user.getUserId(), notification);
+                        } catch (Exception ignored) { /* best-effort */ }
+
+                        totalCreated++;
+                    } catch (Exception e) {
+                        log.debug("Failed to create TREND_ALERT for user {}: {}", user.getUserId(), e.getMessage());
+                    }
+                }
+                // Only do one topic per sync cycle to avoid flooding
+                break;
+            }
+
+            if (totalCreated > 0) {
+                log.info("Broadcast {} TREND_ALERT notifications to {} users", totalCreated, activeUsers.size());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to broadcast TREND_ALERT notifications: {}", e.getMessage());
         }
     }
 

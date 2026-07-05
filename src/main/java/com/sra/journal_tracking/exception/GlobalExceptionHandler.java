@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.sra.journal_tracking.dto.response.ErrorResponse;
 
+import jakarta.servlet.http.HttpServletResponse;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -125,6 +127,21 @@ public class GlobalExceptionHandler {
                 ex.getMessage(),
                 null);
         return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
+    }
+
+    // ═══════════════════════════════════════════════
+    //  Rate Limiting — HTTP 429 Too Many Requests
+    // ═══════════════════════════════════════════════
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException ex) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.TOO_MANY_REQUESTS.value(),
+                ex.getMessage(),
+                null);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
+                .body(errorResponse);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public interface AdminService {
-    Page<AdminUserResponse> getUsers(int page, int size, String search);
+    List<AdminUserResponse> getUsers(String search);
     AdminUserResponse updateUserStatus(UUID userId, Boolean active);
     AdminUserResponse updateUserRole(UUID userId, String roleName);
 

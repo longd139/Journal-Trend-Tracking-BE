@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.repository.jpa;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -17,6 +18,12 @@ import com.sra.journal_tracking.entity.jpa.User;
 public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByEmail(String email);
     boolean existsByEmail(String email);
+
+    /** Lấy tất cả user đang active (dùng để broadcast notification). */
+    List<User> findAllByIsActiveTrue();
+
+    /** Đếm số user đang active (dùng cho admin dashboard). */
+    long countByIsActiveTrue();
 
     @EntityGraph(attributePaths = {"role"})
     @Query("""

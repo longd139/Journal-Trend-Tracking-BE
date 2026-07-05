@@ -80,15 +80,20 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<AdminUserResponse> getUsers(int page, int size, String search) {
-        PageRequest pageable = PageRequest.of(
-                Math.max(0, page),
-                Math.min(100, Math.max(1, size)),
-                Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<User> users = userRepository.searchUsers(clean(search), pageable);
+    public List<AdminUserResponse> getUsers(String search) {
+        List<User> users;
+        if (search != null && !search.isBlank()) {
+            // Search with limit 500 to avoid huge results — no pagination
+            users = userRepository.searchUsers(search.trim(), PageRequest.of(0, 500, Sort.by(Sort.Direction.DESC, "createdAt")))
+                    .getContent();
+        } else {
+            users = userRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        }
         String currentMonth = YearMonth.now().toString();
-        Map<UUID, UserUsage> usageByUserId = loadUsage(users.getContent(), currentMonth);
-        return users.map(user -> mapUser(user, usageByUserId.get(user.getUserId()), currentMonth));
+        Map<UUID, UserUsage> usageByUserId = loadUsage(users, currentMonth);
+        return users.stream()
+                .map(user -> mapUser(user, usageByUserId.get(user.getUserId()), currentMonth))
+                .toList();
     }
 
     @Override

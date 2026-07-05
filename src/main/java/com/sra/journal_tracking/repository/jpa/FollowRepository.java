@@ -31,4 +31,12 @@ public interface FollowRepository extends JpaRepository<Follow, UUID> {
     /** Tìm tất cả user đang follow 1 keyword và bật notification. */
     @Query("SELECT f FROM Follow f JOIN FETCH f.user WHERE f.keyword.keywordId = :keywordId AND f.notifyEnabled = true")
     List<Follow> findByKeyword_KeywordIdAndNotifyEnabledTrue(@Param("keywordId") UUID keywordId);
+
+    /** Tìm tất cả user đang follow nhiều keywords và bật notification (batch query, tránh N+1). */
+    @Query("SELECT f FROM Follow f JOIN FETCH f.user WHERE f.keyword.keywordId IN :keywordIds AND f.notifyEnabled = true")
+    List<Follow> findByKeyword_KeywordIdInAndNotifyEnabledTrue(@Param("keywordIds") List<UUID> keywordIds);
+
+    /** Tìm tất cả user đang follow 1 research topic và bật notification. */
+    @Query("SELECT f FROM Follow f JOIN FETCH f.user WHERE f.topic.topicId = :topicId AND f.notifyEnabled = true")
+    List<Follow> findByTopic_TopicIdAndNotifyEnabledTrue(@Param("topicId") UUID topicId);
 }
