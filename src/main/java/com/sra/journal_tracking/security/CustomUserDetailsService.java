@@ -30,16 +30,19 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         // Auto-downgrade if researcher trial has expired
         // Sử dụng buffer 1 phút để tránh race condition giữa thời điểm set roleExpiryAt và thời điểm kiểm tra
+        // Bỏ qua auto-downgrade nếu tài khoản vừa được tạo chưa quá 2 ngày (tránh edge case clock skew)
         if (user.getRoleExpiryAt() != null
                 && user.getRoleExpiryAt().plusMinutes(1).isBefore(LocalDateTime.now())
                 && user.getRole() != null
-                && "researcher".equalsIgnoreCase(user.getRole().getRoleName())) {
+                && "researcher".equalsIgnoreCase(user.getRole().getRoleName())
+                && user.getCreatedAt() != null
+                && user.getCreatedAt().plusDays(2).isBefore(LocalDateTime.now())) {
 
             Role academicRole = roleRepository.findByRoleNameIgnoreCase("academic_user")
                     .orElse(null);
             if (academicRole != null) {
-                log.info("Researcher trial expired for {} (expiry={}, now={}) — downgrading to academic_user",
-                        email, user.getRoleExpiryAt(), LocalDateTime.now());
+                log.info("Researcher trial expired for {} (expiry={}, created={}, now={}) — downgrading to academic_user",
+                        email, user.getRoleExpiryAt(), user.getCreatedAt(), LocalDateTime.now());
                 user.setRole(academicRole);
                 user.setRoleExpiryAt(null);
                 userRepository.save(user);

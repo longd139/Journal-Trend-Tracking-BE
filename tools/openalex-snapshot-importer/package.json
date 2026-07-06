@@ -1,0 +1,15 @@
+{
+  "name": "openalex-snapshot-importer",
+  "version": "1.0.0",
+  "description": "Import OpenAlex S3 snapshot JSON Lines files into SCITRACK SQL Server database",
+  "type": "module",
+  "scripts": {
+    "import": "node importer.js",
+    "stats": "node importer.js --stats-only",
+    "help": "node importer.js --help"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

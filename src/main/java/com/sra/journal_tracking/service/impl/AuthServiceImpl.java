@@ -187,6 +187,7 @@ public class AuthServiceImpl implements AuthService {
 
                 Role role;
                 String requestedRole = request.getRoleName();
+                log.info("Register request: email={}, requestedRole={}", request.getEmail(), requestedRole);
                 if (requestedRole != null && !requestedRole.isBlank()) {
                         String normalized = requestedRole.trim().toLowerCase();
                         if ("admin".equals(normalized)) {
@@ -198,6 +199,8 @@ public class AuthServiceImpl implements AuthService {
                         role = roleRepository.findByRoleNameIgnoreCase("academic_user")
                                         .orElseThrow(() -> new RuntimeException("Role not found."));
                 }
+                log.info("Resolved role for {}: roleId={}, roleName={}",
+                                request.getEmail(), role.getRoleId(), role.getRoleName());
 
                 User user = User.builder()
                                 .fullName(request.getFullName())
@@ -205,7 +208,7 @@ public class AuthServiceImpl implements AuthService {
                                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                                 .institution(request.getInstitution())
                                 .role(role)
-                                .isActive(false) // Email verification required before login
+                                .isActive(false) // Email chưa xác thực, nhưng vẫn được phép đăng nhập
                                 .build();
 
                 // If registering as researcher, set 3-day trial

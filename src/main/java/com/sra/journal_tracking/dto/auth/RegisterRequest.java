@@ -32,6 +32,7 @@ public class RegisterRequest {
     private String institution;
 
     @Schema(description = "role", example = "academic_user", allowableValues = {"academic_user", "researcher"})
+    @NotBlank(message = "Role is required")
     @JsonProperty("role")
     private String roleName;
 }

@@ -46,7 +46,7 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return isAdmin() || Boolean.TRUE.equals(user.getIsActive());
+        return true;
     }
 
     @Override
@@ -56,10 +56,6 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return isAdmin() || Boolean.TRUE.equals(user.getIsActive());
-    }
-
-    private boolean isAdmin() {
-        return user.getRole() != null && "admin".equalsIgnoreCase(user.getRole().getRoleName());
+        return true;
     }
 }
