@@ -7,6 +7,8 @@ import com.sra.journal_tracking.dto.paper.KeywordQuickStatsResponse;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.paper.RelatedKeywordResponse;
 import com.sra.journal_tracking.dto.paper.TopJournalResponse;
+import com.sra.journal_tracking.dto.search.KeywordComparisonRequest;
+import com.sra.journal_tracking.dto.search.KeywordComparisonResponse;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.service.GraphService;
@@ -299,6 +301,85 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
                 .pdfUrl(paper.getPdfUrl())
                 .keywords(keywords)
                 .createdAt(paper.getCreatedAt())
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @Cacheable(value = "search:keywordComparison", cacheManager = "recommendationCacheManager",
+               key = "T(java.util.Objects).hash(#request.keywords.stream().sorted().toList())",
+               unless = "#result == null || #result.keywords.isEmpty()")
+    public KeywordComparisonResponse compareKeywords(KeywordComparisonRequest request) {
+        List<String> keywords = request.getKeywords().stream()
+                .filter(k -> k != null && !k.trim().isEmpty())
+                .map(String::trim)
+                .distinct()
+                .toList();
+
+        if (keywords.isEmpty()) {
+            return KeywordComparisonResponse.builder().keywords(List.of()).build();
+        }
+
+        List<KeywordComparisonResponse.KeywordComparisonItem> items = keywords.stream()
+                .map(this::buildComparisonItem)
+                .toList();
+
+        return KeywordComparisonResponse.builder().keywords(items).build();
+    }
+
+    /**
+     * Build a single keyword comparison data point.
+     * Reuses the same Neo4j → SQL pipeline as getStats() but returns
+     * a lightweight item suitable for side-by-side BarChart comparison.
+     */
+    private KeywordComparisonResponse.KeywordComparisonItem buildComparisonItem(String keyword) {
+        // Step 1: Paper count from Neo4j
+        long paperCount = graphService.countPapersByKeyword(keyword);
+
+        if (paperCount == 0) {
+            return KeywordComparisonResponse.KeywordComparisonItem.builder()
+                    .name(keyword)
+                    .paperCount(0L)
+                    .citationCount(0L)
+                    .growthRate(null)
+                    .topYear(null)
+                    .build();
+        }
+
+        // Step 2: Get paper IDs for SQL aggregation
+        List<String> paperIdStrings = graphService.getAllPaperIdsByKeyword(keyword);
+        List<UUID> paperIds = paperIdStrings.stream()
+                .map(UUID::fromString)
+                .toList();
+
+        // Step 3: Sum citations from SQL
+        long citationCount = researchPaperRepository.sumCitationCountByIds(paperIds);
+
+        // Step 4: YoY growth rate (this year vs last year)
+        short thisYear = (short) Year.now().getValue();
+        short lastYear = (short) (thisYear - 1);
+
+        long papersThisYear = researchPaperRepository.countByPaperIdsAndPubYear(paperIds, thisYear);
+        long papersLastYear = researchPaperRepository.countByPaperIdsAndPubYear(paperIds, lastYear);
+
+        Double growthRate = null;
+        if (papersLastYear > 0) {
+            growthRate = roundToOneDecimal(((double) (papersThisYear - papersLastYear) / papersLastYear) * 100.0);
+        } else if (papersThisYear > 0) {
+            growthRate = 100.0;
+        }
+
+        // Step 5: Find the peak year (year with most publications)
+        List<Short> peakYears = researchPaperRepository.findPeakYearByPaperIds(
+                paperIds, PageRequest.of(0, 1));
+        Integer topYear = peakYears.isEmpty() ? null : peakYears.get(0).intValue();
+
+        return KeywordComparisonResponse.KeywordComparisonItem.builder()
+                .name(keyword)
+                .paperCount(paperCount)
+                .citationCount(citationCount)
+                .growthRate(growthRate)
+                .topYear(topYear)
                 .build();
     }
 

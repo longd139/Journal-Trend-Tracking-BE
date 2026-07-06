@@ -3,6 +3,8 @@ package com.sra.journal_tracking.service;
 import com.sra.journal_tracking.dto.paper.KeywordQuickStatsResponse;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.paper.RelatedKeywordResponse;
+import com.sra.journal_tracking.dto.search.KeywordComparisonRequest;
+import com.sra.journal_tracking.dto.search.KeywordComparisonResponse;
 
 import java.util.List;
 
@@ -39,4 +41,14 @@ public interface KeywordQuickStatsService {
      * @return top 5 papers sorted by citation count descending
      */
     List<PaperDetailResponseDTO> getTopInfluentialPapers(String keyword);
+
+    /**
+     * Compare multiple keywords side-by-side — returns paper count, citation count,
+     * YoY growth rate, and peak year for each keyword. Used by the FE BarChart
+     * component on the Analytics page.
+     *
+     * @param request DTO containing the list of keywords to compare (1–10)
+     * @return comparison data for each keyword
+     */
+    KeywordComparisonResponse compareKeywords(KeywordComparisonRequest request);
 }
