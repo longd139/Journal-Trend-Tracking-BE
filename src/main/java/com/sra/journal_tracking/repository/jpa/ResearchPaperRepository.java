@@ -215,6 +215,17 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
     long countByPaperIdsAndPubYear(@Param("ids") List<UUID> ids, @Param("year") Short year);
 
     /**
+     * Find the publication year with the most papers from a list of paper IDs.
+     * Returns the year (Short) or null if the list is empty.
+     * Used for "top year" in keyword comparison BarChart.
+     */
+    @Query("SELECT p.pubYear FROM ResearchPaper p "
+         + "WHERE p.paperId IN :ids "
+         + "GROUP BY p.pubYear "
+         + "ORDER BY COUNT(p) DESC, p.pubYear DESC")
+    List<Short> findPeakYearByPaperIds(@Param("ids") List<UUID> ids, Pageable pageable);
+
+    /**
      * Count papers per journal from a list of paper IDs.
      * Returns [journalName, impactFactor, quartile, publisher, paperCount] tuples,
      * ordered by paper count descending (top journals first).

@@ -14,6 +14,8 @@ import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.paper.RelatedKeywordResponse;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.dto.search.CategoryResponse;
+import com.sra.journal_tracking.dto.search.KeywordComparisonRequest;
+import com.sra.journal_tracking.dto.search.KeywordComparisonResponse;
 import com.sra.journal_tracking.dto.search.NicheTopicResponse;
 import com.sra.journal_tracking.dto.search.RecentSearchResponse;
 import com.sra.journal_tracking.repository.jpa.ResearchFieldRepository;
@@ -30,11 +32,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+
+import jakarta.validation.Valid;
 
 @Slf4j
 @RestController
@@ -202,6 +208,23 @@ public class SearchController {
 
         List<PaperDetailResponseDTO> papers = keywordQuickStatsService.getTopInfluentialPapers(keyword.trim());
         return ResponseEntity.ok(AppResponse.success("Top papers retrieved", papers));
+    }
+
+    @Operation(
+            summary = "Compare multiple keywords side-by-side",
+            description = "Given a list of up to 10 keywords, returns aggregated stats "
+                        + "(paper count, citation count, YoY growth rate, peak year) for each. "
+                        + "Used by the FE BarChart component on the Analytics page for "
+                        + "side-by-side keyword trend comparison. Cached for 30 minutes."
+    )
+    @PostMapping("/keywords/compare")
+    public ResponseEntity<AppResponse<KeywordComparisonResponse>> compareKeywords(
+            @Valid @RequestBody KeywordComparisonRequest request) {
+
+        log.info("Keyword comparison request: {} keywords", request.getKeywords().size());
+
+        KeywordComparisonResponse response = keywordQuickStatsService.compareKeywords(request);
+        return ResponseEntity.ok(AppResponse.success("Keyword comparison completed", response));
     }
 
     @Operation(
