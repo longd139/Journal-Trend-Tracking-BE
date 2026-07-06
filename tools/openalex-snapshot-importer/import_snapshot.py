@@ -18,8 +18,9 @@ Cách dùng:
     # Import 1 năm, giới hạn 50000 papers
     python import_snapshot.py --input ./data/works --year 2024 --max-papers 50000
 
-    # Dùng file .env để cấu hình DB
-    python import_snapshot.py --input ./data/works --year 2024 --env .env
+    # Dùng system environment — dùng chung env vars với Spring Boot:
+    # DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, DATABASE_USERNAME, DATABASE_PASSWORD
+    python import_snapshot.py --input ./data/works --year 2024
 """
 
 import argparse
@@ -45,32 +46,24 @@ CACHE_SAVE_INTERVAL = 50_000  # Save DOI cache to disk every N papers
 #  Database connection
 # ═══════════════════════════════════════════════════════════════
 
-def load_env(env_path=".env"):
-    """Load .env file into os.environ (simple parser, no external deps)."""
-    if not os.path.exists(env_path):
-        return
-    with open(env_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" in line:
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                if key and value:
-                    os.environ[key] = value
-
 
 def get_connection():
-    """Create SQL Server connection from environment variables or defaults."""
+    """Create SQL Server connection from system environment variables.
+
+    Dùng chung env vars với Spring Boot (application.properties local):
+      DATABASE_HOST     — host (default: localhost)
+      DATABASE_PORT     — port (default: 1433)
+      DATABASE_NAME     — database name (default: JournalTrendDB)
+      DATABASE_USERNAME — SQL Server user (default: sa)
+      DATABASE_PASSWORD — password (leave empty for Windows Auth)
+    """
     import pyodbc
 
-    server = os.environ.get("DB_SERVER", os.environ.get("DATABASE_HOST", "localhost"))
-    port = os.environ.get("DB_PORT", "1433")
-    db = os.environ.get("DB_NAME", os.environ.get("DATABASE_NAME", "SCITRACK"))
-    user = os.environ.get("DB_USER", os.environ.get("DATABASE_USERNAME", "sa"))
-    password = os.environ.get("DB_PASSWORD", os.environ.get("DATABASE_PASSWORD", ""))
+    server = os.environ.get("DATABASE_HOST", "localhost")
+    port = os.environ.get("DATABASE_PORT", "1433")
+    db = os.environ.get("DATABASE_NAME", "JournalTrendDB")
+    user = os.environ.get("DATABASE_USERNAME", "sa")
+    password = os.environ.get("DATABASE_PASSWORD", "")
 
     if not password:
         # Try Windows Auth
@@ -79,6 +72,7 @@ def get_connection():
             f"SERVER={server},{port};"
             f"DATABASE={db};"
             f"Trusted_Connection=yes;"
+            f"TrustServerCertificate=yes;"
         )
     else:
         conn_str = (
@@ -87,6 +81,8 @@ def get_connection():
             f"DATABASE={db};"
             f"UID={user};"
             f"PWD={password};"
+            f"Encrypt=no;"
+            f"TrustServerCertificate=yes;"
         )
 
     print(f"🔗 Connecting to {server}:{port}/{db} as {user if password else 'Windows Auth'}...")
@@ -111,8 +107,8 @@ def get_connection():
         print(f"   {e}")
         print(f"\n💡 Troubleshooting:")
         print(f"   1. Is SQL Server running? Check Docker: docker compose ps")
-        print(f"   2. Set env vars: DB_SERVER, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD")
-        print(f"   3. Or create a .env file in this directory")
+        print(f"   2. Set env vars: DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, DATABASE_USERNAME, DATABASE_PASSWORD")
+        print(f"   3. Or use a .env file at the project root (Spring Boot style)")
         print(f"   4. Install ODBC Driver: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server")
         sys.exit(1)
 
@@ -856,15 +852,12 @@ Examples:
   # Import 1 năm, giới hạn 50000 papers
   python import_snapshot.py --input ./data/works --year 2024 --max-papers 50000
 
-  # Dùng .env để cấu hình DB (tự động đọc nếu có)
-  python import_snapshot.py --input ./data/works --year 2024 --env .env
-
-DB config (set via environment or .env file):
-  DB_SERVER     — SQL Server host (default: localhost)
-  DB_PORT       — SQL Server port (default: 1433)
-  DB_NAME       — Database name (default: SCITRACK)
-  DB_USER       — Username (default: sa)
-  DB_PASSWORD   — Password (leave empty for Windows Auth)
+DB config (dùng system environment — chung với Spring Boot):
+  DATABASE_HOST     — SQL Server host (default: localhost)
+  DATABASE_PORT     — SQL Server port (default: 1433)
+  DATABASE_NAME     — Database name (default: JournalTrendDB)
+  DATABASE_USERNAME — Username (default: sa)
+  DATABASE_PASSWORD — Password (leave empty for Windows Auth)
         """,
     )
 
@@ -876,7 +869,6 @@ DB config (set via environment or .env file):
     parser.add_argument("--year", type=int, help="Chỉ import 1 năm cụ thể")
     parser.add_argument("--max-papers", type=int, default=0, help="Dừng sau N papers (0 = không giới hạn)")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help=f"Số papers mỗi transaction (default: {BATCH_SIZE})")
-    parser.add_argument("--env", default=".env", help="Path to .env file for DB credentials")
 
     args = parser.parse_args()
 
@@ -888,9 +880,6 @@ DB config (set via environment or .env file):
     # Validate
     if not args.test and not args.input:
         parser.error("Phải chỉ định --input <dir> hoặc dùng --test để test")
-
-    # Load .env
-    load_env(args.env)
 
     # Run
     print("╔══════════════════════════════════════════════════════╗")
