@@ -1,7 +1,7 @@
 -- ============================================================
 --  Scientific Journal Publication Trend Tracking System
---  SQL Server Setup Script  |  Version 2.0  |  2026
---  20 Entity Tables + 3 System Tables = 23 Tables Total
+--  SQL Server Setup Script  |  Version 2.1  |  2026
+--  28 Entity Tables + 3 System Tables = 31 Tables Total
 -- ============================================================
 --  Chay script nay voi quyen sysadmin hoac dbcreator.
 --  Script co the chay lai nhieu lan (idempotent).
@@ -19,6 +19,9 @@ GO
 -- ============================================================
 --  XOA CAC BANG CU (thu tu nguoc FK dependency)
 -- ============================================================
+DROP TABLE IF EXISTS TRENDING_TOPIC;
+DROP TABLE IF EXISTS SEARCH_KEYWORD;
+DROP TABLE IF EXISTS AUTO_SYNC_KEYWORD;
 DROP TABLE IF EXISTS VERIFICATION_TOKEN;
 DROP TABLE IF EXISTS AUDIT_LOG;
 DROP TABLE IF EXISTS USER_USAGE;
@@ -29,6 +32,9 @@ DROP TABLE IF EXISTS NOTIFICATION;
 DROP TABLE IF EXISTS PDF_REQUEST;
 DROP TABLE IF EXISTS FOLLOW;
 DROP TABLE IF EXISTS BOOKMARK;
+DROP TABLE IF EXISTS BOOKMARK_COLLECTION;
+DROP TABLE IF EXISTS USER_SEARCH_HISTORY;
+DROP TABLE IF EXISTS USER_READING_HISTORY;
 DROP TABLE IF EXISTS PUBLICATION_TREND;
 DROP TABLE IF EXISTS TOPIC_KEYWORD;
 DROP TABLE IF EXISTS RESEARCH_TOPIC;
@@ -76,6 +82,7 @@ CREATE TABLE [USER] (
     IsActive        BIT                 NOT NULL  DEFAULT 1,
     CreatedAt       DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
     LastLoginAt     DATETIME2(0)        NULL,
+    RoleExpiryAt    DATETIME2(0)        NULL,               -- NULL = vinh vien, dung cho researcher trial (3 ngay)
 
     CONSTRAINT PK_USER          PRIMARY KEY (UserID),
     CONSTRAINT UK_USER_Email    UNIQUE      (Email),
@@ -210,6 +217,8 @@ CREATE TABLE AUTHOR (
     Country             NVARCHAR(100)       NULL,
     HIndex              INT                 NULL  DEFAULT 0,
     TotalCitations      INT                 NULL  DEFAULT 0,
+    I10Index            INT                 NULL  DEFAULT 0,
+    WorksCount          INT                 NULL  DEFAULT 0,
 
     CONSTRAINT PK_AUTHOR            PRIMARY KEY (AuthorID),
     CONSTRAINT FK_AUTHOR_Source     FOREIGN KEY (SourceID) REFERENCES API_SOURCE(SourceID)
@@ -246,6 +255,7 @@ CREATE TABLE RESEARCH_PAPER (
     PubYear         SMALLINT            NULL,
     CitationCount   INT                 NOT NULL  DEFAULT 0,
     IsOpenAccess    BIT                 NOT NULL  DEFAULT 0,
+    PdfUrl          NVARCHAR(500)       NULL,
     CreatedAt       DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
 
     CONSTRAINT PK_RESEARCH_PAPER    PRIMARY KEY (PaperID),
@@ -347,56 +357,112 @@ CREATE TABLE PUBLICATION_TREND (
 );
 GO
 
+-- ── SEARCH_KEYWORD ──────────────────────────────────────────────
+-- Theo doi tu khoa duoc tim kiem nhieu nhat (hot keyword tracking).
+-- SearchKeywordService ghi nhan moi lan nguoi dung search.
+CREATE TABLE SEARCH_KEYWORD (
+    SearchKeywordID     UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    KeywordText         NVARCHAR(500)       NOT NULL,
+    NormalizedText      NVARCHAR(500)       NOT NULL,
+    SearchCount         INT                 NOT NULL  DEFAULT 1,
+    LastSearchedAt      DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+    CreatedAt           DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+
+    CONSTRAINT PK_SEARCH_KEYWORD            PRIMARY KEY (SearchKeywordID),
+    CONSTRAINT UK_SK_NormalizedText         UNIQUE      (NormalizedText)
+);
+GO
+
+-- ── TRENDING_TOPIC ─────────────────────────────────────────────
+-- Bang trending topics doc lap, hien thi tren dashboard xu huong.
+-- Duoc cap nhat boi scheduler hoac admin.
+CREATE TABLE TRENDING_TOPIC (
+    TrendingTopicID     UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    TopicName           NVARCHAR(300)       NOT NULL,
+    PaperCount          INT                 NOT NULL  DEFAULT 0,
+    Source              NVARCHAR(50)        NOT NULL,
+    DisplayOrder        INT                 NOT NULL  DEFAULT 0,
+    UpdatedAt           DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+
+    CONSTRAINT PK_TRENDING_TOPIC            PRIMARY KEY (TrendingTopicID)
+);
+GO
+
 -- ============================================================
 --  NHOM 4: TUONG TAC NGUOI DUNG (User Interaction)
 -- ============================================================
 
+-- ── BOOKMARK_COLLECTION ───────────────────────────────────────
+-- Bo suu tap bookmark. User co the nhom cac bookmark vao collection.
+CREATE TABLE BOOKMARK_COLLECTION (
+    CollectionID            UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    UserID                  UNIQUEIDENTIFIER    NOT NULL,
+    Name                    NVARCHAR(200)       NOT NULL,
+    Description             NVARCHAR(500)       NULL,
+    LastNotifiedMilestone   INT                 NOT NULL  DEFAULT 0,
+    CreatedAt               DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+    UpdatedAt               DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+
+    CONSTRAINT PK_BOOKMARK_COLLECTION           PRIMARY KEY (CollectionID),
+    CONSTRAINT FK_BC_User                       FOREIGN KEY (UserID) REFERENCES [USER](UserID)
+                                                ON DELETE CASCADE
+);
+GO
+
 -- ── BOOKMARK ─────────────────────────────────────────────────
--- User luu bai bao hoac keyword. Dung 1 trong 2 FK phai co gia tri.
+-- User luu bai bao, keyword hoac collection.
 -- Bookmark khong tinh vao usage limit.
+-- Co the thuoc ve 1 Collection (tuychon).
 CREATE TABLE BOOKMARK (
-    BookmarkID  UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
-    UserID      UNIQUEIDENTIFIER    NOT NULL,
-    PaperID     UNIQUEIDENTIFIER    NULL,
-    KeywordID   UNIQUEIDENTIFIER    NULL,
-    Notes       NVARCHAR(500)       NULL,
-    CreatedAt   DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+    BookmarkID              UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    UserID                  UNIQUEIDENTIFIER    NOT NULL,
+    PaperID                 UNIQUEIDENTIFIER    NULL,
+    KeywordID               UNIQUEIDENTIFIER    NULL,
+    CollectionID            UNIQUEIDENTIFIER    NULL,
+    Notes                   NVARCHAR(500)       NULL,
+    LastNotifiedMilestone   INT                 NOT NULL  DEFAULT 0,
+    CreatedAt               DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
 
     CONSTRAINT PK_BOOKMARK              PRIMARY KEY (BookmarkID),
     CONSTRAINT CK_BOOKMARK_OneTarget    CHECK (
-        (PaperID IS NOT NULL AND KeywordID IS NULL) OR
-        (PaperID IS NULL     AND KeywordID IS NOT NULL)
+        (PaperID IS NOT NULL AND KeywordID IS NULL AND CollectionID IS NULL) OR
+        (PaperID IS NULL     AND KeywordID IS NOT NULL AND CollectionID IS NULL) OR
+        (PaperID IS NULL     AND KeywordID IS NULL     AND CollectionID IS NOT NULL)
     ),
-    CONSTRAINT FK_BM_User               FOREIGN KEY (UserID)    REFERENCES [USER](UserID)
+    CONSTRAINT FK_BM_User               FOREIGN KEY (UserID)       REFERENCES [USER](UserID)
                                         ON DELETE CASCADE,
-    CONSTRAINT FK_BM_Paper              FOREIGN KEY (PaperID)   REFERENCES RESEARCH_PAPER(PaperID),
-    CONSTRAINT FK_BM_Keyword            FOREIGN KEY (KeywordID) REFERENCES KEYWORD(KeywordID)
+    CONSTRAINT FK_BM_Paper              FOREIGN KEY (PaperID)      REFERENCES RESEARCH_PAPER(PaperID),
+    CONSTRAINT FK_BM_Keyword            FOREIGN KEY (KeywordID)    REFERENCES KEYWORD(KeywordID),
+    CONSTRAINT FK_BM_Collection         FOREIGN KEY (CollectionID) REFERENCES BOOKMARK_COLLECTION(CollectionID)
 );
 GO
 
 -- ── FOLLOW ────────────────────────────────────────────────────
--- User theo doi journal, topic hoac keyword.
--- Dung 1 trong 3 FK. Follow khong tinh usage limit.
+-- User theo doi journal, topic, keyword hoac author.
+-- Dung 1 trong 4 FK. Follow khong tinh usage limit.
 CREATE TABLE FOLLOW (
     FollowID        UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
     UserID          UNIQUEIDENTIFIER    NOT NULL,
     JournalID       UNIQUEIDENTIFIER    NULL,
     TopicID         UNIQUEIDENTIFIER    NULL,
     KeywordID       UNIQUEIDENTIFIER    NULL,
+    AuthorID        UNIQUEIDENTIFIER    NULL,
     NotifyEnabled   BIT                 NOT NULL  DEFAULT 1,
     CreatedAt       DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
 
     CONSTRAINT PK_FOLLOW                PRIMARY KEY (FollowID),
     CONSTRAINT CK_FOLLOW_OneTarget      CHECK (
-        (JournalID IS NOT NULL AND TopicID IS NULL     AND KeywordID IS NULL) OR
-        (JournalID IS NULL     AND TopicID IS NOT NULL AND KeywordID IS NULL) OR
-        (JournalID IS NULL     AND TopicID IS NULL     AND KeywordID IS NOT NULL)
+        (JournalID IS NOT NULL AND TopicID IS NULL     AND KeywordID IS NULL     AND AuthorID IS NULL) OR
+        (JournalID IS NULL     AND TopicID IS NOT NULL AND KeywordID IS NULL     AND AuthorID IS NULL) OR
+        (JournalID IS NULL     AND TopicID IS NULL     AND KeywordID IS NOT NULL AND AuthorID IS NULL) OR
+        (JournalID IS NULL     AND TopicID IS NULL     AND KeywordID IS NULL     AND AuthorID IS NOT NULL)
     ),
     CONSTRAINT FK_FOLLOW_User           FOREIGN KEY (UserID)    REFERENCES [USER](UserID)
                                         ON DELETE CASCADE,
     CONSTRAINT FK_FOLLOW_Journal        FOREIGN KEY (JournalID) REFERENCES JOURNAL(JournalID),
     CONSTRAINT FK_FOLLOW_Topic          FOREIGN KEY (TopicID)   REFERENCES RESEARCH_TOPIC(TopicID),
-    CONSTRAINT FK_FOLLOW_Keyword        FOREIGN KEY (KeywordID) REFERENCES KEYWORD(KeywordID)
+    CONSTRAINT FK_FOLLOW_Keyword        FOREIGN KEY (KeywordID) REFERENCES KEYWORD(KeywordID),
+    CONSTRAINT FK_FOLLOW_Author         FOREIGN KEY (AuthorID)  REFERENCES AUTHOR(AuthorID)
 );
 GO
 
@@ -459,6 +525,39 @@ CREATE TABLE PDF_REQUEST (
 );
 GO
 
+-- ── USER_READING_HISTORY ─────────────────────────────────────
+-- Theo doi bai bao nao da duoc user xem.
+-- Ghi nhan moi lan user goi GET /api/v1/papers/{paperId}.
+CREATE TABLE USER_READING_HISTORY (
+    ReadingHistoryID    UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    UserID              UNIQUEIDENTIFIER    NOT NULL,
+    PaperID             UNIQUEIDENTIFIER    NOT NULL,
+    ViewedAt            DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+
+    CONSTRAINT PK_USER_READING_HISTORY      PRIMARY KEY (ReadingHistoryID),
+    CONSTRAINT FK_URH_User                  FOREIGN KEY (UserID)  REFERENCES [USER](UserID)
+                                            ON DELETE CASCADE,
+    CONSTRAINT FK_URH_Paper                 FOREIGN KEY (PaperID) REFERENCES RESEARCH_PAPER(PaperID)
+);
+GO
+
+-- ── USER_SEARCH_HISTORY ────────────────────────────────────────
+-- Lich su tim kiem cua nguoi dung.
+-- SearchType: KEYWORD | AUTHOR | JOURNAL
+CREATE TABLE USER_SEARCH_HISTORY (
+    SearchHistoryID     UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    UserID              UNIQUEIDENTIFIER    NOT NULL,
+    SearchText          NVARCHAR(500)       NOT NULL,
+    SearchType          NVARCHAR(20)        NOT NULL
+                            CHECK (SearchType IN ('KEYWORD','AUTHOR','JOURNAL')),
+    SearchedAt          DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+
+    CONSTRAINT PK_USER_SEARCH_HISTORY       PRIMARY KEY (SearchHistoryID),
+    CONSTRAINT FK_USH_User                  FOREIGN KEY (UserID) REFERENCES [USER](UserID)
+                                            ON DELETE CASCADE
+);
+GO
+
 -- ============================================================
 --  NHOM 5: BAO CAO & DASHBOARD (chi Researcher)
 -- ============================================================
@@ -514,6 +613,21 @@ GO
 -- ============================================================
 --  BANG HE THONG (System Tables)
 -- ============================================================
+
+-- ── AUTO_SYNC_KEYWORD ────────────────────────────────────────
+-- Tu khoa duoc cau hinh de tu dong dong bo du lieu dinh ky.
+-- Moi keyword co chu ky sync rieng (IntervalMinutes).
+CREATE TABLE AUTO_SYNC_KEYWORD (
+    KeywordID           UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    Keyword             NVARCHAR(500)       NOT NULL,
+    IntervalMinutes     INT                 NOT NULL  DEFAULT 60,
+    Enabled             BIT                 NOT NULL  DEFAULT 1,
+    LastSyncedAt        DATETIME2(0)        NULL,
+    CreatedAt           DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+
+    CONSTRAINT PK_AUTO_SYNC_KEYWORD          PRIMARY KEY (KeywordID)
+);
+GO
 
 -- ── SYSTEM_CONFIG ─────────────────────────────────────────────
 -- Cau hinh he thong key-value. Admin quan ly qua UC-24.
@@ -615,6 +729,7 @@ CREATE INDEX IX_PAPER_JournalID     ON RESEARCH_PAPER(JournalID);
 CREATE INDEX IX_PAPER_FieldID       ON RESEARCH_PAPER(FieldID);
 CREATE INDEX IX_PAPER_PubYear       ON RESEARCH_PAPER(PubYear DESC);
 CREATE INDEX IX_PAPER_CreatedAt     ON RESEARCH_PAPER(CreatedAt DESC);
+CREATE INDEX IX_PAPER_CitationCount ON RESEARCH_PAPER(CitationCount DESC);
 -- Filtered unique: chi enforce unique tren DOI khac NULL
 CREATE UNIQUE INDEX UK_PAPER_DOI ON RESEARCH_PAPER(DOI) WHERE DOI IS NOT NULL;
 
@@ -668,6 +783,37 @@ CREATE INDEX IX_USAGE_UserMonth     ON USER_USAGE(UserID, UsageMonth);
 -- AUDIT_LOG
 CREATE INDEX IX_AUDIT_AdminID       ON AUDIT_LOG(AdminID);
 CREATE INDEX IX_AUDIT_CreatedAt     ON AUDIT_LOG(CreatedAt DESC);
+
+-- BOOKMARK_COLLECTION
+CREATE INDEX IX_BC_UserID           ON BOOKMARK_COLLECTION(UserID);
+CREATE UNIQUE INDEX UK_BC_User_Name ON BOOKMARK_COLLECTION(UserID, Name);
+
+-- BOOKMARK (bo sung)
+CREATE INDEX IX_BOOKMARK_CollectionID ON BOOKMARK(CollectionID);
+CREATE UNIQUE INDEX UK_BOOKMARK_Collection ON BOOKMARK(UserID, CollectionID) WHERE CollectionID IS NOT NULL;
+
+-- FOLLOW (bo sung)
+CREATE UNIQUE INDEX UK_FOLLOW_Author ON FOLLOW(UserID, AuthorID) WHERE AuthorID IS NOT NULL;
+
+-- USER_READING_HISTORY
+CREATE INDEX IX_URH_UserID          ON USER_READING_HISTORY(UserID);
+CREATE INDEX IX_URH_PaperID         ON USER_READING_HISTORY(PaperID);
+CREATE INDEX IX_URH_ViewedAt        ON USER_READING_HISTORY(ViewedAt DESC);
+
+-- USER_SEARCH_HISTORY
+CREATE INDEX IX_USH_UserID          ON USER_SEARCH_HISTORY(UserID);
+CREATE INDEX IX_USH_SearchedAt      ON USER_SEARCH_HISTORY(SearchedAt DESC);
+
+-- SEARCH_KEYWORD
+CREATE INDEX IX_SK_SearchCount      ON SEARCH_KEYWORD(SearchCount DESC);
+
+-- TRENDING_TOPIC
+CREATE INDEX IX_TT_DisplayOrder     ON TRENDING_TOPIC(DisplayOrder);
+CREATE INDEX IX_TT_UpdatedAt        ON TRENDING_TOPIC(UpdatedAt DESC);
+
+-- AUTO_SYNC_KEYWORD
+CREATE INDEX IX_ASK_Enabled         ON AUTO_SYNC_KEYWORD(Enabled);
+CREATE INDEX IX_ASK_LastSyncedAt    ON AUTO_SYNC_KEYWORD(LastSyncedAt);
 
 GO
 
