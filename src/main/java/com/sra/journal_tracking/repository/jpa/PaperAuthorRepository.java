@@ -19,6 +19,24 @@ public interface PaperAuthorRepository extends JpaRepository<PaperAuthor, PaperA
     @Query("SELECT COUNT(DISTINCT pa.author) FROM PaperAuthor pa WHERE pa.paper.createdAt >= :start AND pa.paper.createdAt < :end")
     long countDistinctAuthorsByPaperCreatedAtBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 
+    /**
+     * Single-query author overview stats: total authors + distinct authors this/last month.
+     * Replaces 3 individual COUNT queries with 1 scan of PAPER_AUTHOR + RESEARCH_PAPER.
+     * Returns [totalAuthors, authorsThisMonth, authorsLastMonth]
+     */
+    @Query(value = """
+        SELECT
+            (SELECT COUNT(*) FROM AUTHOR),
+            COUNT(DISTINCT CASE WHEN p.CreatedAt >= :thisStart AND p.CreatedAt < :thisEnd THEN pa.AuthorID END),
+            COUNT(DISTINCT CASE WHEN p.CreatedAt >= :lastStart AND p.CreatedAt < :lastEnd THEN pa.AuthorID END)
+        FROM PAPER_AUTHOR pa
+        JOIN RESEARCH_PAPER p ON p.PaperID = pa.PaperID
+        """, nativeQuery = true)
+    List<Object[]> getOverviewAuthorStats(@Param("thisStart") LocalDateTime thisStart,
+                                           @Param("thisEnd") LocalDateTime thisEnd,
+                                           @Param("lastStart") LocalDateTime lastStart,
+                                           @Param("lastEnd") LocalDateTime lastEnd);
+
     /** Count papers by author ID. */
     long countByAuthor_AuthorId(UUID authorId);
 

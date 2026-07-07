@@ -17,16 +17,18 @@ public class FollowRequest {
     private UUID journalId;
     private UUID topicId;
     private UUID keywordId;
+    private UUID authorId;
 
     @Builder.Default
     private Boolean notifyEnabled = true;
 
-    @AssertTrue(message = "Exactly one of journalId, topicId, or keywordId must be provided")
+    @AssertTrue(message = "Exactly one of journalId, topicId, keywordId, or authorId must be provided")
     public boolean isExactlyOneTarget() {
         int count = 0;
         if (journalId != null) count++;
         if (topicId != null) count++;
         if (keywordId != null) count++;
+        if (authorId != null) count++;
         return count == 1;
     }
 }

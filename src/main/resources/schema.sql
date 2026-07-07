@@ -149,3 +149,107 @@ IF NOT EXISTS (SELECT 1 FROM RESEARCH_FIELD WHERE FieldName = N'Economics')
     INSERT INTO RESEARCH_FIELD (FieldID, ParentFieldID, FieldName, IsTracked, Description)
     VALUES (NEWID(), NULL, N'Economics', 1, N'Economics and business studies');
 
+-- 6. Composite index for dashboard overview author query:
+--    JOIN PAPER_AUTHOR ⋈ RESEARCH_PAPER on PaperID, filtered by CreatedAt
+IF OBJECT_ID('PAPER_AUTHOR', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM sys.indexes
+       WHERE name = 'IX_PAPER_AUTHOR_PaperID_AuthorID'
+         AND object_id = OBJECT_ID('PAPER_AUTHOR')
+   )
+BEGIN
+    CREATE INDEX IX_PAPER_AUTHOR_PaperID_AuthorID ON PAPER_AUTHOR(PaperID, AuthorID)
+END
+
+-- 7. Index for researcher overview queries — speeds up name-matching
+--    WHERE a.FullName = :fullName (exact match, used by author-paper joins)
+IF OBJECT_ID('AUTHOR', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM sys.indexes
+       WHERE name = 'IX_AUTHOR_FullName'
+         AND object_id = OBJECT_ID('AUTHOR')
+   )
+BEGIN
+    CREATE INDEX IX_AUTHOR_FullName ON AUTHOR(FullName)
+END
+
+-- 8. FOLLOW.AuthorID — allow users to follow individual authors
+IF OBJECT_ID('FOLLOW', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'FOLLOW' AND COLUMN_NAME = 'AuthorID'
+   )
+BEGIN
+    ALTER TABLE FOLLOW ADD AuthorID UNIQUEIDENTIFIER NULL
+    ALTER TABLE FOLLOW ADD CONSTRAINT FK_FOLLOW_Author
+        FOREIGN KEY (AuthorID) REFERENCES AUTHOR(AuthorID)
+
+    -- Drop old CHECK constraint (only knew about Journal/Topic/Keyword)
+    IF OBJECT_ID('CK_FOLLOW_OneTarget') IS NOT NULL
+        ALTER TABLE FOLLOW DROP CONSTRAINT CK_FOLLOW_OneTarget
+
+    -- Recreate to include AuthorID
+    ALTER TABLE FOLLOW ADD CONSTRAINT CK_FOLLOW_OneTarget CHECK (
+        (CASE WHEN JournalID IS NOT NULL THEN 1 ELSE 0 END +
+         CASE WHEN TopicID   IS NOT NULL THEN 1 ELSE 0 END +
+         CASE WHEN KeywordID IS NOT NULL THEN 1 ELSE 0 END +
+         CASE WHEN AuthorID  IS NOT NULL THEN 1 ELSE 0 END) = 1
+    )
+END
+
+-- 10. AUTHOR metrics columns (populated from OpenAlex author endpoint during sync)
+IF OBJECT_ID('AUTHOR', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'AUTHOR' AND COLUMN_NAME = 'I10Index'
+   )
+BEGIN
+    ALTER TABLE AUTHOR ADD I10Index INT NOT NULL DEFAULT 0
+END
+
+IF OBJECT_ID('AUTHOR', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'AUTHOR' AND COLUMN_NAME = 'WorksCount'
+   )
+BEGIN
+    ALTER TABLE AUTHOR ADD WorksCount INT NOT NULL DEFAULT 0
+END
+
+-- 9. Fix CK_FOLLOW_OneTarget constraint — when AuthorID column exists but
+--    constraint was created before AuthorID was added (from migration 8)
+IF OBJECT_ID('FOLLOW', 'U') IS NOT NULL
+   AND EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'FOLLOW' AND COLUMN_NAME = 'AuthorID'
+   )
+   AND OBJECT_ID('CK_FOLLOW_OneTarget') IS NOT NULL
+BEGIN
+    ALTER TABLE FOLLOW DROP CONSTRAINT CK_FOLLOW_OneTarget
+    ALTER TABLE FOLLOW ADD CONSTRAINT CK_FOLLOW_OneTarget CHECK (
+        (CASE WHEN JournalID IS NOT NULL THEN 1 ELSE 0 END +
+         CASE WHEN TopicID   IS NOT NULL THEN 1 ELSE 0 END +
+         CASE WHEN KeywordID IS NOT NULL THEN 1 ELSE 0 END +
+         CASE WHEN AuthorID  IS NOT NULL THEN 1 ELSE 0 END) = 1
+    )
+END
+
+-- 10. AUTHOR metrics columns (populated from OpenAlex author endpoint during sync)
+IF OBJECT_ID('AUTHOR', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'AUTHOR' AND COLUMN_NAME = 'I10Index'
+   )
+BEGIN
+    ALTER TABLE AUTHOR ADD I10Index INT NOT NULL DEFAULT 0
+END
+
+IF OBJECT_ID('AUTHOR', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'AUTHOR' AND COLUMN_NAME = 'WorksCount'
+   )
+BEGIN
+    ALTER TABLE AUTHOR ADD WorksCount INT NOT NULL DEFAULT 0
+END
+

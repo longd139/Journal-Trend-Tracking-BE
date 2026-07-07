@@ -421,6 +421,14 @@ public class DataSyncController {
         return ResponseEntity.ok(AppResponse.success("Keyword re-extraction completed", result));
     }
 
+    @Operation(summary = "Backfill author metrics", description = "Fetch hIndex, totalCitations, i10Index, worksCount from OpenAlex for authors missing metrics. Only processes authors with hIndex=0. Set limit=0 to process all.")
+    @PostMapping("/backfill-author-metrics")
+    public ResponseEntity<AppResponse<Map<String, Object>>> backfillAuthorMetrics(
+            @RequestParam(defaultValue = "100") int limit) {
+        Map<String, Object> result = dataSyncService.backfillAuthorMetrics(limit);
+        return ResponseEntity.ok(AppResponse.success("Author metrics backfill completed", result));
+    }
+
     @Operation(summary = "Get auto-sync status", description = "Check if auto-sync is enabled, last sync time and papers count")
     @GetMapping("/auto/status")
     public ResponseEntity<AppResponse<Map<String, Object>>> getAutoSyncStatus() {

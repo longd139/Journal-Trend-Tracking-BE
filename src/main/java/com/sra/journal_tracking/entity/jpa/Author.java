@@ -58,4 +58,12 @@ public class Author {
     @Column(name = "TotalCitations")
     @Builder.Default
     private Integer totalCitations = 0;
+
+    @Column(name = "I10Index")
+    @Builder.Default
+    private Integer i10Index = 0;
+
+    @Column(name = "WorksCount")
+    @Builder.Default
+    private Integer worksCount = 0;
 }

@@ -13,6 +13,7 @@ import com.sra.journal_tracking.entity.jpa.Follow;
 import com.sra.journal_tracking.entity.jpa.User;
 import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
+import com.sra.journal_tracking.repository.jpa.AuthorRepository;
 import com.sra.journal_tracking.repository.jpa.FollowRepository;
 import com.sra.journal_tracking.repository.jpa.JournalRepository;
 import com.sra.journal_tracking.repository.jpa.KeywordRepository;
@@ -32,6 +33,7 @@ public class FollowServiceImpl implements FollowService {
     private final JournalRepository journalRepository;
     private final ResearchTopicRepository researchTopicRepository;
     private final KeywordRepository keywordRepository;
+    private final AuthorRepository authorRepository;
     private final SystemConfigRepository systemConfigRepository;
 
     @Override
@@ -45,6 +47,7 @@ public class FollowServiceImpl implements FollowService {
         if (request.getJournalId() != null) targetCount++;
         if (request.getTopicId() != null) targetCount++;
         if (request.getKeywordId() != null) targetCount++;
+        if (request.getAuthorId() != null) targetCount++;
         if (targetCount != 1) {
             throw new AppException(ErrorCode.FOLLOW_INVALID_TARGET);
         }
@@ -64,11 +67,18 @@ public class FollowServiceImpl implements FollowService {
             if (followRepository.findByUser_UserIdAndTopic_TopicId(user.getUserId(), request.getTopicId()).isPresent()) {
                 throw new AppException(ErrorCode.FOLLOW_ALREADY_EXISTS);
             }
-        } else {
+        } else if (request.getKeywordId() != null) {
             if (!keywordRepository.existsById(request.getKeywordId())) {
                 throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
             }
             if (followRepository.findByUser_UserIdAndKeyword_KeywordId(user.getUserId(), request.getKeywordId()).isPresent()) {
+                throw new AppException(ErrorCode.FOLLOW_ALREADY_EXISTS);
+            }
+        } else {
+            if (!authorRepository.existsById(request.getAuthorId())) {
+                throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
+            }
+            if (followRepository.findByUser_UserIdAndAuthor_AuthorId(user.getUserId(), request.getAuthorId()).isPresent()) {
                 throw new AppException(ErrorCode.FOLLOW_ALREADY_EXISTS);
             }
         }
@@ -81,6 +91,7 @@ public class FollowServiceImpl implements FollowService {
                 .journal(request.getJournalId() != null ? journalRepository.getReferenceById(request.getJournalId()) : null)
                 .topic(request.getTopicId() != null ? researchTopicRepository.getReferenceById(request.getTopicId()) : null)
                 .keyword(request.getKeywordId() != null ? keywordRepository.getReferenceById(request.getKeywordId()) : null)
+                .author(request.getAuthorId() != null ? authorRepository.getReferenceById(request.getAuthorId()) : null)
                 .notifyEnabled(request.getNotifyEnabled() != null ? request.getNotifyEnabled() : true)
                 .build();
 
@@ -166,6 +177,8 @@ public class FollowServiceImpl implements FollowService {
                 .topicName(follow.getTopic() != null ? follow.getTopic().getTopicName() : null)
                 .keywordId(follow.getKeyword() != null ? follow.getKeyword().getKeywordId() : null)
                 .keywordText(follow.getKeyword() != null ? follow.getKeyword().getKeywordText() : null)
+                .authorId(follow.getAuthor() != null ? follow.getAuthor().getAuthorId() : null)
+                .authorName(follow.getAuthor() != null ? follow.getAuthor().getFullName() : null)
                 .notifyEnabled(follow.getNotifyEnabled())
                 .createdAt(follow.getCreatedAt())
                 .build();

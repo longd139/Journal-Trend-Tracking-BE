@@ -1249,19 +1249,34 @@ public class DataSyncServiceImpl implements DataSyncService {
 
     @Override
     public DatabaseStatsResponse getDatabaseStats() {
-        // ── Cache: 1-hour TTL ──
         long now = System.currentTimeMillis();
+        // Return cached data if fresh (1 hour TTL)
         if (cachedStats != null && now < cachedStats.expiryTime) {
-            log.info("CACHE HIT: database stats");
             return cachedStats.data;
         }
 
-        // ── Cache miss: trigger async refresh so next call is instant ──
-        log.info("Stats cache miss — triggering async refresh, returning empty stats for now");
-        self.refreshStatsCache();
+        // If we have stale cached data, return it + refresh async
+        if (cachedStats != null) {
+            self.refreshStatsCache();
+            return cachedStats.data;
+        }
 
-        // Return immediately with empty stats — client should retry in a few seconds
-        return buildEmptyStats();
+        // No cache at all — try sync with timeout, fallback to empty
+        try {
+            var future = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                DatabaseStatsResponse.Neo4jStats neo4jStats = getNeo4jStats();
+                return self.buildStatsFromJpa(neo4jStats);
+            });
+            DatabaseStatsResponse stats = future.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            cachedStats = new StatsCacheEntry(stats);
+            log.info("Stats cache built: papers={}, authors={}, keywords={}",
+                    stats.getPapers().getTotal(), stats.getAuthors().getTotal(), stats.getKeywords().getTotal());
+            return stats;
+        } catch (Exception e) {
+            log.warn("Stats refresh timed out (30s) — returning empty. Will retry on next call.");
+            self.refreshStatsCache(); // keep trying in background
+            return buildEmptyStats();
+        }
     }
 
     /**
@@ -1308,61 +1323,57 @@ public class DataSyncServiceImpl implements DataSyncService {
 
     @Transactional(readOnly = true)
     public DatabaseStatsResponse buildStatsFromJpa(DatabaseStatsResponse.Neo4jStats neo4jStats) {
+        // ── Single native query for all paper/count stats (avoids 11 round-trips) ──
         @SuppressWarnings("unchecked")
-        List<Object[]> paperAggRows = entityManager
-                .createQuery("SELECT COUNT(p), "
-                           + "SUM(CASE WHEN p.isOpenAccess = true THEN 1 ELSE 0 END), "
-                           + "SUM(CASE WHEN p.pdfUrl IS NOT NULL AND p.pdfUrl <> '' THEN 1 ELSE 0 END) "
-                           + "FROM ResearchPaper p")
-                .getResultList();
-        Object[] agg = paperAggRows.get(0);
-        long totalPapers = (Long) agg[0];
-        long openAccess = (Long) agg[1];
-        long hasPdf = (Long) agg[2];
+        List<Object[]> megaRow = entityManager.createNativeQuery(
+            "SELECT "
+          + "  (SELECT COUNT(*) FROM RESEARCH_PAPER), "
+          + "  (SELECT COUNT(*) FROM RESEARCH_PAPER WHERE IsOpenAccess = 1), "
+          + "  (SELECT COUNT(*) FROM RESEARCH_PAPER WHERE PdfUrl IS NOT NULL AND PdfUrl <> ''), "
+          + "  (SELECT COUNT(*) FROM AUTHOR), "
+          + "  (SELECT COUNT(*) FROM KEYWORD), "
+          + "  (SELECT COUNT(*) FROM JOURNAL), "
+          + "  (SELECT COUNT(*) FROM RESEARCH_FIELD), "
+          + "  (SELECT COUNT(*) FROM RESEARCH_TOPIC), "
+          + "  (SELECT COUNT(*) FROM RESEARCH_TOPIC WHERE IsTrending = 1), "
+          + "  (SELECT COUNT(*) FROM SYNC_LOG), "
+          + "  (SELECT MAX(CompletedAt) FROM SYNC_LOG WHERE CompletedAt IS NOT NULL)"
+        ).getResultList();
 
-        // Papers by source
+        Object[] r = megaRow.get(0);
+        long totalPapers   = ((Number) r[0]).longValue();
+        long openAccess    = ((Number) r[1]).longValue();
+        long hasPdf        = ((Number) r[2]).longValue();
+        long totalAuthors  = ((Number) r[3]).longValue();
+        long totalKeywords = ((Number) r[4]).longValue();
+        long totalJournals = ((Number) r[5]).longValue();
+        long totalFields   = ((Number) r[6]).longValue();
+        long totalTopics   = ((Number) r[7]).longValue();
+        long trending      = ((Number) r[8]).longValue();
+        long totalSyncLogs = ((Number) r[9]).longValue();
+        String lastSync    = r[10] != null ? r[10].toString() : null;
+
+        // Papers by source (still needs GROUP BY — separate query)
         @SuppressWarnings("unchecked")
-        List<Object[]> bySourceRows = entityManager
-                .createQuery("SELECT s.sourceName, COUNT(p) FROM ResearchPaper p JOIN p.source s GROUP BY s.sourceName")
-                .getResultList();
+        List<Object[]> bySourceRows = entityManager.createNativeQuery(
+            "SELECT s.SourceName, COUNT(p.PaperID) FROM RESEARCH_PAPER p "
+          + "JOIN API_SOURCE s ON p.SourceID = s.SourceID GROUP BY s.SourceName"
+        ).getResultList();
         Map<String, Long> bySource = new LinkedHashMap<>();
         for (Object[] row : bySourceRows) {
-            bySource.put((String) row[0], (Long) row[1]);
+            bySource.put((String) row[0], ((Number) row[1]).longValue());
         }
 
         // Papers by year
         @SuppressWarnings("unchecked")
-        List<Object[]> byYearRows = entityManager
-                .createQuery("SELECT p.pubYear, COUNT(p) FROM ResearchPaper p WHERE p.pubYear IS NOT NULL GROUP BY p.pubYear ORDER BY p.pubYear DESC")
-                .getResultList();
+        List<Object[]> byYearRows = entityManager.createNativeQuery(
+            "SELECT PubYear, COUNT(PaperID) FROM RESEARCH_PAPER WHERE PubYear IS NOT NULL "
+          + "GROUP BY PubYear ORDER BY PubYear DESC"
+        ).getResultList();
         Map<Integer, Long> byYear = new LinkedHashMap<>();
         for (Object[] row : byYearRows) {
-            byYear.put(((Short) row[0]).intValue(), (Long) row[1]);
+            byYear.put(((Number) row[0]).intValue(), ((Number) row[1]).longValue());
         }
-
-        // Authors (total only — skip slow orphaned count in fast path)
-        long totalAuthors = authorRepository.count();
-
-        // Keywords (total only — skip slow orphaned count)
-        long totalKeywords = keywordRepository.count();
-
-        // Journals & Fields
-        long totalJournals = journalRepository.count();
-        long totalFields = researchFieldRepository.count();
-
-        // Topics
-        long totalTopics = researchTopicRepository.count();
-        long trending = researchTopicRepository.countByIsTrendingTrue();
-
-        // Sync logs
-        long totalSyncLogs = syncLogRepository.count();
-        String lastSync = null;
-        try {
-            Object lastSyncObj = entityManager
-                    .createQuery("SELECT MAX(s.completedAt) FROM SyncLog s WHERE s.completedAt IS NOT NULL")
-                    .getSingleResult();
-            if (lastSyncObj != null) lastSync = lastSyncObj.toString();
-        } catch (Exception ignored) {}
 
         DatabaseStatsResponse stats = DatabaseStatsResponse.builder()
                 .papers(DatabaseStatsResponse.PaperStats.builder()
@@ -2067,11 +2078,15 @@ public class DataSyncServiceImpl implements DataSyncService {
         }
 
         return authorRepository.findByExternalAuthorIdAndSource_SourceId(authorDTO.getAuthorId(), source.getSourceId())
-                .orElseGet(() -> authorRepository.saveAndFlush(Author.builder()
-                        .source(source)
-                        .externalAuthorId(authorDTO.getAuthorId())
-                        .fullName(fullName)
-                        .build()));
+                .orElseGet(() -> {
+                    Author newAuthor = authorRepository.saveAndFlush(Author.builder()
+                            .source(source)
+                            .externalAuthorId(authorDTO.getAuthorId())
+                            .fullName(fullName)
+                            .build());
+                    enqueueAuthorMetricsFetch(newAuthor);
+                    return newAuthor;
+                });
     }
 
     private Author getOrCreateOpenAlexAuthor(OpenAlexResponseDTO.Authorship authorship, ApiSource source) {
@@ -2094,13 +2109,52 @@ public class DataSyncServiceImpl implements DataSyncService {
 
         return authorRepository.findByExternalAuthorIdAndSource_SourceId(externalAuthorId, source.getSourceId())
                 .map(author -> fillMissingAuthorLocation(author, affiliation, country))
-                .orElseGet(() -> authorRepository.saveAndFlush(Author.builder()
-                        .source(source)
-                        .externalAuthorId(externalAuthorId)
-                        .fullName(fullName)
-                        .affiliation(affiliation)
-                        .country(country)
-                        .build()));
+                .orElseGet(() -> {
+                    Author newAuthor = authorRepository.saveAndFlush(Author.builder()
+                            .source(source)
+                            .externalAuthorId(externalAuthorId)
+                            .fullName(fullName)
+                            .affiliation(affiliation)
+                            .country(country)
+                            .build());
+                    // Fire-and-forget: fetch metrics from OpenAlex in background
+                    enqueueAuthorMetricsFetch(newAuthor);
+                    return newAuthor;
+                });
+    }
+
+    /**
+     * Async fetch of author hIndex/totalCitations/i10Index/worksCount from OpenAlex.
+     * Only fires when the author has no metrics yet (hIndex == 0).
+     */
+    @org.springframework.scheduling.annotation.Async
+    private void enqueueAuthorMetricsFetch(Author author) {
+        if (author.getExternalAuthorId() == null) return;
+        if (author.getHIndex() != null && author.getHIndex() > 0) return; // already have metrics
+
+        try {
+            Thread.sleep(500); // rate-limit: don't hammer OpenAlex
+            String authorUrl = author.getExternalAuthorId();
+            if (!authorUrl.startsWith("http")) {
+                authorUrl = "https://api.openalex.org/authors/" + authorUrl;
+            }
+
+            var response = restTemplate.getForObject(authorUrl,
+                    com.sra.journal_tracking.dto.author.OpenAlexAuthorResponseDTO.AuthorResult.class);
+
+            if (response != null) {
+                author.setHIndex(response.getHIndex() != null ? response.getHIndex() : 0);
+                author.setTotalCitations(response.getCitedByCount() != null ? response.getCitedByCount() : 0);
+                author.setI10Index(response.getI10Index() != null ? response.getI10Index() : 0);
+                author.setWorksCount(response.getWorksCount() != null ? response.getWorksCount() : 0);
+                authorRepository.save(author);
+                log.debug("Synced author metrics for {}: hIndex={}, citations={}, i10={}, works={}",
+                        author.getFullName(), author.getHIndex(), author.getTotalCitations(),
+                        author.getI10Index(), author.getWorksCount());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch author metrics for '{}': {}", author.getFullName(), e.getMessage());
+        }
     }
 
     private void savePaperAuthor(ResearchPaper savedPaper, Author author, int authorOrder) {
@@ -3045,6 +3099,68 @@ public class DataSyncServiceImpl implements DataSyncService {
      */
     private List<String> extractKeywordsFromTitle(String title) {
         return keywordExtractionService.extract(title, "");
+    }
+
+    /**
+     * Backfill author metrics (hIndex, totalCitations, i10Index, worksCount)
+     * from OpenAlex for authors that have an externalAuthorId but hIndex=0.
+     * Rate-limited: ~3 calls/sec to respect OpenAlex polite pool.
+     */
+    @Override
+    public java.util.Map<String, Object> backfillAuthorMetrics(int limit) {
+        var authors = authorRepository.findAll().stream()
+                .filter(a -> a.getExternalAuthorId() != null && !a.getExternalAuthorId().isBlank())
+                .filter(a -> a.getHIndex() == null || a.getHIndex() == 0)
+                .collect(java.util.stream.Collectors.toList());
+
+        if (limit > 0 && authors.size() > limit) {
+            authors = authors.subList(0, limit);
+        }
+
+        int updated = 0, skipped = 0, errors = 0;
+        log.info("Backfill author metrics: {} authors to process (limit={})", authors.size(), limit);
+
+        for (Author author : authors) {
+            try {
+                String authorUrl = author.getExternalAuthorId();
+                if (!authorUrl.startsWith("http")) {
+                    authorUrl = "https://api.openalex.org/authors/" + authorUrl;
+                }
+
+                var response = restTemplate.getForObject(authorUrl,
+                        com.sra.journal_tracking.dto.author.OpenAlexAuthorResponseDTO.AuthorResult.class);
+
+                if (response != null) {
+                    author.setHIndex(response.getHIndex() != null ? response.getHIndex() : 0);
+                    author.setTotalCitations(response.getCitedByCount() != null ? response.getCitedByCount() : 0);
+                    author.setI10Index(response.getI10Index() != null ? response.getI10Index() : 0);
+                    author.setWorksCount(response.getWorksCount() != null ? response.getWorksCount() : 0);
+                    authorRepository.save(author);
+                    updated++;
+                    if (updated % 50 == 0) {
+                        log.info("Backfill progress: {}/{} authors updated", updated, authors.size());
+                    }
+                } else {
+                    skipped++;
+                }
+
+                Thread.sleep(350); // ~3 req/sec for polite pool
+            } catch (Exception e) {
+                errors++;
+                log.warn("Backfill failed for '{}' ({}): {}", author.getFullName(),
+                        author.getExternalAuthorId(), e.getMessage());
+            }
+        }
+
+        log.info("Backfill author metrics done: updated={}, skipped={}, errors={}, total={}",
+                updated, skipped, errors, authors.size());
+
+        return java.util.Map.of(
+                "totalProcessed", authors.size(),
+                "updated", updated,
+                "skipped", skipped,
+                "errors", errors
+        );
     }
 
 }

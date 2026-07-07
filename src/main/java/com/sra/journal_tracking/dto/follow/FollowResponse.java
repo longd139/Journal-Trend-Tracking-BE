@@ -21,6 +21,8 @@ public class FollowResponse {
     private String topicName;
     private UUID keywordId;
     private String keywordText;
+    private UUID authorId;
+    private String authorName;
     private Boolean notifyEnabled;
     private LocalDateTime createdAt;
 }

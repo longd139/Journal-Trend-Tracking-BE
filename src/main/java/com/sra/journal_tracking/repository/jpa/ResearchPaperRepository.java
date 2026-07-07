@@ -199,6 +199,27 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
     @Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p")
     Long sumTotalCitations();
 
+    /**
+     * Single-query overview stats: total papers, new-papers-this/last-month,
+     * total citations, citations-this/last-month.
+     * Replaces 6 individual COUNT/SUM queries with 1 table scan.
+     * Returns [totalPapers, newThisMonth, newLastMonth, totalCitations, citationsThisMonth, citationsLastMonth]
+     */
+    @Query(value = """
+        SELECT
+            COUNT(*),
+            COUNT(CASE WHEN CreatedAt >= :thisStart AND CreatedAt < :thisEnd THEN 1 END),
+            COUNT(CASE WHEN CreatedAt >= :lastStart AND CreatedAt < :lastEnd THEN 1 END),
+            COALESCE(SUM(CitationCount), 0),
+            COALESCE(SUM(CASE WHEN CreatedAt >= :thisStart AND CreatedAt < :thisEnd THEN CitationCount END), 0),
+            COALESCE(SUM(CASE WHEN CreatedAt >= :lastStart AND CreatedAt < :lastEnd THEN CitationCount END), 0)
+        FROM RESEARCH_PAPER
+        """, nativeQuery = true)
+    List<Object[]> getOverviewPaperStats(@Param("thisStart") LocalDateTime thisStart,
+                                          @Param("thisEnd") LocalDateTime thisEnd,
+                                          @Param("lastStart") LocalDateTime lastStart,
+                                          @Param("lastEnd") LocalDateTime lastEnd);
+
     // ---- Quick Stats Aggregation Queries ----
 
     /**
@@ -447,4 +468,57 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 	     + "LEFT JOIN FETCH rp.field "
 	     + "WHERE rp.paperId IN :ids")
 	List<ResearchPaper> findAllByIdWithDetails(@Param("ids") Collection<UUID> ids);
+
+	// ── Researcher Overview Queries (User.fullName = Author.fullName) ──
+
+	/**
+	 * Fetch all papers for a researcher (by full name) with citation counts,
+	 * sorted by citationCount DESC. Used to compute h-index and citation history.
+	 * Returns [paperId, pubYear, citationCount].
+	 */
+	@Query(value = """
+	    SELECT p.PaperID, p.PubYear, COALESCE(p.CitationCount, 0)
+	    FROM RESEARCH_PAPER p
+	    JOIN PAPER_AUTHOR pa ON p.PaperID = pa.PaperID
+	    JOIN AUTHOR a ON pa.AuthorID = a.AuthorID
+	    WHERE a.FullName = :fullName AND p.PubYear IS NOT NULL
+	    ORDER BY p.CitationCount DESC
+	    """, nativeQuery = true)
+	List<Object[]> getAuthorPapersWithCitations(@Param("fullName") String fullName);
+
+	/**
+	 * Keyword distribution for a researcher's papers.
+	 * Returns [keywordText, paperCount] ordered by paper count DESC.
+	 */
+	@Query(value = """
+	    SELECT kw.KeywordText, COUNT(DISTINCT p.PaperID) AS paperCount
+	    FROM RESEARCH_PAPER p
+	    JOIN PAPER_AUTHOR pa ON p.PaperID = pa.PaperID
+	    JOIN AUTHOR a ON pa.AuthorID = a.AuthorID
+	    JOIN PAPER_KEYWORD pk ON p.PaperID = pk.PaperID
+	    JOIN KEYWORD kw ON pk.KeywordID = kw.KeywordID
+	    WHERE a.FullName = :fullName
+	    GROUP BY kw.KeywordText
+	    ORDER BY paperCount DESC
+	    """, nativeQuery = true)
+	List<Object[]> getAuthorKeywordDistribution(@Param("fullName") String fullName);
+
+	/**
+	 * Recent publications for a researcher, with journal name and author role info.
+	 * Returns [paperId, title, journalName, pubYear, authorOrder, citationCount, isCorresponding]
+	 * ordered by pubYear DESC, citationCount DESC. Limited to :limit rows.
+	 */
+	@Query(value = """
+	    SELECT p.PaperID, p.Title, j.JournalName, p.PubYear,
+	           pa.AuthorOrder, COALESCE(p.CitationCount, 0), pa.IsCorresponding
+	    FROM RESEARCH_PAPER p
+	    JOIN PAPER_AUTHOR pa ON p.PaperID = pa.PaperID
+	    JOIN AUTHOR a ON pa.AuthorID = a.AuthorID
+	    LEFT JOIN JOURNAL j ON p.JournalID = j.JournalID
+	    WHERE a.FullName = :fullName
+	    ORDER BY p.PubYear DESC, p.CitationCount DESC
+	    OFFSET 0 ROWS FETCH NEXT :limit ROWS ONLY
+	    """, nativeQuery = true)
+	List<Object[]> getAuthorRecentPublications(@Param("fullName") String fullName,
+	                                           @Param("limit") int limit);
 }

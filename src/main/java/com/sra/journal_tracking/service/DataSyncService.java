@@ -137,4 +137,13 @@ public interface DataSyncService {
      * Useful for admin to see what was just imported.
      */
     org.springframework.data.domain.Page<com.sra.journal_tracking.entity.jpa.ResearchPaper> getRecentSyncedPapers(int hours, int page, int size);
+
+    /**
+     * Backfill author metrics (hIndex, totalCitations, i10Index, worksCount)
+     * from OpenAlex for authors that have an externalAuthorId but no metrics yet.
+     *
+     * @param limit max authors to process (0 = unlimited)
+     * @return Map with totalProcessed, updated, skipped, errors
+     */
+    java.util.Map<String, Object> backfillAuthorMetrics(int limit);
 }

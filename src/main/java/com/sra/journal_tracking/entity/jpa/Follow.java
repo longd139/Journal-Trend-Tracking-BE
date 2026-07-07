@@ -26,8 +26,8 @@ import lombok.ToString;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@EqualsAndHashCode(exclude = {"user", "journal", "topic", "keyword"})
-@ToString(exclude = {"user", "journal", "topic", "keyword"})
+@EqualsAndHashCode(exclude = {"user", "journal", "topic", "keyword", "author"})
+@ToString(exclude = {"user", "journal", "topic", "keyword", "author"})
 public class Follow {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -49,6 +49,10 @@ public class Follow {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "KeywordID")
     private Keyword keyword;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "AuthorID")
+    private Author author;
 
     @Column(name = "NotifyEnabled", nullable = false)
     @Builder.Default

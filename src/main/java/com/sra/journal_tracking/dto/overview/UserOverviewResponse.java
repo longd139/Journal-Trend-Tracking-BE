@@ -1,5 +1,7 @@
 package com.sra.journal_tracking.dto.overview;
 
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -46,4 +48,78 @@ public class UserOverviewResponse {
      * Card 4: Total number of unique keywords indexed in the system.
      */
     private Long totalKeywords;
+
+    // ── NEW: Researcher-specific fields ──
+
+    /**
+     * Researcher's personal h-index, calculated from their authored papers.
+     * null if the user has no matching author profile or no papers.
+     */
+    private Integer hIndex;
+
+    /**
+     * Year-by-year citation counts for the researcher's papers.
+     * Empty list if no matching author or no papers.
+     */
+    private List<CitationYearEntry> citationHistory;
+
+    /**
+     * Top research fields/keywords breakdown as percentages.
+     * Empty list if no matching author or no keyword data.
+     */
+    private List<ResearchFieldEntry> researchFields;
+
+    /**
+     * Most recent publications by the researcher (top 20).
+     * Empty list if no matching author or no papers.
+     */
+    private List<RecentPublicationEntry> recentPublications;
+
+    // ── Nested DTOs ──
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class CitationYearEntry {
+        /** Publication year (e.g., 2025). */
+        private int y;
+        /** Total citations received by papers published in that year. */
+        private int citations;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class ResearchFieldEntry {
+        /** Keyword or research field name. */
+        private String name;
+        /** Percentage of total (values should sum to ~100). */
+        private double value;
+        /** Optional hex color — FE has a built-in palette fallback. */
+        private String color;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class RecentPublicationEntry {
+        /** Paper unique identifier (UUID as string). */
+        private String paperId;
+        /** Full paper title. */
+        private String title;
+        /** Journal/publication venue name (null if not assigned to a journal). */
+        private String journal;
+        /** Publication year. */
+        private int year;
+        /** Author role: "First Author", "Co-Author", or "Corresponding Author". */
+        private String role;
+        /** Citation count. */
+        private int citations;
+    }
 }

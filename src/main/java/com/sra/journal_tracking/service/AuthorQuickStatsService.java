@@ -442,7 +442,7 @@ public class AuthorQuickStatsService {
         //
         // Pre-encode to avoid double-encoding: build(true) recognizes already-
         // encoded sequences (%XX) and leaves them intact.
-        String filterValue = "display_name.search:" + keyword;
+        String filterValue = "display_name.search:\"" + keyword + "\"";
         String encodedFilter = URLEncoder.encode(filterValue, StandardCharsets.UTF_8);
 
         UriComponentsBuilder builder = UriComponentsBuilder

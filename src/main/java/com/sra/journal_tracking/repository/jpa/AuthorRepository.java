@@ -24,4 +24,7 @@ public interface AuthorRepository extends JpaRepository<Author, UUID> {
     /** Fuzzy search author by name (case-insensitive LIKE). */
     @Query("SELECT a FROM Author a WHERE LOWER(a.fullName) LIKE LOWER(CONCAT('%', :name, '%'))")
     List<Author> searchByName(@Param("name") String name, Pageable pageable);
+
+    /** Find first author matching the given full name (exact match, case-sensitive). */
+    Optional<Author> findFirstByFullName(String fullName);
 }
