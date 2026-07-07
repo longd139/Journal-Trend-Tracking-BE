@@ -48,6 +48,9 @@ public class Author {
     @Column(name = "Affiliation", length = 500)
     private String affiliation;
 
+    @Column(name = "Country", length = 100)
+    private String country;
+
     @Column(name = "HIndex")
     @Builder.Default
     private Integer hIndex = 0;

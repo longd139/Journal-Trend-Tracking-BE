@@ -60,6 +60,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -2076,24 +2077,29 @@ public class DataSyncServiceImpl implements DataSyncService {
     private Author getOrCreateOpenAlexAuthor(OpenAlexResponseDTO.Authorship authorship, ApiSource source) {
         String externalAuthorId = authorship.getAuthor() != null ? authorship.getAuthor().getId() : null;
         String fullName = resolveAuthorName(authorship);
-        String affiliation = resolveAffiliation(authorship.getRawAffiliationStrings());
+        String affiliation = resolveAffiliation(authorship);
+        String country = resolveCountry(authorship);
 
         if (externalAuthorId == null) {
             // Without an external ID, reuse by name first to avoid duplicate NULL IDs.
             return authorRepository.findByFullNameAndSource_SourceId(fullName, source.getSourceId())
+                    .map(author -> fillMissingAuthorLocation(author, affiliation, country))
                     .orElseGet(() -> authorRepository.saveAndFlush(Author.builder()
                             .source(source)
                             .fullName(fullName)
                             .affiliation(affiliation)
+                            .country(country)
                             .build()));
         }
 
         return authorRepository.findByExternalAuthorIdAndSource_SourceId(externalAuthorId, source.getSourceId())
+                .map(author -> fillMissingAuthorLocation(author, affiliation, country))
                 .orElseGet(() -> authorRepository.saveAndFlush(Author.builder()
                         .source(source)
                         .externalAuthorId(externalAuthorId)
                         .fullName(fullName)
                         .affiliation(affiliation)
+                        .country(country)
                         .build()));
     }
 
@@ -2312,6 +2318,72 @@ public class DataSyncServiceImpl implements DataSyncService {
             return null;
         }
         return affiliation.length() > 500 ? affiliation.substring(0, 500) : affiliation;
+    }
+
+    private String resolveAffiliation(OpenAlexResponseDTO.Authorship authorship) {
+        String rawAffiliation = resolveAffiliation(authorship.getRawAffiliationStrings());
+        if (!isBlank(rawAffiliation)) {
+            return rawAffiliation;
+        }
+
+        if (authorship.getInstitutions() == null) {
+            return null;
+        }
+
+        for (OpenAlexResponseDTO.Institution institution : authorship.getInstitutions()) {
+            if (institution == null || isBlank(institution.getDisplayName())) {
+                continue;
+            }
+            return trimToLength(institution.getDisplayName(), 500);
+        }
+        return null;
+    }
+
+    private String resolveCountry(OpenAlexResponseDTO.Authorship authorship) {
+        if (authorship.getCountries() != null && !authorship.getCountries().isEmpty()) {
+            String country = normalizeCountry(authorship.getCountries().get(0));
+            if (!isBlank(country)) {
+                return trimToLength(country, 100);
+            }
+        }
+
+        if (authorship.getInstitutions() != null) {
+            for (OpenAlexResponseDTO.Institution institution : authorship.getInstitutions()) {
+                if (institution == null || isBlank(institution.getCountryCode())) {
+                    continue;
+                }
+                String country = normalizeCountry(institution.getCountryCode());
+                if (!isBlank(country)) {
+                    return trimToLength(country, 100);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private String normalizeCountry(String value) {
+        if (isBlank(value)) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() == 2) {
+            return new Locale("", trimmed.toUpperCase(Locale.ROOT)).getDisplayCountry(Locale.ENGLISH);
+        }
+        return trimmed;
+    }
+
+    private Author fillMissingAuthorLocation(Author author, String affiliation, String country) {
+        boolean changed = false;
+        if (isBlank(author.getAffiliation()) && !isBlank(affiliation)) {
+            author.setAffiliation(affiliation);
+            changed = true;
+        }
+        if (isBlank(author.getCountry()) && !isBlank(country)) {
+            author.setCountry(country);
+            changed = true;
+        }
+        return changed ? authorRepository.save(author) : author;
     }
 
     private Journal resolveJournal(OpenAlexResponseDTO.OpenAlexWorkDTO work, ApiSource source, ResearchField field) {

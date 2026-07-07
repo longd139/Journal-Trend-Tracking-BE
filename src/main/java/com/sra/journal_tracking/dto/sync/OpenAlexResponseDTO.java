@@ -148,6 +148,9 @@ public class OpenAlexResponseDTO {
 
         @JsonProperty("raw_affiliation_strings")
         private List<String> rawAffiliationStrings;
+
+        private List<String> countries;
+        private List<Institution> institutions;
     }
 
     @Data
@@ -156,5 +159,16 @@ public class OpenAlexResponseDTO {
 
         @JsonProperty("display_name")
         private String displayName;
+    }
+
+    @Data
+    public static class Institution {
+        private String id;
+
+        @JsonProperty("display_name")
+        private String displayName;
+
+        @JsonProperty("country_code")
+        private String countryCode;
     }
 }
