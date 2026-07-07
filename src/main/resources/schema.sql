@@ -114,6 +114,25 @@ BEGIN
     CREATE INDEX IX_SESSION_RefreshTokenHash ON USER_SESSION(RefreshTokenHash)
 END
 
+IF OBJECT_ID('AUTHOR', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'AUTHOR' AND COLUMN_NAME = 'Country'
+   )
+BEGIN
+    ALTER TABLE AUTHOR ADD Country NVARCHAR(100) NULL
+END
+
+IF OBJECT_ID('AUTHOR', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM sys.indexes
+       WHERE name = 'IX_AUTHOR_Country'
+         AND object_id = OBJECT_ID('AUTHOR')
+   )
+BEGIN
+    CREATE INDEX IX_AUTHOR_Country ON AUTHOR(Country)
+END
+
 IF NOT EXISTS (SELECT 1 FROM RESEARCH_FIELD WHERE FieldName = N'Engineering')
     INSERT INTO RESEARCH_FIELD (FieldID, ParentFieldID, FieldName, IsTracked, Description)
     VALUES (NEWID(), NULL, N'Engineering', 1, N'Engineering and technology disciplines');
