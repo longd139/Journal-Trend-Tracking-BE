@@ -2919,6 +2919,15 @@ public class DataSyncServiceImpl implements DataSyncService {
      * is discoverable via the exact term the user searched for.
      */
     private void savePaperToNeo4j(ResearchPaper paper, List<String> keywords, String searchQuery) {
+        // ── Save search query to SQL Keyword table so exact-match queries work ──
+        if (searchQuery != null && !searchQuery.isBlank()) {
+            try {
+                saveExtractedKeywords(paper, List.of(searchQuery.trim()));
+            } catch (Exception e) {
+                log.warn("SQL keyword save skipped for paper {}: {}", paper.getPaperId(), e.getMessage());
+            }
+        }
+
         try {
             List<String> graphKeywords = new ArrayList<>();
             // Always add the search query first so graph search finds it

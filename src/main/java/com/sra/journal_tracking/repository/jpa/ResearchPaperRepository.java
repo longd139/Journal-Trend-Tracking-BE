@@ -342,6 +342,18 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
          + "ORDER BY p.citationCount DESC")
     List<ResearchPaper> findTopCitedByKeyword(@Param("query") String query, Pageable pageable);
 
+    /**
+     * Find papers by exact keyword match (normalized) — faster and more precise than LIKE.
+     * Used as primary SQL fallback when Neo4j has no data for a keyword.
+     */
+    @Query("SELECT DISTINCT p FROM ResearchPaper p "
+         + "LEFT JOIN FETCH p.journal "
+         + "LEFT JOIN p.keywords pk "
+         + "LEFT JOIN pk.keyword kw "
+         + "WHERE LOWER(kw.keywordText) = LOWER(:keyword) "
+         + "ORDER BY p.citationCount DESC")
+    List<ResearchPaper> findTopCitedByKeywordExact(@Param("keyword") String keyword, Pageable pageable);
+
 	    // ── Report Queries ──
 
 	    /**

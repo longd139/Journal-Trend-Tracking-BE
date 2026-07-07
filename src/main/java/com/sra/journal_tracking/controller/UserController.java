@@ -45,7 +45,7 @@ public class UserController {
     @PutMapping("/me/password")
     public ResponseEntity<AppResponse<Void>> changePassword(
             Authentication authentication,
-            @RequestBody ChangePasswordRequest request) {
+            @Valid @RequestBody ChangePasswordRequest request) {
         userService.changePassword(authentication.getName(), request);
         return ResponseEntity.ok(AppResponse.success("Password updated successfully"));
     }

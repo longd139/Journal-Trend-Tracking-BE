@@ -11,6 +11,7 @@ import com.sra.journal_tracking.dto.search.KeywordComparisonRequest;
 import com.sra.journal_tracking.dto.search.KeywordComparisonResponse;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
+import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.KeywordQuickStatsService;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -47,6 +49,7 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
 
     private final GraphService graphService;
     private final ResearchPaperRepository researchPaperRepository;
+    private final DataSyncService dataSyncService;
 
     @Override
     @Transactional(readOnly = true)
@@ -227,7 +230,7 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     @Cacheable(value = "search:keywordTopPapers", cacheManager = "searchCacheManager",
                key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
     public List<PaperDetailResponseDTO> getTopInfluentialPapers(String keyword) {
@@ -242,14 +245,89 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
 
         log.info("Fetching top influential papers for keyword: '{}'", trimmedKeyword);
 
+        // Effectively-final copy for use in lambda expressions
+        final String kw = trimmedKeyword;
+
+        List<PaperDetailResponseDTO> papers = fetchTopPapersFromDb(kw);
+
+        // If fewer than 3 results in DB, fall back to external APIs (each capped at 3s timeout)
+        if (papers.size() < 3) {
+            log.info("Only {} papers found in DB for '{}', falling back to external APIs",
+                    papers.size(), kw);
+
+            // Try CORE first (has API key, highest rate limit)
+            if (syncWithTimeout(() -> dataSyncService.syncFromCore(kw, 5), "CORE", kw)) {
+                papers = fetchTopPapersFromDb(kw);
+            }
+
+            // If still < 3, try OpenAlex
+            if (papers.size() < 3) {
+                if (syncWithTimeout(() -> dataSyncService.syncFromOpenAlex(kw, 5), "OpenAlex", kw)) {
+                    papers = fetchTopPapersFromDb(kw);
+                }
+            }
+
+            // If still < 3, try arXiv (no API key needed)
+            if (papers.size() < 3) {
+                if (syncWithTimeout(() -> dataSyncService.syncFromArxiv(kw, 5), "arXiv", kw)) {
+                    papers = fetchTopPapersFromDb(kw);
+                }
+            }
+
+            log.info("After external API fallback: {} papers for '{}'", papers.size(), kw);
+        }
+
+        return papers;
+    }
+
+    private static final long SYNC_TIMEOUT_SECONDS = 10;
+
+    /**
+     * Execute an external sync call with a hard timeout.
+     * Returns true if the sync completed within the deadline, false if it timed out or failed.
+     * The sync runs in a background thread so it can continue writing to DB even after we move on.
+     */
+    private boolean syncWithTimeout(Runnable syncTask, String apiName, String keyword) {
+        try {
+            CompletableFuture.runAsync(syncTask)
+                    .get(SYNC_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
+            log.info("{} sync completed for '{}'", apiName, keyword);
+            return true;
+        } catch (java.util.concurrent.TimeoutException e) {
+            log.warn("{} sync timed out (>3s) for '{}', skipping", apiName, keyword);
+            return false;
+        } catch (Exception e) {
+            log.warn("{} sync failed for '{}': {}", apiName, keyword, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Fetch top cited papers from local DB (Neo4j → SQL pipeline).
+     * Tries Neo4j keyword index first, then falls back to SQL full-text search.
+     */
+    private List<PaperDetailResponseDTO> fetchTopPapersFromDb(String keyword) {
         // Neo4j index lookup (fast, exact match on normalizedText) → SQL fetch by IDs
-        String normalized = trimmedKeyword.toLowerCase();
+        String normalized = keyword.toLowerCase();
         List<String> paperIdStrings = graphService.getAllPaperIdsByKeyword(normalized);
 
         if (paperIdStrings.isEmpty()) {
-            log.info("No papers found for '{}' in Neo4j, falling back to SQL full-text", trimmedKeyword);
-            List<ResearchPaper> sqlResults = researchPaperRepository.findTopCitedByKeyword(
-                    trimmedKeyword, PageRequest.of(0, 5));
+            log.info("No papers found for '{}' in Neo4j, falling back to SQL exact keyword match", keyword);
+
+            // Try exact keyword match first (faster, more precise)
+            List<ResearchPaper> sqlResults = researchPaperRepository.findTopCitedByKeywordExact(
+                    keyword, PageRequest.of(0, 5));
+            if (!sqlResults.isEmpty()) {
+                log.info("SQL exact keyword match found {} papers for '{}'", sqlResults.size(), keyword);
+                return sqlResults.stream()
+                        .map(this::mapToSummaryDTO)
+                        .collect(Collectors.toList());
+            }
+
+            // Broader LIKE fallback (title, abstract, keyword_text)
+            log.info("No exact keyword match for '{}', falling back to SQL full-text LIKE", keyword);
+            sqlResults = researchPaperRepository.findTopCitedByKeyword(
+                    keyword, PageRequest.of(0, 5));
             return sqlResults.stream()
                     .map(this::mapToSummaryDTO)
                     .collect(Collectors.toList());
