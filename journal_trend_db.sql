@@ -207,6 +207,7 @@ CREATE TABLE AUTHOR (
     ExternalAuthorID    NVARCHAR(200)       NULL,
     FullName            NVARCHAR(300)       NOT NULL,
     Affiliation         NVARCHAR(500)       NULL,
+    Country             NVARCHAR(100)       NULL,
     HIndex              INT                 NULL  DEFAULT 0,
     TotalCitations      INT                 NULL  DEFAULT 0,
 
@@ -603,6 +604,7 @@ CREATE UNIQUE INDEX UK_JOURNAL_ISSN ON JOURNAL(ISSN) WHERE ISSN IS NOT NULL;
 -- AUTHOR
 -- Filtered unique: chi enforce unique khi ExternalAuthorID khac NULL
 CREATE UNIQUE INDEX UK_AUTHOR_External ON AUTHOR(SourceID, ExternalAuthorID) WHERE ExternalAuthorID IS NOT NULL;
+CREATE INDEX IX_AUTHOR_Country ON AUTHOR(Country);
 
 -- KEYWORD
 CREATE INDEX IX_KEYWORD_FieldID     ON KEYWORD(FieldID);

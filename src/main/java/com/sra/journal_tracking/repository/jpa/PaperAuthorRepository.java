@@ -41,4 +41,93 @@ public interface PaperAuthorRepository extends JpaRepository<PaperAuthor, PaperA
          + "GROUP BY a.authorId, a.fullName, a.affiliation "
          + "ORDER BY COUNT(DISTINCT pa2.paper) DESC")
     List<Object[]> findCoAuthorsByAuthorId(@Param("authorId") UUID authorId, Pageable pageable);
+
+    @Query(value = """
+            SELECT grouped.Country, COUNT(*) AS paperCount, COALESCE(SUM(grouped.CitationCount), 0) AS citationCount
+            FROM (
+                SELECT DISTINCT a.Country, p.PaperID, COALESCE(p.CitationCount, 0) AS CitationCount
+                FROM PAPER_AUTHOR pa
+                JOIN AUTHOR a ON a.AuthorID = pa.AuthorID
+                JOIN RESEARCH_PAPER p ON p.PaperID = pa.PaperID
+                WHERE a.Country IS NOT NULL
+                  AND LTRIM(RTRIM(a.Country)) <> ''
+                  AND (:year IS NULL OR p.PubYear = :year)
+                  AND (
+                      :keyword IS NULL OR :keyword = ''
+                      OR LOWER(p.Title) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                      OR LOWER(p.[Abstract]) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                      OR EXISTS (
+                          SELECT 1
+                          FROM PAPER_KEYWORD pk
+                          JOIN KEYWORD k ON k.KeywordID = pk.KeywordID
+                          WHERE pk.PaperID = p.PaperID
+                            AND LOWER(k.KeywordText) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                      )
+                  )
+            ) grouped
+            GROUP BY grouped.Country
+            ORDER BY paperCount DESC, citationCount DESC
+            """, nativeQuery = true)
+    List<Object[]> findCountryBreakdown(@Param("keyword") String keyword, @Param("year") Short year);
+
+    @Query(value = """
+            SELECT grouped.Affiliation, COUNT(*) AS paperCount, COALESCE(SUM(grouped.CitationCount), 0) AS citationCount
+            FROM (
+                SELECT DISTINCT a.Affiliation, p.PaperID, COALESCE(p.CitationCount, 0) AS CitationCount
+                FROM PAPER_AUTHOR pa
+                JOIN AUTHOR a ON a.AuthorID = pa.AuthorID
+                JOIN RESEARCH_PAPER p ON p.PaperID = pa.PaperID
+                WHERE a.Affiliation IS NOT NULL
+                  AND LTRIM(RTRIM(a.Affiliation)) <> ''
+                  AND (:year IS NULL OR p.PubYear = :year)
+                  AND (
+                      :keyword IS NULL OR :keyword = ''
+                      OR LOWER(p.Title) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                      OR LOWER(p.[Abstract]) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                      OR EXISTS (
+                          SELECT 1
+                          FROM PAPER_KEYWORD pk
+                          JOIN KEYWORD k ON k.KeywordID = pk.KeywordID
+                          WHERE pk.PaperID = p.PaperID
+                            AND LOWER(k.KeywordText) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                      )
+                  )
+            ) grouped
+            GROUP BY grouped.Affiliation
+            ORDER BY paperCount DESC, citationCount DESC
+            """, nativeQuery = true)
+    List<Object[]> findInstitutionBreakdown(@Param("keyword") String keyword,
+                                            @Param("year") Short year,
+                                            Pageable pageable);
+
+    @Query(value = """
+            SELECT grouped.Country, grouped.PubYear, COUNT(*) AS paperCount, COALESCE(SUM(grouped.CitationCount), 0) AS citationCount
+            FROM (
+                SELECT DISTINCT a.Country, p.PubYear, p.PaperID, COALESCE(p.CitationCount, 0) AS CitationCount
+                FROM PAPER_AUTHOR pa
+                JOIN AUTHOR a ON a.AuthorID = pa.AuthorID
+                JOIN RESEARCH_PAPER p ON p.PaperID = pa.PaperID
+                WHERE a.Country IS NOT NULL
+                  AND LTRIM(RTRIM(a.Country)) <> ''
+                  AND p.PubYear IS NOT NULL
+                  AND p.PubYear BETWEEN :startYear AND :endYear
+                  AND (
+                      :keyword IS NULL OR :keyword = ''
+                      OR LOWER(p.Title) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                      OR LOWER(p.[Abstract]) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                      OR EXISTS (
+                          SELECT 1
+                          FROM PAPER_KEYWORD pk
+                          JOIN KEYWORD k ON k.KeywordID = pk.KeywordID
+                          WHERE pk.PaperID = p.PaperID
+                            AND LOWER(k.KeywordText) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                      )
+                  )
+            ) grouped
+            GROUP BY grouped.Country, grouped.PubYear
+            ORDER BY grouped.Country ASC, grouped.PubYear ASC
+            """, nativeQuery = true)
+    List<Object[]> findCountryTrend(@Param("keyword") String keyword,
+                                    @Param("startYear") Short startYear,
+                                    @Param("endYear") Short endYear);
 }

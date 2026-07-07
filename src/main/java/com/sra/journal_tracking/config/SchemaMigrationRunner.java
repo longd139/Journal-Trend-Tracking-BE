@@ -21,6 +21,7 @@ public class SchemaMigrationRunner implements CommandLineRunner {
     public void run(String... args) {
         addRoleExpiryAtIfMissing();
         addRefreshTokenColumnsIfMissing();
+        addAuthorCountryIfMissing();
     }
 
     private void addRoleExpiryAtIfMissing() {
@@ -81,6 +82,36 @@ public class SchemaMigrationRunner implements CommandLineRunner {
             }
         } catch (Exception e) {
             log.error("Schema migration for refresh token columns failed: {}", e.getMessage(), e);
+        }
+    }
+
+    private void addAuthorCountryIfMissing() {
+        try {
+            Integer countryCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'AUTHOR') AND name = N'Country'",
+                    Integer.class);
+
+            if (countryCount != null && countryCount == 0) {
+                log.info("=== Adding Country column to AUTHOR table ===");
+                jdbcTemplate.execute("ALTER TABLE AUTHOR ADD Country NVARCHAR(100) NULL");
+                log.info("=== Country column added successfully ===");
+            } else {
+                log.debug("Country column already exists - skipping migration");
+            }
+
+            Integer countryIndexCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID(N'AUTHOR') AND name = N'IX_AUTHOR_Country'",
+                    Integer.class);
+
+            if (countryIndexCount != null && countryIndexCount == 0) {
+                log.info("=== Adding IX_AUTHOR_Country index to AUTHOR table ===");
+                jdbcTemplate.execute("CREATE INDEX IX_AUTHOR_Country ON AUTHOR(Country)");
+                log.info("=== IX_AUTHOR_Country index added successfully ===");
+            } else {
+                log.debug("IX_AUTHOR_Country index already exists - skipping migration");
+            }
+        } catch (Exception e) {
+            log.error("Schema migration for AUTHOR.Country failed: {}", e.getMessage(), e);
         }
     }
 }
