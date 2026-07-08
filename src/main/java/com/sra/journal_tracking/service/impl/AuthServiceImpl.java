@@ -189,9 +189,6 @@ public class AuthServiceImpl implements AuthService {
                 String requestedRole = request.getRoleName();
                 if (requestedRole != null && !requestedRole.isBlank()) {
                         String normalized = requestedRole.trim().toLowerCase();
-                        if ("admin".equals(normalized)) {
-                                throw new AppException(ErrorCode.INVALID_CREDENTIALS);
-                        }
                         role = roleRepository.findByRoleNameIgnoreCase(normalized)
                                         .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
                 } else {
@@ -205,7 +202,7 @@ public class AuthServiceImpl implements AuthService {
                                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                                 .institution(request.getInstitution())
                                 .role(role)
-                                .isActive(false) // Email verification required before login
+                                .isActive(true) // Auto-active — no email verification required
                                 .build();
 
                 // If registering as researcher, set 3-day trial
@@ -313,17 +310,18 @@ public class AuthServiceImpl implements AuthService {
                 User user = verificationToken.getUser();
 
                 if (user.getIsActive()) {
-                        // Đã verify rồi, vẫn đánh dấu token đã dùng
+                        // Already active — idempotent: just mark token as used
                         verificationToken.setIsUsed(true);
                         verificationTokenRepository.save(verificationToken);
-                        throw new AppException(ErrorCode.EMAIL_ALREADY_VERIFIED);
+                        log.info("Email already verified for user: {} — token marked as used", user.getEmail());
+                        return;
                 }
 
-                // Kích hoạt tài khoản
+                // Activate account
                 user.setIsActive(true);
                 userRepository.save(user);
 
-                // Đánh dấu token đã dùng
+                // Mark token as used
                 verificationToken.setIsUsed(true);
                 verificationTokenRepository.save(verificationToken);
 

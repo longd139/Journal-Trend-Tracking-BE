@@ -25,6 +25,10 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /** Đếm số user đang active (dùng cho admin dashboard). */
     long countByIsActiveTrue();
 
+    /** Kiểm tra có admin nào tồn tại chưa (role name = 'admin'). */
+    @Query("SELECT COUNT(u) FROM User u WHERE u.role.roleName = 'admin'")
+    long countByRoleAdmin();
+
     @EntityGraph(attributePaths = {"role"})
     @Query("""
             SELECT u FROM User u

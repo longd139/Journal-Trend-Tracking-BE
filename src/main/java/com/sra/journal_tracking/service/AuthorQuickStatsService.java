@@ -44,6 +44,9 @@ public class AuthorQuickStatsService {
     @Value("${app.openalex-email:}")
     private String openalexEmail;
 
+    @Value("${app.openalex-api-key:}")
+    private String openalexApiKey;
+
     /**
      * Search for an author by name and return their quick stats.
      *
@@ -433,28 +436,23 @@ public class AuthorQuickStatsService {
     // ── URL builder ──
 
     private String buildUrl(String keyword) {
-        // Use filter=display_name.search: instead of the generic search= param.
-        // The generic /authors search parser treats dots in initials (e.g. "O.",
-        // "M." in "Ahmed O. M. Bahageel") as regex-like operators, causing
-        // extremely broad scans and OpenAlex 504 "query_timeout".
-        // display_name.search: does a targeted substring match against the
-        // display_name field and handles dots/special chars correctly.
-        //
-        // Pre-encode to avoid double-encoding: build(true) recognizes already-
-        // encoded sequences (%XX) and leaves them intact.
-        String filterValue = "display_name.search:\"" + keyword + "\"";
-        String encodedFilter = URLEncoder.encode(filterValue, StandardCharsets.UTF_8);
+        // Use the simple 'search' query param — OpenAlex translates internally
+        // to text.search filter (as of 2026). The old display_name.search filter
+        // is no longer accepted by the API edge.
 
         UriComponentsBuilder builder = UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_AUTHORS_URL)
-                .queryParam("filter", encodedFilter)
+                .queryParam("search", keyword)
                 .queryParam("per-page", MAX_RESULTS);
 
-        if (openalexEmail != null && !openalexEmail.isBlank()) {
-            builder.queryParam("mailto", openalexEmail);
+        // api_key required since Feb 2026 (replaces deprecated mailto pool)
+        if (openalexApiKey != null && !openalexApiKey.isBlank()) {
+            builder.queryParam("api_key", openalexApiKey);
+        } else if (openalexEmail != null && !openalexEmail.isBlank()) {
+            builder.queryParam("mailto", openalexEmail); // fallback (deprecated)
         }
 
-        return builder.build(true).toUriString();
+        return builder.build().toUriString();
     }
 
     // ── Best match selection ──

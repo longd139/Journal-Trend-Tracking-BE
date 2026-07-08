@@ -52,7 +52,7 @@ CHECKPOINT_FILE = SCRIPT_DIR / ".auto_import_checkpoint.json"
 LOG_FILE = SCRIPT_DIR / "auto_import.log"
 TEMP_DIR = SCRIPT_DIR / "temp_snapshot"
 
-S3_BASE = "s3://openalex/data/works/"
+S3_BASE = "s3://openalex/data/jsonl/works/"
 
 
 def log(msg, also_print=True):
@@ -69,7 +69,7 @@ def check_dependencies():
     """Kiểm tra AWS CLI và Python packages."""
     # Check AWS CLI
     try:
-        subprocess.run(["aws", "--version"], capture_output=True, check=True)
+        subprocess.run(["aws", "--version"], capture_output=True, check=True, encoding="utf-8", errors="replace")
     except (subprocess.CalledProcessError, FileNotFoundError):
         log("❌ AWS CLI chưa được cài đặt.")
         log("   Tải từ: https://aws.amazon.com/cli/")
@@ -118,7 +118,8 @@ def list_s3_files(year_from, year_to):
                         "--recursive",
                     ],
                     capture_output=True,
-                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=120,
                 )
 
@@ -186,13 +187,17 @@ def save_checkpoint(completed_files):
         }, f, indent=2)
 
 
-def import_file(filepath):
+def import_file(filepath, max_papers=0):
     """Gọi import_snapshot.py để import 1 file vào DB."""
+    cmd = [sys.executable, str(IMPORTER_SCRIPT), "--input", str(filepath)]
+    if max_papers > 0:
+        cmd.extend(["--max-papers", str(max_papers)])
     result = subprocess.run(
-        [sys.executable, str(IMPORTER_SCRIPT), "--input", str(filepath)],
+        cmd,
         capture_output=True,
-        text=True,
-        timeout=600,  # 10 phút timeout cho 1 file
+        encoding="utf-8",
+        errors="replace",
+        timeout=3600,  # 1 hour timeout for large files
     )
 
     # Parse output để lấy số papers
@@ -200,7 +205,10 @@ def import_file(filepath):
     for line in result.stdout.split("\n"):
         if "Papers inserted:" in line:
             try:
-                papers = int(line.split(":")[-1].strip().replace(",", ""))
+                # Extract digits only (box-drawing chars break simple split)
+                digits = "".join(c for c in line.split(":")[-1] if c.isdigit())
+                if digits:
+                    papers = int(digits)
             except ValueError:
                 pass
 
@@ -237,8 +245,8 @@ def run(args):
     # ── Load checkpoint ──
     completed = load_checkpoint()
 
-    # Lọc bỏ file đã hoàn thành
-    pending = [f for f in files if f["filename"] not in completed]
+    # Lọc bỏ file đã hoàn thành (dùng s3_path làm key để tránh trùng filename)
+    pending = [f for f in files if f["s3_path"] not in completed]
     skipped = len(files) - len(pending)
 
     if skipped > 0:
@@ -281,6 +289,8 @@ def run(args):
                 ["aws", "s3", "cp", f_info["s3_path"], str(local_path), "--no-sign-request"],
                 capture_output=True,
                 check=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=300,
             )
             dl_time = round(time.time() - dl_start, 1)
@@ -293,12 +303,12 @@ def run(args):
 
             # Bước 2: Import
             log(f"   📥 Importing...", also_print=False)
-            import_result = import_file(local_path)
+            import_result = import_file(local_path, args.max_papers_per_file)
 
             if import_result["success"]:
                 total_papers += import_result["papers"]
                 success_count += 1
-                completed.add(f_info["filename"])
+                completed.add(f_info["s3_path"])
                 log(f"   ✅ OK — {import_result['papers']} papers | "
                     f"Tổng: {total_papers:,} papers | "
                     f"Đã xong: {len(completed)}/{len(files)} files")
@@ -400,6 +410,7 @@ Examples:
     parser.add_argument("--year-from", type=int, required=True, help="Năm bắt đầu (inclusive)")
     parser.add_argument("--year-to", type=int, help="Năm kết thúc (inclusive, mặc định = year-from)")
     parser.add_argument("--max-files", type=int, default=0, help="Giới hạn số file (0 = không giới hạn)")
+    parser.add_argument("--max-papers-per-file", type=int, default=5000, help="Giới hạn papers mỗi file (default: 5000)")
     parser.add_argument("--scan-only", action="store_true", help="Chỉ scan, không import")
 
     args = parser.parse_args()

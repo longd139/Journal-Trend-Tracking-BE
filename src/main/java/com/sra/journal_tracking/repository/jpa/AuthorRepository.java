@@ -21,6 +21,12 @@ public interface AuthorRepository extends JpaRepository<Author, UUID> {
     /** Top authors by total citations (for suggested authors zero-state). */
     List<Author> findAllByOrderByTotalCitationsDesc(Pageable pageable);
 
+    /** Top authors by paper count in our DB (authors with most PAPER_AUTHOR entries). */
+    @Query("SELECT a FROM Author a "
+         + "WHERE a.externalAuthorId IS NOT NULL AND a.externalAuthorId <> '' "
+         + "ORDER BY (SELECT COUNT(pa) FROM PaperAuthor pa WHERE pa.author = a) DESC")
+    List<Author> findTopAuthorsByPaperCount(Pageable pageable);
+
     /** Fuzzy search author by name (case-insensitive LIKE). */
     @Query("SELECT a FROM Author a WHERE LOWER(a.fullName) LIKE LOWER(CONCAT('%', :name, '%'))")
     List<Author> searchByName(@Param("name") String name, Pageable pageable);

@@ -9,7 +9,7 @@ public enum ErrorCode {
     USER_EXISTED(HttpStatus.BAD_REQUEST, "Email is already in use!"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found."),
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect."),
-    USER_NOT_ACTIVE(HttpStatus.FORBIDDEN, "Your account has not been verified. Please verify your email before continuing."),
+    USER_NOT_ACTIVE(HttpStatus.FORBIDDEN, "Your account has been disabled. Please contact an administrator."),
     GOOGLE_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Google authentication failed. The token is invalid or expired."),
     REFRESH_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Refresh token is invalid or expired."),
 

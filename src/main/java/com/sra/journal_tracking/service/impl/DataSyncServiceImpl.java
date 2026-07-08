@@ -31,6 +31,7 @@ import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.KeywordExtractionService;
 import com.sra.journal_tracking.service.NotificationTriggerService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
@@ -99,6 +100,7 @@ public class DataSyncServiceImpl implements DataSyncService {
     private final SyncLogRepository syncLogRepository;
     private final GraphService graphService;
     private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
     private final BulkSyncProgressTracker bulkSyncProgressTracker;
     private final KeywordExtractionService keywordExtractionService;
     private final NotificationTriggerService notificationTriggerService;
@@ -3127,7 +3129,21 @@ public class DataSyncServiceImpl implements DataSyncService {
                     authorUrl = "https://api.openalex.org/authors/" + authorUrl;
                 }
 
-                var response = restTemplate.getForObject(authorUrl,
+                // Add mailto for polite pool
+                var uriBuilder = UriComponentsBuilder.fromHttpUrl(authorUrl);
+                if (openalexEmail != null && !openalexEmail.isBlank()) {
+                    uriBuilder.queryParam("mailto", openalexEmail);
+                }
+                String url = uriBuilder.build(true).toUriString();
+
+                // Fetch raw JSON first (more robust than direct deserialization)
+                String rawJson = restTemplate.getForObject(url, String.class);
+                if (rawJson == null || rawJson.isBlank()) {
+                    skipped++;
+                    continue;
+                }
+
+                var response = objectMapper.readValue(rawJson,
                         com.sra.journal_tracking.dto.author.OpenAlexAuthorResponseDTO.AuthorResult.class);
 
                 if (response != null) {
@@ -3147,8 +3163,9 @@ public class DataSyncServiceImpl implements DataSyncService {
                 Thread.sleep(350); // ~3 req/sec for polite pool
             } catch (Exception e) {
                 errors++;
-                log.warn("Backfill failed for '{}' ({}): {}", author.getFullName(),
-                        author.getExternalAuthorId(), e.getMessage());
+                String errMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                log.warn("Backfill failed for '{}' (id={}): {}",
+                        author.getFullName(), author.getExternalAuthorId(), errMsg);
             }
         }
 
