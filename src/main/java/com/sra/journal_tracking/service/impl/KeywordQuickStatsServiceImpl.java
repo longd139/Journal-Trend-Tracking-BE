@@ -9,25 +9,25 @@ import com.sra.journal_tracking.dto.paper.RelatedKeywordResponse;
 import com.sra.journal_tracking.dto.paper.TopJournalResponse;
 import com.sra.journal_tracking.dto.search.KeywordComparisonRequest;
 import com.sra.journal_tracking.dto.search.KeywordComparisonResponse;
+import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.KeywordQuickStatsService;
-import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
 import java.time.Year;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -44,15 +44,37 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
 
     private final GraphService graphService;
     private final ResearchPaperRepository researchPaperRepository;
     private final DataSyncService dataSyncService;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
+
+    @Value("${app.openalex-api-key:}")
+    private String openalexApiKey;
+
+    @Value("${app.openalex-email:}")
+    private String openalexEmail;
+
+    private static final int SAMPLE_SIZE = 25;
+    private static final int MAX_RETRIES = 3;
+    private static final int TOP_JOURNALS_LIMIT = 10;
+
+    public KeywordQuickStatsServiceImpl(GraphService graphService,
+                                         ResearchPaperRepository researchPaperRepository,
+                                         DataSyncService dataSyncService,
+                                         RestTemplate restTemplate,
+                                         ObjectMapper objectMapper) {
+        this.graphService = graphService;
+        this.researchPaperRepository = researchPaperRepository;
+        this.dataSyncService = dataSyncService;
+        this.restTemplate = restTemplate;
+        this.objectMapper = objectMapper;
+    }
 
     @Override
-    @Transactional(readOnly = true)
     @Cacheable(value = "search:keywordQuickStats", cacheManager = "searchCacheManager",
                key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.totalPapers == 0")
     public KeywordQuickStatsResponse getStats(String keyword) {
@@ -60,76 +82,21 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
         if (trimmedKeyword.isEmpty()) {
             return buildEmptyResponse(keyword);
         }
-
-        // Truncate keyword if too long (defense in depth)
         if (trimmedKeyword.length() > KeywordConstants.MAX_KEYWORD_LENGTH) {
             trimmedKeyword = trimmedKeyword.substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
         }
 
-        log.info("Computing quick stats for keyword: '{}'", trimmedKeyword);
+        log.info("Computing quick stats via OpenAlex API for keyword: '{}'", trimmedKeyword);
 
-        // Step 1: Get total paper count from Neo4j (fast aggregate)
-        long totalPapers = graphService.countPapersByKeyword(trimmedKeyword);
-
-        if (totalPapers == 0) {
-            log.info("No papers found for keyword '{}'", trimmedKeyword);
-            return buildEmptyResponse(trimmedKeyword);
+        // OpenAlex API path (primary)
+        KeywordQuickStatsResponse response = getStatsFromOpenAlex(trimmedKeyword);
+        if (response != null && response.getTotalPapers() > 0) {
+            return response;
         }
 
-        // Step 2: Get all paper IDs from Neo4j
-        List<String> paperIdStrings = graphService.getAllPaperIdsByKeyword(trimmedKeyword);
-        List<UUID> paperIds = paperIdStrings.stream()
-                .map(UUID::fromString)
-                .toList();
-
-        if (paperIds.isEmpty()) {
-            return buildEmptyResponse(trimmedKeyword);
-        }
-
-        // Step 3: Sum citations from SQL
-        long totalCitations = researchPaperRepository.sumCitationCountByIds(paperIds);
-
-        // Step 4: Compute avg citations per paper
-        double avgCitationsPerPaper = (double) totalCitations / totalPapers;
-
-        // Step 5: YoY growth rate (this year vs last year)
-        short thisYear = (short) Year.now().getValue();
-        short lastYear = (short) (thisYear - 1);
-
-        long papersThisYear = researchPaperRepository.countByPaperIdsAndPubYear(paperIds, thisYear);
-        long papersLastYear = researchPaperRepository.countByPaperIdsAndPubYear(paperIds, lastYear);
-
-        Double yoyGrowthRate = null;
-        String yoyGrowthDirection = "neutral";
-
-        if (papersLastYear > 0) {
-            yoyGrowthRate = ((double) (papersThisYear - papersLastYear) / papersLastYear) * 100.0;
-            yoyGrowthDirection = yoyGrowthRate > 0 ? "up" : yoyGrowthRate < 0 ? "down" : "neutral";
-        } else if (papersThisYear > 0) {
-            // No prior year data but papers exist this year
-            yoyGrowthRate = 100.0;
-            yoyGrowthDirection = "up";
-        }
-
-        // Step 6: Top journals by keyword (horizontal bar chart)
-        List<TopJournalResponse> topJournals = getTopJournals(paperIds);
-
-        KeywordQuickStatsResponse response = KeywordQuickStatsResponse.builder()
-                .keyword(trimmedKeyword)
-                .totalPapers(totalPapers)
-                .totalCitations(totalCitations)
-                .yoyGrowthRate(yoyGrowthRate)
-                .yoyGrowthDirection(yoyGrowthDirection)
-                .avgCitationsPerPaper(roundToOneDecimal(avgCitationsPerPaper))
-                .papersThisYear(papersThisYear)
-                .papersLastYear(papersLastYear)
-                .topJournals(topJournals)
-                .build();
-
-        log.info("Quick stats for '{}': papers={}, citations={}, yoy={}%, avg={}",
-                trimmedKeyword, totalPapers, totalCitations, yoyGrowthRate, response.getAvgCitationsPerPaper());
-
-        return response;
+        // Fallback to local DB if OpenAlex fails
+        log.info("OpenAlex returned no data for '{}', falling back to local DB", trimmedKeyword);
+        return getStatsFromLocalDb(trimmedKeyword);
     }
 
     private KeywordQuickStatsResponse buildEmptyResponse(String keyword) {
@@ -144,6 +111,150 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
                 .papersLastYear(0L)
                 .topJournals(List.of())
                 .build();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  OpenAlex API implementation
+    // ═══════════════════════════════════════════════════════════════
+
+    private KeywordQuickStatsResponse getStatsFromOpenAlex(String keyword) {
+        try {
+            // Call 1: Sample papers + total count
+            String baseUrl = buildWorksUrl(keyword, SAMPLE_SIZE, "cited_by_count:desc", null);
+            OpenAlexResponseDTO r1 = fetchOpenAlexWithRetry(baseUrl, keyword);
+            if (r1 == null || r1.getMeta() == null || r1.getMeta().getCount() == 0) return null;
+
+            long totalPapers = r1.getMeta().getCount();
+            List<OpenAlexResponseDTO.OpenAlexWorkDTO> works =
+                    r1.getResults() != null ? r1.getResults() : List.of();
+
+            long totalCitations = works.stream()
+                    .mapToLong(w -> w.getCitedByCount() != null ? w.getCitedByCount() : 0).sum();
+            double avgCitations = works.isEmpty() ? 0 : (double) totalCitations / Math.min(SAMPLE_SIZE, totalPapers);
+
+            // Call 2+3: YoY counts
+            short thisYear = (short) Year.now().getValue();
+            short lastYear = (short) (thisYear - 1);
+
+            String thisYrUrl = buildWorksUrl(keyword, 1, null, "from_publication_date:" + thisYear + "-01-01");
+            OpenAlexResponseDTO r2 = fetchOpenAlexWithRetry(thisYrUrl, keyword);
+            long papersThisYear = r2 != null && r2.getMeta() != null ? r2.getMeta().getCount() : 0L;
+
+            String lastYrUrl = buildWorksUrl(keyword, 1, null,
+                    "from_publication_date:" + lastYear + "-01-01,to_publication_date:" + lastYear + "-12-31");
+            OpenAlexResponseDTO r3 = fetchOpenAlexWithRetry(lastYrUrl, keyword);
+            long papersLastYear = r3 != null && r3.getMeta() != null ? r3.getMeta().getCount() : 0L;
+
+            Double yoyRate = null;
+            String yoyDir = "neutral";
+            if (papersLastYear > 0) {
+                yoyRate = ((double)(papersThisYear - papersLastYear) / papersLastYear) * 100.0;
+                yoyDir = yoyRate > 0 ? "up" : yoyRate < 0 ? "down" : "neutral";
+            } else if (papersThisYear > 0) { yoyRate = 100.0; yoyDir = "up"; }
+
+            List<TopJournalResponse> journals = aggregateTopJournals(works);
+
+            log.info("OpenAlex stats for '{}': papers={}, citations={}, yoy={}%",
+                    keyword, totalPapers, totalCitations, yoyRate);
+
+            return KeywordQuickStatsResponse.builder()
+                    .keyword(keyword).totalPapers(totalPapers).totalCitations(totalCitations)
+                    .yoyGrowthRate(yoyRate).yoyGrowthDirection(yoyDir)
+                    .avgCitationsPerPaper(roundToOneDecimal(avgCitations))
+                    .papersThisYear(papersThisYear).papersLastYear(papersLastYear)
+                    .topJournals(journals).build();
+        } catch (Exception e) {
+            log.warn("OpenAlex stats failed for '{}': {}", keyword, e.getMessage());
+            return null;
+        }
+    }
+
+    private String buildWorksUrl(String keyword, int perPage, String sort, String filter) {
+        var b = UriComponentsBuilder.fromHttpUrl("https://api.openalex.org/works")
+                .queryParam("search", keyword).queryParam("per-page", perPage)
+                .queryParam("select", "id,doi,title,display_name,cited_by_count,publication_year,"
+                        + "primary_location,open_access,topics,keywords,authorships");
+        if (sort != null) b.queryParam("sort", sort);
+        if (filter != null) b.queryParam("filter", filter);
+        if (openalexApiKey != null && !openalexApiKey.isBlank()) b.queryParam("api_key", openalexApiKey);
+        else if (openalexEmail != null && !openalexEmail.isBlank()) b.queryParam("mailto", openalexEmail);
+        return b.build().toUriString();
+    }
+
+    private OpenAlexResponseDTO fetchOpenAlexWithRetry(String url, String keyword) {
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                String raw = restTemplate.getForObject(url, String.class);
+                if (raw == null || raw.isBlank()) return null;
+                return objectMapper.readValue(raw, OpenAlexResponseDTO.class);
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                log.warn("OpenAlex works {} retry {}/{} failed for '{}': {}",
+                        attempt > 0 ? "attempt" : "attempt", attempt + 1, MAX_RETRIES, keyword, msg);
+                if (attempt < MAX_RETRIES - 1) {
+                    try { Thread.sleep((attempt + 1) * 2000L); }
+                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                }
+            }
+        }
+        log.error("OpenAlex works exhausted {} retries for '{}'", MAX_RETRIES, keyword);
+        return null;
+    }
+
+    private List<TopJournalResponse> aggregateTopJournals(
+            List<OpenAlexResponseDTO.OpenAlexWorkDTO> works) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (var w : works) {
+            var src = w.getPrimaryLocation() != null ? w.getPrimaryLocation().getSource() : null;
+            if (src != null && src.getDisplayName() != null)
+                counts.merge(src.getDisplayName(), 1L, Long::sum);
+        }
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .limit(TOP_JOURNALS_LIMIT)
+                .map(e -> TopJournalResponse.builder().journalName(e.getKey())
+                        .paperCount(e.getValue()).impactFactor(null).quartile(null).publisher(null).build())
+                .collect(Collectors.toList());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Local DB fallback (Neo4j + SQL)
+    // ═══════════════════════════════════════════════════════════════
+
+    private KeywordQuickStatsResponse getStatsFromLocalDb(String trimmedKeyword) {
+        long totalPapers = graphService.countPapersByKeyword(trimmedKeyword);
+        if (totalPapers == 0) {
+            log.info("No papers found for '{}' in local DB", trimmedKeyword);
+            return buildEmptyResponse(trimmedKeyword);
+        }
+
+        List<String> paperIdStrings = graphService.getAllPaperIdsByKeyword(trimmedKeyword);
+        List<UUID> paperIds = paperIdStrings.stream().map(UUID::fromString).toList();
+        if (paperIds.isEmpty()) return buildEmptyResponse(trimmedKeyword);
+
+        long totalCitations = researchPaperRepository.sumCitationCountByIds(paperIds);
+        if (totalCitations == 0 && !paperIds.isEmpty()) {
+            long sqlCit = researchPaperRepository.sumCitationCountByKeyword(trimmedKeyword);
+            if (sqlCit > 0) { log.info("SQL fallback citations: {}", sqlCit); totalCitations = sqlCit; }
+        }
+
+        double avgCit = (double) totalCitations / totalPapers;
+        short thisYear = (short) Year.now().getValue();
+        short lastYear = (short) (thisYear - 1);
+        long pThisYear = researchPaperRepository.countByPaperIdsAndPubYear(paperIds, thisYear);
+        long pLastYear = researchPaperRepository.countByPaperIdsAndPubYear(paperIds, lastYear);
+
+        Double yoyRate = null;
+        String yoyDir = "neutral";
+        if (pLastYear > 0) { yoyRate = ((double)(pThisYear - pLastYear) / pLastYear) * 100.0; yoyDir = yoyRate > 0 ? "up" : yoyRate < 0 ? "down" : "neutral"; }
+        else if (pThisYear > 0) { yoyRate = 100.0; yoyDir = "up"; }
+
+        return KeywordQuickStatsResponse.builder()
+                .keyword(trimmedKeyword).totalPapers(totalPapers).totalCitations(totalCitations)
+                .yoyGrowthRate(yoyRate).yoyGrowthDirection(yoyDir)
+                .avgCitationsPerPaper(roundToOneDecimal(avgCit))
+                .papersThisYear(pThisYear).papersLastYear(pLastYear)
+                .topJournals(getTopJournals(paperIds)).build();
     }
 
     /**
@@ -311,38 +422,41 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
         String normalized = keyword.toLowerCase();
         List<String> paperIdStrings = graphService.getAllPaperIdsByKeyword(normalized);
 
-        if (paperIdStrings.isEmpty()) {
-            log.info("No papers found for '{}' in Neo4j, falling back to SQL exact keyword match", keyword);
+        if (!paperIdStrings.isEmpty()) {
+            // Only take first 50 IDs — enough for top-5, faster SQL IN clause
+            List<UUID> paperIds = paperIdStrings.stream()
+                    .limit(50)
+                    .map(UUID::fromString)
+                    .toList();
 
-            // Try exact keyword match first (faster, more precise)
-            List<ResearchPaper> sqlResults = researchPaperRepository.findTopCitedByKeywordExact(
-                    keyword, PageRequest.of(0, 5));
-            if (!sqlResults.isEmpty()) {
-                log.info("SQL exact keyword match found {} papers for '{}'", sqlResults.size(), keyword);
-                return sqlResults.stream()
+            List<ResearchPaper> topPapers = researchPaperRepository.findTopCitedByIds(
+                    paperIds, PageRequest.of(0, 5));
+
+            if (!topPapers.isEmpty()) {
+                return topPapers.stream()
                         .map(this::mapToSummaryDTO)
                         .collect(Collectors.toList());
             }
+            log.info("Neo4j IDs returned empty from SQL for '{}', falling back to SQL keyword search", keyword);
+        } else {
+            log.info("No papers found for '{}' in Neo4j, falling back to SQL exact keyword match", keyword);
+        }
 
-            // Broader LIKE fallback (title, abstract, keyword_text)
-            log.info("No exact keyword match for '{}', falling back to SQL full-text LIKE", keyword);
-            sqlResults = researchPaperRepository.findTopCitedByKeyword(
-                    keyword, PageRequest.of(0, 5));
+        // ── SQL fallback (Neo4j out of sync or empty) ──
+        List<ResearchPaper> sqlResults = researchPaperRepository.findTopCitedByKeywordExact(
+                keyword, PageRequest.of(0, 5));
+        if (!sqlResults.isEmpty()) {
+            log.info("SQL exact keyword match found {} papers for '{}'", sqlResults.size(), keyword);
             return sqlResults.stream()
                     .map(this::mapToSummaryDTO)
                     .collect(Collectors.toList());
         }
 
-        // Only take first 50 IDs — enough for top-5, faster SQL IN clause
-        List<UUID> paperIds = paperIdStrings.stream()
-                .limit(50)
-                .map(UUID::fromString)
-                .toList();
-
-        List<ResearchPaper> topPapers = researchPaperRepository.findTopCitedByIds(
-                paperIds, PageRequest.of(0, 5));
-
-        return topPapers.stream()
+        // Broader LIKE fallback (title, abstract, keyword_text)
+        log.info("No exact keyword match for '{}', falling back to SQL full-text LIKE", keyword);
+        sqlResults = researchPaperRepository.findTopCitedByKeyword(
+                keyword, PageRequest.of(0, 5));
+        return sqlResults.stream()
                 .map(this::mapToSummaryDTO)
                 .collect(Collectors.toList());
     }

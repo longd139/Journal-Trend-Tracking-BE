@@ -230,6 +230,15 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
     long sumCitationCountByIds(@Param("ids") List<UUID> ids);
 
     /**
+     * Sum citations for papers matching a keyword (via PAPER_KEYWORD join).
+     * Fallback when Neo4j has stale/incomplete data.
+     */
+    @Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p "
+         + "JOIN p.keywords pk JOIN pk.keyword kw "
+         + "WHERE LOWER(kw.keywordText) = LOWER(:keyword)")
+    long sumCitationCountByKeyword(@Param("keyword") String keyword);
+
+    /**
      * Count papers from a list of IDs that were published in a given year.
      */
     @Query("SELECT COUNT(p) FROM ResearchPaper p WHERE p.paperId IN :ids AND p.pubYear = :year")
