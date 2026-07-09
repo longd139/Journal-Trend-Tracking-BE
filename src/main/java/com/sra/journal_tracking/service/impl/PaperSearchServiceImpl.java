@@ -18,6 +18,7 @@ import com.sra.journal_tracking.service.AuthorQuickStatsService;
 import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.KeywordExpansionService;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
+import com.sra.journal_tracking.service.PaperCacheService;
 import com.sra.journal_tracking.service.PaperSearchService;
 import com.sra.journal_tracking.service.ReadingHistoryService;
 import com.sra.journal_tracking.service.SearchBackfillService;
@@ -67,6 +68,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
     private final NotificationRepository notificationRepository;
     private final NotificationEventPublisher eventPublisher;
     private final ReadingHistoryService readingHistoryService;
+    private final PaperCacheService paperCacheService;
 
     @Override
     public PaperSearchResultDTO searchPapers(PaperSearchRequestDTO request, String userEmail) {
@@ -280,8 +282,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
     }
 
     @Override
-    public PaperDetailResponseDTO getPaperDetails(UUID paperId, String userEmail) {
-        log.info("Get paper details: paperId={}, user={}", paperId, userEmail);
+    public PaperDetailResponseDTO getPaperDetails(UUID paperId, String sourceUrl, String userEmail) {
+        log.info("Get paper details: paperId={}, sourceUrl={}, user={}", paperId, sourceUrl, userEmail);
 
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userEmail));
@@ -290,13 +292,43 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             checkAndIncrementUsage(user.getUserId(), "view");
         }
 
-        ResearchPaper paper = researchPaperRepository.findByIdWithDetails(paperId)
-                .orElseThrow(() -> new PaperNotFoundException("Paper not found with ID: " + paperId));
+        // Try local DB first
+        ResearchPaper paper = researchPaperRepository.findByIdWithDetails(paperId).orElse(null);
+        if (paper != null) {
+            readingHistoryService.recordView(userEmail, paperId);
+            return mapToDetailDTO(paper);
+        }
 
-        // Record reading history (async, non-blocking)
-        readingHistoryService.recordView(userEmail, paperId);
+        // Try paper cache (survives DB switches)
+        var cached = paperCacheService.get(paperId);
+        if (cached.isPresent()) {
+            log.info("Paper {} found in PAPER_CACHE", paperId);
+            readingHistoryService.recordView(userEmail, paperId);
+            return cached.get();
+        }
 
-        return mapToDetailDTO(paper);
+        // Not in DB or cache — try UUID→workUrl map from search results
+        if (sourceUrl == null || sourceUrl.isBlank()) {
+            log.info("Paper {} not in DB, trying UUID cache lookup", paperId);
+            PaperDetailResponseDTO fromCache = openAlexFallbackSearchService.getPaperByUuid(paperId);
+            if (fromCache != null) {
+                readingHistoryService.recordView(userEmail, paperId);
+                return fromCache;
+            }
+        }
+
+        // Try OpenAlex directly if sourceUrl provided
+        if (sourceUrl != null && !sourceUrl.isBlank()) {
+            log.info("Paper {} not in DB, fetching from OpenAlex: {}", paperId, sourceUrl);
+            PaperDetailResponseDTO fromOpenAlex = openAlexFallbackSearchService.getPaperByOpenAlexId(sourceUrl);
+            if (fromOpenAlex != null) {
+                readingHistoryService.recordView(userEmail, paperId);
+                return fromOpenAlex;
+            }
+        }
+
+        log.warn("Paper {} not found locally and no valid sourceUrl provided", paperId);
+        throw new PaperNotFoundException("Paper not found. Provide ?sourceUrl= to fetch from OpenAlex.");
     }
 
     @Override

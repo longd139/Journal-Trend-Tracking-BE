@@ -15,6 +15,7 @@ import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.KeywordQuickStatsService;
+import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,6 +52,7 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
     private final DataSyncService dataSyncService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final OpenAlexFallbackSearchService openAlexSearchService;
 
     @Value("${app.openalex-api-key:}")
     private String openalexApiKey;
@@ -66,12 +68,14 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
                                          ResearchPaperRepository researchPaperRepository,
                                          DataSyncService dataSyncService,
                                          RestTemplate restTemplate,
-                                         ObjectMapper objectMapper) {
+                                         ObjectMapper objectMapper,
+                                         OpenAlexFallbackSearchService openAlexSearchService) {
         this.graphService = graphService;
         this.researchPaperRepository = researchPaperRepository;
         this.dataSyncService = dataSyncService;
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.openAlexSearchService = openAlexSearchService;
     }
 
     @Override
@@ -341,53 +345,19 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
     }
 
     @Override
-    @Transactional
     @Cacheable(value = "search:keywordTopPapers", cacheManager = "searchCacheManager",
                key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
     public List<PaperDetailResponseDTO> getTopInfluentialPapers(String keyword) {
         String trimmedKeyword = keyword.trim();
-        if (trimmedKeyword.isEmpty()) {
-            return List.of();
-        }
-
-        if (trimmedKeyword.length() > KeywordConstants.MAX_KEYWORD_LENGTH) {
+        if (trimmedKeyword.isEmpty()) return List.of();
+        if (trimmedKeyword.length() > KeywordConstants.MAX_KEYWORD_LENGTH)
             trimmedKeyword = trimmedKeyword.substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
-        }
 
-        log.info("Fetching top influential papers for keyword: '{}'", trimmedKeyword);
+        log.info("Fetching top influential papers via OpenAlex for: '{}'", trimmedKeyword);
 
-        // Effectively-final copy for use in lambda expressions
-        final String kw = trimmedKeyword;
-
-        List<PaperDetailResponseDTO> papers = fetchTopPapersFromDb(kw);
-
-        // If fewer than 3 results in DB, fall back to external APIs (each capped at 3s timeout)
-        if (papers.size() < 3) {
-            log.info("Only {} papers found in DB for '{}', falling back to external APIs",
-                    papers.size(), kw);
-
-            // Try CORE first (has API key, highest rate limit)
-            if (syncWithTimeout(() -> dataSyncService.syncFromCore(kw, 5), "CORE", kw)) {
-                papers = fetchTopPapersFromDb(kw);
-            }
-
-            // If still < 3, try OpenAlex
-            if (papers.size() < 3) {
-                if (syncWithTimeout(() -> dataSyncService.syncFromOpenAlex(kw, 5), "OpenAlex", kw)) {
-                    papers = fetchTopPapersFromDb(kw);
-                }
-            }
-
-            // If still < 3, try arXiv (no API key needed)
-            if (papers.size() < 3) {
-                if (syncWithTimeout(() -> dataSyncService.syncFromArxiv(kw, 5), "arXiv", kw)) {
-                    papers = fetchTopPapersFromDb(kw);
-                }
-            }
-
-            log.info("After external API fallback: {} papers for '{}'", papers.size(), kw);
-        }
-
+        // Call OpenAlex /works directly — sorted by cited_by_count:desc, all time
+        List<PaperDetailResponseDTO> papers = openAlexSearchService.searchTopCited(trimmedKeyword, 5);
+        log.info("OpenAlex top papers for '{}': {} results", trimmedKeyword, papers.size());
         return papers;
     }
 

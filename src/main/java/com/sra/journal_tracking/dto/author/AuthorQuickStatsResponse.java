@@ -1,6 +1,9 @@
 package com.sra.journal_tracking.dto.author;
 
+import java.util.UUID;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -42,6 +45,7 @@ public class AuthorQuickStatsResponse {
      * h-index — measures both productivity and citation impact.
      * h-index = 20 means the author has at least 20 papers, each cited at least 20 times.
      */
+    @JsonProperty("hIndex")
     private Integer hIndex;
 
     /**
@@ -63,4 +67,11 @@ public class AuthorQuickStatsResponse {
      * OpenAlex author ID URL (e.g. "https://openalex.org/A5023888391")
      */
     private String openAlexId;
+
+    /**
+     * Local database author ID (UUID) — used by the frontend to call Follow API.
+     * Populated by upserting the OpenAlex author into the local DB during quick-stats lookup.
+     * Null if the author could not be resolved/synced to the local database.
+     */
+    private UUID authorId;
 }

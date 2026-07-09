@@ -167,6 +167,8 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 
     Optional<ResearchPaper> findByDoi(String doi);
 
+    Optional<ResearchPaper> findByOpenAlexWorkId(String openAlexWorkId);
+
     @Query("SELECT COUNT(p) FROM ResearchPaper p " +
            "WHERE LOWER(p.title) = LOWER(:title) " +
            "  AND (:pubYear IS NULL OR p.pubYear = :pubYear)")
@@ -490,7 +492,7 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 	    FROM RESEARCH_PAPER p
 	    JOIN PAPER_AUTHOR pa ON p.PaperID = pa.PaperID
 	    JOIN AUTHOR a ON pa.AuthorID = a.AuthorID
-	    WHERE a.FullName = :fullName AND p.PubYear IS NOT NULL
+	    WHERE a.FullName = :fullName AND p.PubYear IS NOT NULL AND (p.Type = 'article' OR p.Type IS NULL) AND NOT (p.Title LIKE '%#%' AND p.CitationCount = 0)
 	    ORDER BY p.CitationCount DESC
 	    """, nativeQuery = true)
 	List<Object[]> getAuthorPapersWithCitations(@Param("fullName") String fullName);
@@ -506,7 +508,7 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 	    JOIN AUTHOR a ON pa.AuthorID = a.AuthorID
 	    JOIN PAPER_KEYWORD pk ON p.PaperID = pk.PaperID
 	    JOIN KEYWORD kw ON pk.KeywordID = kw.KeywordID
-	    WHERE a.FullName = :fullName
+	    WHERE a.FullName = :fullName AND (p.Type = 'article' OR p.Type IS NULL) AND NOT (p.Title LIKE '%#%' AND p.CitationCount = 0)
 	    GROUP BY kw.KeywordText
 	    ORDER BY paperCount DESC
 	    """, nativeQuery = true)
@@ -524,10 +526,33 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 	    JOIN PAPER_AUTHOR pa ON p.PaperID = pa.PaperID
 	    JOIN AUTHOR a ON pa.AuthorID = a.AuthorID
 	    LEFT JOIN JOURNAL j ON p.JournalID = j.JournalID
-	    WHERE a.FullName = :fullName
+	    WHERE a.FullName = :fullName AND (p.Type = 'article' OR p.Type IS NULL) AND NOT (p.Title LIKE '%#%' AND p.CitationCount = 0)
 	    ORDER BY p.PubYear DESC, p.CitationCount DESC
 	    OFFSET 0 ROWS FETCH NEXT :limit ROWS ONLY
 	    """, nativeQuery = true)
 	List<Object[]> getAuthorRecentPublications(@Param("fullName") String fullName,
 	                                           @Param("limit") int limit);
+
+	// ═══════════════════════════════════════════════════════════
+	//  Author-specific dashboard overview (by authorId, not name)
+	// ═══════════════════════════════════════════════════════════
+
+	/** Sum citations for all papers of an author (by authorId). Returns 0 if no papers. */
+	@Query(value = """
+	    SELECT COALESCE(SUM(p.CitationCount), 0)
+	    FROM RESEARCH_PAPER p
+	    JOIN PAPER_AUTHOR pa ON p.PaperID = pa.PaperID
+	    WHERE pa.AuthorID = :authorId
+	    """, nativeQuery = true)
+	Long sumCitationsByAuthorId(@Param("authorId") UUID authorId);
+
+	/** Get [paperId, citationCount] for all papers of an author, sorted by citations DESC. Used for h-index. */
+	@Query(value = """
+	    SELECT p.PaperID, COALESCE(p.CitationCount, 0)
+	    FROM RESEARCH_PAPER p
+	    JOIN PAPER_AUTHOR pa ON p.PaperID = pa.PaperID
+	    WHERE pa.AuthorID = :authorId
+	    ORDER BY p.CitationCount DESC
+	    """, nativeQuery = true)
+	List<Object[]> getCitationCountsByAuthorId(@Param("authorId") UUID authorId);
 }

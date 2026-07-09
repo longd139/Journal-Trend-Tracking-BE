@@ -46,6 +46,7 @@ public class PaperSearchOrchestrator {
     private final SearchKeywordService searchKeywordService;
     private final UserSearchHistoryService userSearchHistoryService;
     private final ResearchPaperRepository researchPaperRepository;
+    private final OpenAlexFallbackSearchService openAlexFallbackSearchService;
 
     @Transactional
     public PaperSearchResultDTO searchByKeyword(String keyword, String userEmail) {
@@ -139,7 +140,30 @@ public class PaperSearchOrchestrator {
             return result;
         }
 
-        // Nothing found — trigger background sync for future searches
+        // Nothing in DB — fetch directly from OpenAlex API
+        log.info("No papers found in local DB for '{}'. Fetching from OpenAlex directly.", trimmedKeyword);
+        try {
+            List<PaperDetailResponseDTO> openAlexPapers = openAlexFallbackSearchService.search(trimmedKeyword, safeLimit);
+            if (!openAlexPapers.isEmpty()) {
+                log.info("OpenAlex HIT: {} papers for '{}'", openAlexPapers.size(), trimmedKeyword);
+                result = PaperSearchResultDTO.builder()
+                        .papers(openAlexPapers)
+                        .totalElements((long) openAlexPapers.size())
+                        .totalPages(1)
+                        .currentPage(0)
+                        .pageSize(openAlexPapers.size())
+                        .hasNext(false)
+                        .hasPrev(false)
+                        .build();
+                searchResultCache.put(cacheKey, new CacheEntry<>(result));
+                log.info("CACHE STORE: orchestrator '{}' → {} papers (TTL=6h, source=OpenAlex)", trimmedKeyword, openAlexPapers.size());
+                return result;
+            }
+        } catch (Exception e) {
+            log.warn("OpenAlex fallback failed for '{}': {}", trimmedKeyword, e.getMessage());
+        }
+
+        // Truly nothing found — trigger background sync for future searches
         log.info("No papers found for '{}' in any source. Triggering background sync.", trimmedKeyword);
         try {
             dataSyncService.syncFromOpenAlexAsync(trimmedKeyword, safeLimit);

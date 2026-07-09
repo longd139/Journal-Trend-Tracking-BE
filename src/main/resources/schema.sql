@@ -216,6 +216,45 @@ BEGIN
     ALTER TABLE AUTHOR ADD WorksCount INT NOT NULL DEFAULT 0
 END
 
+-- 11. RESEARCH_PAPER.Type — paper type from OpenAlex (article, dataset, report, etc.)
+IF OBJECT_ID('RESEARCH_PAPER', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'RESEARCH_PAPER' AND COLUMN_NAME = 'Type'
+   )
+BEGIN
+    ALTER TABLE RESEARCH_PAPER ADD Type NVARCHAR(50) NULL
+END
+
+-- 12. RESEARCH_PAPER.OpenAlexWorkId — OpenAlex work URL for on-demand fetch
+IF OBJECT_ID('RESEARCH_PAPER', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'RESEARCH_PAPER' AND COLUMN_NAME = 'OpenAlexWorkId'
+   )
+BEGIN
+    ALTER TABLE RESEARCH_PAPER ADD OpenAlexWorkId NVARCHAR(500) NULL
+END
+
+-- 13. PAPER_CACHE — lightweight cache for papers from OpenAlex API
+IF OBJECT_ID('PAPER_CACHE', 'U') IS NULL
+BEGIN
+    CREATE TABLE PAPER_CACHE (
+        PaperID       UNIQUEIDENTIFIER NOT NULL,
+        Title         NVARCHAR(1000) NULL,
+        Abstract      NVARCHAR(MAX) NULL,
+        Doi           NVARCHAR(200) NULL,
+        PubYear       SMALLINT NULL,
+        CitationCount INT NULL DEFAULT 0,
+        JournalName   NVARCHAR(500) NULL,
+        SourceUrl     NVARCHAR(500) NULL,
+        OpenAlexWorkId NVARCHAR(500) NULL,
+        DataJson      NVARCHAR(MAX) NULL,
+        UpdatedAt     DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_PAPER_CACHE PRIMARY KEY CLUSTERED (PaperID)
+    )
+END
+
 -- 9. Fix CK_FOLLOW_OneTarget constraint — when AuthorID column exists but
 --    constraint was created before AuthorID was added (from migration 8)
 IF OBJECT_ID('FOLLOW', 'U') IS NOT NULL
@@ -251,5 +290,44 @@ IF OBJECT_ID('AUTHOR', 'U') IS NOT NULL
    )
 BEGIN
     ALTER TABLE AUTHOR ADD WorksCount INT NOT NULL DEFAULT 0
+END
+
+-- 11. RESEARCH_PAPER.Type — paper type from OpenAlex (article, dataset, report, etc.)
+IF OBJECT_ID('RESEARCH_PAPER', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'RESEARCH_PAPER' AND COLUMN_NAME = 'Type'
+   )
+BEGIN
+    ALTER TABLE RESEARCH_PAPER ADD Type NVARCHAR(50) NULL
+END
+
+-- 12. RESEARCH_PAPER.OpenAlexWorkId — OpenAlex work URL for on-demand fetch
+IF OBJECT_ID('RESEARCH_PAPER', 'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'RESEARCH_PAPER' AND COLUMN_NAME = 'OpenAlexWorkId'
+   )
+BEGIN
+    ALTER TABLE RESEARCH_PAPER ADD OpenAlexWorkId NVARCHAR(500) NULL
+END
+
+-- 13. PAPER_CACHE — lightweight cache for papers from OpenAlex API
+IF OBJECT_ID('PAPER_CACHE', 'U') IS NULL
+BEGIN
+    CREATE TABLE PAPER_CACHE (
+        PaperID       UNIQUEIDENTIFIER NOT NULL,
+        Title         NVARCHAR(1000) NULL,
+        Abstract      NVARCHAR(MAX) NULL,
+        Doi           NVARCHAR(200) NULL,
+        PubYear       SMALLINT NULL,
+        CitationCount INT NULL DEFAULT 0,
+        JournalName   NVARCHAR(500) NULL,
+        SourceUrl     NVARCHAR(500) NULL,
+        OpenAlexWorkId NVARCHAR(500) NULL,
+        DataJson      NVARCHAR(MAX) NULL,
+        UpdatedAt     DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_PAPER_CACHE PRIMARY KEY CLUSTERED (PaperID)
+    )
 END
 

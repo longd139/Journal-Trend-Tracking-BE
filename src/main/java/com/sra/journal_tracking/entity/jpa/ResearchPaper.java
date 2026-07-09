@@ -75,6 +75,12 @@ public class ResearchPaper {
     @Builder.Default
     private Integer citationCount = 0;
 
+    @Column(name = "Type", length = 50)
+    private String type;
+
+    @Column(name = "OpenAlexWorkId", length = 500)
+    private String openAlexWorkId;
+
     @Column(name = "IsOpenAccess", nullable = false)
     @Builder.Default
     private Boolean isOpenAccess = false;

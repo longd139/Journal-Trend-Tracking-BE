@@ -1,5 +1,7 @@
 package com.sra.journal_tracking.service;
 
+import java.util.UUID;
+
 import com.sra.journal_tracking.dto.dashboard.OverviewStatsResponse;
 import com.sra.journal_tracking.dto.dashboard.TotalPapersResponse;
 
@@ -10,12 +12,18 @@ public interface DashboardService {
 
     /**
      * Get overview statistics for the landing page dashboard.
-     * Returns 4 cards: Papers Tracked, Total Citations,
-     * Top Trending Now, and Top Growth Topic.
      *
+     * When authorId is null: returns system-wide stats (4 cards).
+     * When authorId is provided: returns author-specific stats (4 cards):
+     *   1. Total Papers — papers published by this author
+     *   2. Total Citations — citations received by this author
+     *   3. h-index — academic impact indicator
+     *   4. Co-authors — unique collaborators in research network
+     *
+     * @param authorId optional — if provided, stats are scoped to this author
      * @return OverviewStatsResponse with real data from database
      */
-    OverviewStatsResponse getOverviewStats();
+    OverviewStatsResponse getOverviewStats(UUID authorId);
 
     /**
      * Get total number of research papers in the system.

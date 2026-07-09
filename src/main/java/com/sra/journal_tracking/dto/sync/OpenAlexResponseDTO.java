@@ -28,6 +28,7 @@ public class OpenAlexResponseDTO {
         private String id;
         private String doi;
         private String title;
+        private String type;
 
         @JsonProperty("display_name")
         private String displayName;

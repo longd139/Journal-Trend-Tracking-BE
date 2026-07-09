@@ -86,21 +86,13 @@ public class AuthorSuggestionServiceImpl implements AuthorSuggestionService {
                 .collect(Collectors.joining("|"));
 
         // ── Step 3: Build batch OpenAlex URL ──
-        // UriComponentsBuilder handles RFC 3986 encoding (| is a valid sub-delim)
-        var uriBuilder = UriComponentsBuilder
-                .fromHttpUrl("https://api.openalex.org/authors")
-                .queryParam("filter", "ids.openalex:" + idFilter)
-                .queryParam("sort", "cited_by_count:desc")
-                .queryParam("per-page", SUGGESTED_LIMIT);
+        String authParam = (openalexApiKey != null && !openalexApiKey.isBlank())
+                ? "&api_key=" + openalexApiKey
+                : (openalexEmail != null && !openalexEmail.isBlank())
+                ? "&mailto=" + openalexEmail : "";
 
-        // API key required since Feb 2026 (replaces deprecated mailto pool)
-        if (openalexApiKey != null && !openalexApiKey.isBlank()) {
-            uriBuilder.queryParam("api_key", openalexApiKey);
-        } else if (openalexEmail != null && !openalexEmail.isBlank()) {
-            uriBuilder.queryParam("mailto", openalexEmail); // fallback (deprecated)
-        }
-
-        String url = uriBuilder.build().toUriString();
+        String url = "https://api.openalex.org/authors?filter=ids.openalex:" + idFilter
+                + "&sort=cited_by_count:desc&per-page=" + SUGGESTED_LIMIT + authParam;
         log.info("OpenAlex batch author call: {} candidates → {} IDs", candidates.size(),
                 idFilter.length() > 120 ? idFilter.substring(0, 120) + "..." : idFilter);
 

@@ -75,6 +75,7 @@ public interface PaperSearchService {
      */
     PaperDetailResponseDTO getPaperDetails(
         UUID paperId,
+        String sourceUrl,
         String userEmail
     );
     

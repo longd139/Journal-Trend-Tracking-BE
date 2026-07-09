@@ -7,8 +7,12 @@ import com.sra.journal_tracking.dto.author.AuthorTimelineResponse;
 import com.sra.journal_tracking.dto.author.CoAuthorResponse;
 import com.sra.journal_tracking.dto.author.OpenAlexAuthorResponseDTO;
 import com.sra.journal_tracking.dto.author.OpenAlexWorksResponseDTO;
+import com.sra.journal_tracking.entity.jpa.ApiSource;
+import com.sra.journal_tracking.entity.jpa.Author;
 import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
+import com.sra.journal_tracking.repository.jpa.ApiSourceRepository;
+import com.sra.journal_tracking.repository.jpa.AuthorRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +28,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -40,6 +45,8 @@ public class AuthorQuickStatsService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final AuthorRepository authorRepository;
+    private final ApiSourceRepository apiSourceRepository;
 
     @Value("${app.openalex-email:}")
     private String openalexEmail;
@@ -245,13 +252,17 @@ public class AuthorQuickStatsService {
         // ── 3. Map topics → research focus ──
         List<AuthorResearchFocusResponse.TopicFocus> topicList = new ArrayList<>();
         if (bestMatch.getTopics() != null && !bestMatch.getTopics().isEmpty()) {
-            int totalWorks = bestMatch.getWorksCount() != null ? bestMatch.getWorksCount() : 1;
+            // Use sum of all topic counts as denominator so percentages are meaningful
+            int totalTopicCount = bestMatch.getTopics().stream()
+                    .mapToInt(t -> t.getCount() != null ? t.getCount() : 0)
+                    .sum();
+            final int denominator = totalTopicCount > 0 ? totalTopicCount : 1;
 
             topicList = bestMatch.getTopics().stream()
-                    .filter(t -> t.getDisplayName() != null)
+                    .filter(t -> t.getDisplayName() != null && (t.getCount() != null && t.getCount() > 0))
                     .map(t -> {
-                        int count = t.getCount() != null ? t.getCount() : 0;
-                        double pct = totalWorks > 0 ? (count * 100.0) / totalWorks : 0;
+                        int count = t.getCount();
+                        double pct = (count * 100.0) / denominator;
 
                         return AuthorResearchFocusResponse.TopicFocus.builder()
                                 .topicName(t.getDisplayName())
@@ -262,6 +273,7 @@ public class AuthorQuickStatsService {
                                 .domain(t.getDomain() != null ? t.getDomain().getDisplayName() : null)
                                 .build();
                     })
+                    .filter(t -> t.getPercentage() > 0) // skip 0% topics
                     .sorted(Comparator.comparingInt(AuthorResearchFocusResponse.TopicFocus::getPaperCount).reversed())
                     .collect(Collectors.toList());
         }
@@ -509,6 +521,9 @@ public class AuthorQuickStatsService {
         // Derive a human-readable institution type label
         String academicTitle = deriveAcademicTitle(result);
 
+        // ── Upsert author into local DB for follow/bookmark support ──
+        UUID localAuthorId = upsertLocalAuthor(result);
+
         return AuthorQuickStatsResponse.builder()
                 .fullName(result.getDisplayName())
                 .academicTitle(academicTitle)
@@ -520,7 +535,96 @@ public class AuthorQuickStatsService {
                 .twoYearMeanCitedness(twoYearMeanCitedness)
                 .orcid(normalizeOrcid(result.getOrcid()))
                 .openAlexId(result.getId())
+                .authorId(localAuthorId)
                 .build();
+    }
+
+    /**
+     * Look up or create a local Author entity from OpenAlex data.
+     * This enables follow/bookmark features that require a local DB UUID.
+     *
+     * @param result the OpenAlex author result
+     * @return the local Author UUID, or null if the upsert failed
+     */
+    private UUID upsertLocalAuthor(OpenAlexAuthorResponseDTO.AuthorResult result) {
+        try {
+            String openAlexId = result.getId();
+            if (openAlexId == null || openAlexId.isBlank()) return null;
+
+            String shortId = extractShortId(openAlexId);
+            if (shortId == null) return null;
+
+            // Find the OpenAlex ApiSource
+            ApiSource openAlexSource = apiSourceRepository.findBySourceNameIgnoreCase("OpenAlex")
+                    .orElse(null);
+            if (openAlexSource == null) {
+                log.warn("OpenAlex ApiSource not found in local DB — cannot upsert author");
+                return null;
+            }
+
+            // Look up existing author by external ID + source
+            Author author = authorRepository
+                    .findByExternalAuthorIdAndSource_SourceId(shortId, openAlexSource.getSourceId())
+                    .orElse(null);
+
+            if (author == null) {
+                // Create a new minimal Author entity
+                author = Author.builder()
+                        .source(openAlexSource)
+                        .externalAuthorId(shortId)
+                        .fullName(result.getDisplayName() != null ? result.getDisplayName() : "Unknown")
+                        .affiliation(result.getLastKnownInstitution() != null
+                                ? result.getLastKnownInstitution().getDisplayName() : null)
+                        .hIndex(result.getSummaryStats() != null && result.getSummaryStats().getHIndex() != null
+                                ? result.getSummaryStats().getHIndex()
+                                : (result.getHIndex() != null ? result.getHIndex() : 0))
+                        .totalCitations(result.getCitedByCount() != null ? result.getCitedByCount() : 0)
+                        .i10Index(result.getSummaryStats() != null && result.getSummaryStats().getI10Index() != null
+                                ? result.getSummaryStats().getI10Index()
+                                : (result.getI10Index() != null ? result.getI10Index() : 0))
+                        .worksCount(result.getWorksCount() != null ? result.getWorksCount() : 0)
+                        .build();
+                author = authorRepository.save(author);
+                log.info("Created local Author: id={}, name={}", author.getAuthorId(), author.getFullName());
+            } else {
+                // Update existing author with latest metrics from OpenAlex
+                boolean updated = false;
+                if (result.getDisplayName() != null && !result.getDisplayName().equals(author.getFullName())) {
+                    author.setFullName(result.getDisplayName());
+                    updated = true;
+                }
+                Integer hIdx = result.getSummaryStats() != null && result.getSummaryStats().getHIndex() != null
+                        ? result.getSummaryStats().getHIndex() : result.getHIndex();
+                if (hIdx != null && !hIdx.equals(author.getHIndex())) {
+                    author.setHIndex(hIdx);
+                    updated = true;
+                }
+                Integer i10 = result.getSummaryStats() != null && result.getSummaryStats().getI10Index() != null
+                        ? result.getSummaryStats().getI10Index() : result.getI10Index();
+                if (i10 != null && !i10.equals(author.getI10Index())) {
+                    author.setI10Index(i10);
+                    updated = true;
+                }
+                if (result.getCitedByCount() != null && !result.getCitedByCount().equals(author.getTotalCitations())) {
+                    author.setTotalCitations(result.getCitedByCount());
+                    updated = true;
+                }
+                if (result.getWorksCount() != null && !result.getWorksCount().equals(author.getWorksCount())) {
+                    author.setWorksCount(result.getWorksCount());
+                    updated = true;
+                }
+                if (updated) {
+                    author = authorRepository.save(author);
+                    log.info("Updated local Author metrics: id={}, hIndex={}", author.getAuthorId(), author.getHIndex());
+                }
+            }
+
+            return author.getAuthorId();
+        } catch (Exception e) {
+            log.warn("Failed to upsert local Author for OpenAlex ID {}: {}",
+                    result.getId(), e.getMessage());
+            return null;
+        }
     }
 
     /**

@@ -214,8 +214,10 @@ public class PaperSearchController {
     @GetMapping("/{paperId}")
     public ResponseEntity<AppResponse<PaperDetailResponseDTO>> getPaperDetails(
             @PathVariable UUID paperId,
+            @RequestParam(required = false) String sourceUrl,
             Authentication authentication) {
-        return ResponseEntity.ok(AppResponse.success("Paper details retrieved", paperSearchService.getPaperDetails(paperId, authentication.getName())));
+        return ResponseEntity.ok(AppResponse.success("Paper details retrieved",
+                paperSearchService.getPaperDetails(paperId, sourceUrl, authentication.getName())));
     }
 
     @GetMapping("/usage")

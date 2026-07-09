@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.service;
 
+import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
 import com.sra.journal_tracking.entity.jpa.SyncLog;
 
 public interface DataSyncService {
@@ -26,6 +27,14 @@ public interface DataSyncService {
      * @return SyncLog with sync results
      */
     SyncLog syncPapersFromOpenAlexByAuthor(String openAlexAuthorId, String authorName, int limit);
+
+    /**
+     * Save a single OpenAlex work to the local database.
+     * Used to ensure papers returned by search fallback are available for detail view.
+     *
+     * @param work the OpenAlex work DTO
+     */
+    void saveSingleWorkFromOpenAlex(OpenAlexResponseDTO.OpenAlexWorkDTO work);
 
     /**
      * Get comprehensive database statistics for admin dashboard.

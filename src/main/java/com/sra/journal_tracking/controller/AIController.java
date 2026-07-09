@@ -13,6 +13,7 @@ import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.service.AISummarizationService;
 import com.sra.journal_tracking.service.BatchAnalysisResult;
+import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -43,6 +44,7 @@ public class AIController {
 
     private final AISummarizationService aiSummarizationService;
     private final ResearchPaperRepository researchPaperRepository;
+    private final OpenAlexFallbackSearchService openAlexFallbackSearchService;
 
     // ═══════════════════════════════════════════════════════════════
     //  ENDPOINTS
@@ -58,18 +60,31 @@ public class AIController {
     @Transactional(readOnly = true)
     public ResponseEntity<AppResponse<PaperDetailResponseDTO>> summarizeAbstract(
             @PathVariable UUID paperId,
+            @RequestParam(required = false) String sourceUrl,
             Authentication authentication) {
 
-        ResearchPaper paper = researchPaperRepository.findByIdWithAuthors(paperId)
-                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND));
+        // Try DB first, fall back to OpenAlex
+        PaperDetailResponseDTO dto;
+        ResearchPaper paper = researchPaperRepository.findByIdWithAuthors(paperId).orElse(null);
+        if (paper != null) {
+            dto = mapToDetailDTO(paper);
+        } else if (sourceUrl != null && !sourceUrl.isBlank()) {
+            dto = openAlexFallbackSearchService.getPaperByOpenAlexId(sourceUrl);
+        } else {
+            dto = openAlexFallbackSearchService.getPaperByUuid(paperId);
+        }
+        if (dto == null) throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
 
-        PaperDetailResponseDTO dto = mapToDetailDTO(paper);
-
-        // Populate AI fields (each call is independently safe — failure = null)
-        String rawSummary = aiSummarizationService.summarizeAbstract(paperId);
+        // Populate AI fields — pass abstract from DTO so it works without DB
+        String abstractText = dto.getAbstractText();
+        String rawSummary = abstractText != null && !abstractText.isBlank()
+                ? aiSummarizationService.summarizeAbstract(paperId, abstractText)
+                : null;
         dto.setAiSummary(rawSummary);
         dto.setAiSummarySections(aiSummarizationService.parseSummarySections(rawSummary));
-        dto.setMethodology(aiSummarizationService.extractMethodology(paperId));
+        dto.setMethodology(abstractText != null && !abstractText.isBlank()
+                ? aiSummarizationService.extractMethodology(paperId, abstractText)
+                : null);
 
         return ResponseEntity.ok(AppResponse.success("Paper details with AI summary", dto));
     }

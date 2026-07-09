@@ -1,8 +1,11 @@
 package com.sra.journal_tracking.controller;
 
+import java.util.UUID;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.sra.journal_tracking.dto.dashboard.OverviewStatsResponse;
@@ -25,15 +28,18 @@ public class DashboardController {
 
     @Operation(
         summary = "Get overview statistics",
-        description = "Returns 4 dashboard cards: Papers Tracked, Total Citations, "
-                    + "Paper Growth (new papers this month + MoM rate), and Total Authors. "
+        description = "Without ?authorId=: returns 4 system-wide dashboard cards. "
+                    + "With ?authorId=: returns 4 author-specific cards "
+                    + "(Total Papers, Total Citations, h-index, Co-authors). "
                     + "Public endpoint — no auth required."
     )
     @ApiResponse(responseCode = "200", description = "Overview statistics retrieved successfully")
     @GetMapping("/overview")
-    public ResponseEntity<AppResponse<OverviewStatsResponse>> getOverviewStats() {
-        OverviewStatsResponse stats = dashboardService.getOverviewStats();
-        return ResponseEntity.ok(AppResponse.success("Overview statistics retrieved", stats));
+    public ResponseEntity<AppResponse<OverviewStatsResponse>> getOverviewStats(
+            @RequestParam(required = false) UUID authorId) {
+        OverviewStatsResponse stats = dashboardService.getOverviewStats(authorId);
+        String msg = authorId != null ? "Author overview retrieved" : "Overview statistics retrieved";
+        return ResponseEntity.ok(AppResponse.success(msg, stats));
     }
 
     @Operation(

@@ -90,10 +90,23 @@ public class AISummarizationService {
             log.debug("Skipping summarization for paper {}: no abstract", paperId);
             return null;
         }
+        return summarizeAbstract(paperId, paper.getAbstractText());
+    }
 
-        String abstractText = truncateAbstract(paper.getAbstractText());
+    /**
+     * Summarize using abstract text directly (no DB lookup). Used when paper comes from OpenAlex.
+     */
+    public String summarizeAbstract(UUID paperId, String abstractText) {
+        String cacheKey = "summary:" + paperId.toString();
+        CacheEntry<String> cached = summaryCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) { return cached.data; }
+        if (cached != null) { summaryCache.remove(cacheKey); }
+
+        if (isBlank(abstractText)) { log.debug("Skipping summarization: empty abstract"); return null; }
+
+        String text = truncateAbstract(abstractText);
         String result = callAiWithFallback(
-                buildSummarizePrompt(abstractText),
+                buildSummarizePrompt(text),
                 SUMMARY_MAX_TOKENS, SUMMARY_TEMPERATURE, cacheKey, summaryCache,
                 "summarization", paperId.toString());
         return result;
@@ -168,10 +181,23 @@ public class AISummarizationService {
             log.debug("Skipping methodology extraction for paper {}: no abstract", paperId);
             return null;
         }
+        return extractMethodology(paperId, paper.getAbstractText());
+    }
 
-        String abstractText = truncateAbstract(paper.getAbstractText());
+    /**
+     * Extract methodology using abstract text directly (no DB lookup).
+     */
+    public String extractMethodology(UUID paperId, String abstractText) {
+        String cacheKey = "methodology:" + paperId.toString();
+        CacheEntry<String> cached = methodologyCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) { return cached.data; }
+        if (cached != null) { methodologyCache.remove(cacheKey); }
+
+        if (isBlank(abstractText)) { log.debug("Skipping methodology: empty abstract"); return null; }
+
+        String text = truncateAbstract(abstractText);
         String result = callAiWithFallback(
-                buildMethodologyPrompt(abstractText),
+                buildMethodologyPrompt(text),
                 METHODOLOGY_MAX_TOKENS, METHODOLOGY_TEMPERATURE, cacheKey, methodologyCache,
                 "methodology", paperId.toString());
 

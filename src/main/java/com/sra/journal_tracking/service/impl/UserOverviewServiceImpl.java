@@ -14,6 +14,8 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.sra.journal_tracking.dto.author.AuthorResearchFocusResponse;
+import com.sra.journal_tracking.dto.author.AuthorTimelineResponse;
 import com.sra.journal_tracking.dto.follow.FollowResponse;
 import com.sra.journal_tracking.dto.overview.UserOverviewResponse;
 import com.sra.journal_tracking.dto.overview.UserOverviewResponse.CitationYearEntry;
@@ -21,6 +23,8 @@ import com.sra.journal_tracking.dto.overview.UserOverviewResponse.RecentPublicat
 import com.sra.journal_tracking.dto.overview.UserOverviewResponse.ResearchFieldEntry;
 import com.sra.journal_tracking.entity.jpa.User;
 import com.sra.journal_tracking.entity.jpa.UserUsage;
+import com.sra.journal_tracking.exception.AppException;
+import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.repository.jpa.AuthorRepository;
 import com.sra.journal_tracking.repository.jpa.FollowRepository;
 import com.sra.journal_tracking.repository.jpa.KeywordRepository;
@@ -28,6 +32,8 @@ import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserUsageRepository;
+import com.sra.journal_tracking.service.AuthorQuickStatsService;
+import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.UserOverviewService;
 
 import lombok.RequiredArgsConstructor;
@@ -46,9 +52,11 @@ public class UserOverviewServiceImpl implements UserOverviewService {
     private final ResearchPaperRepository researchPaperRepository;
     private final AuthorRepository authorRepository;
     private final FollowRepository followRepository;
+    private final DataSyncService dataSyncService;
+    private final AuthorQuickStatsService authorQuickStatsService;
 
     @Override
-    @Cacheable(value = "search:userOverview", cacheManager = "searchCacheManager",
+    @Cacheable(value = "overview:user", cacheManager = "defaultCacheManager",
                key = "#userEmail + '_' + (#authorId != null ? #authorId.toString() : 'none')",
                unless = "#result == null")
     public UserOverviewResponse getUserOverview(String userEmail, UUID authorId) {
@@ -94,30 +102,35 @@ public class UserOverviewServiceImpl implements UserOverviewService {
         List<RecentPublicationEntry> recentPublications = Collections.emptyList();
 
         if (authorId != null) {
-            // Resolve author name from ID
             var authorOpt = authorRepository.findById(authorId);
             if (authorOpt.isPresent()) {
                 String authorName = authorOpt.get().getFullName();
 
-                List<Object[]> papersWithCitations = researchPaperRepository
-                        .getAuthorPapersWithCitations(authorName);
-                if (!papersWithCitations.isEmpty()) {
-                    hIndex = computeHIndex(papersWithCitations);
-                    citationHistory = buildCitationHistory(papersWithCitations);
-                } else {
-                    hIndex = 0;
-                }
+                try {
+                    // Fetch citation history from OpenAlex (counts_by_year)
+                    AuthorTimelineResponse timeline = authorQuickStatsService.getTimeline(authorName);
+                    hIndex = timeline.getHIndex();
+                    citationHistory = timeline.getTimeline().stream()
+                            .map(p -> CitationYearEntry.builder()
+                                    .y(p.getYear())
+                                    .citations(p.getCitedByCount())
+                                    .build())
+                            .collect(Collectors.toList());
 
-                List<Object[]> keywordDistribution = researchPaperRepository
-                        .getAuthorKeywordDistribution(authorName);
-                if (!keywordDistribution.isEmpty()) {
-                    researchFields = buildResearchFields(keywordDistribution);
-                }
+                    // Fetch research fields from OpenAlex (topics)
+                    AuthorResearchFocusResponse focus = authorQuickStatsService.getResearchFocus(authorName);
+                    researchFields = focus.getTopics().stream()
+                            .limit(8)
+                            .map(t -> ResearchFieldEntry.builder()
+                                    .name(t.getTopicName())
+                                    .value(t.getPercentage())
+                                    .build())
+                            .collect(Collectors.toList());
 
-                List<Object[]> recentRows = researchPaperRepository
-                        .getAuthorRecentPublications(authorName, 20);
-                if (!recentRows.isEmpty()) {
-                    recentPublications = buildRecentPublications(recentRows);
+                } catch (AppException e) {
+                    log.warn("OpenAlex error for '{}': {}", authorName, e.getMessage());
+                } catch (Exception e) {
+                    log.warn("Unexpected error for '{}': {}", authorName, e.getMessage());
                 }
             }
         }

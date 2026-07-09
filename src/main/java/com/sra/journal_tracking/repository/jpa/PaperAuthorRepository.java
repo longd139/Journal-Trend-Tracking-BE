@@ -60,6 +60,13 @@ public interface PaperAuthorRepository extends JpaRepository<PaperAuthor, PaperA
          + "ORDER BY COUNT(DISTINCT pa2.paper) DESC")
     List<Object[]> findCoAuthorsByAuthorId(@Param("authorId") UUID authorId, Pageable pageable);
 
+    /** Count unique co-authors for a given author. */
+    @Query("SELECT COUNT(DISTINCT a.authorId) FROM PaperAuthor pa1 "
+         + "JOIN PaperAuthor pa2 ON pa1.paper = pa2.paper "
+         + "JOIN pa2.author a "
+         + "WHERE pa1.author.authorId = :authorId AND pa2.author.authorId <> :authorId")
+    long countCoAuthorsByAuthorId(@Param("authorId") UUID authorId);
+
     @Query(value = """
             SELECT grouped.Country, COUNT(*) AS paperCount, COALESCE(SUM(grouped.CitationCount), 0) AS citationCount
             FROM (

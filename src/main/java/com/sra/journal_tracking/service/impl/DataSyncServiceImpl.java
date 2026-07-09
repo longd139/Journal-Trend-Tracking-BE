@@ -5,7 +5,6 @@ import com.sra.journal_tracking.dto.sync.BulkSyncProgress;
 import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
 import com.sra.journal_tracking.dto.sync.SemanticScholarResponseDTO;
 import com.sra.journal_tracking.entity.jpa.ApiSource;
-import com.sra.journal_tracking.entity.jpa.ApiSource;
 import com.sra.journal_tracking.entity.jpa.Author;
 import com.sra.journal_tracking.entity.jpa.Journal;
 import com.sra.journal_tracking.entity.jpa.Keyword;
@@ -63,12 +62,25 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class DataSyncServiceImpl implements DataSyncService {
+
+    /**
+     * Generate a deterministic UUID from an OpenAlex work, based on its ID URL.
+     * The same OpenAlex work always produces the same UUID — across databases, servers, and restarts.
+     * Used by both sync (saveOpenAlexWork) and search preview (stablePreviewId) so IDs match.
+     */
+    public static UUID generatePaperIdFromOpenAlexWork(OpenAlexResponseDTO.OpenAlexWorkDTO work) {
+        String key = work.getId() != null ? work.getId() : work.getDoi();
+        if (key == null) key = work.getTitle() != null ? work.getTitle() : "";
+        return UUID.nameUUIDFromBytes(("openalex:" + key).getBytes(StandardCharsets.UTF_8));
+    }
+
     private static final int RECENT_PUBLICATION_YEAR_WINDOW = 3;
     private static final int MAX_AUTHORS_PER_PAPER = 5;
     private static final int MAX_KEYWORDS_PER_PAPER = 8;
@@ -371,13 +383,31 @@ public class DataSyncServiceImpl implements DataSyncService {
 
         String doi = normalizeDoi(work.getDoi());
         String title = trimToLength(resolveTitle(work), 1000);
-        if (isDuplicatePaper(doi, title, work.getPublicationYear())) {
+
+        // Use deterministic UUID from OpenAlex work URL — same ID whether from sync or search preview
+        UUID paperId = generatePaperIdFromOpenAlexWork(work);
+
+        // If paper with this deterministic ID already exists, skip
+        if (researchPaperRepository.existsById(paperId)) {
             return null;
+        }
+
+        // If paper exists by DOI with a DIFFERENT ID (old random UUID), delete and re-insert
+        if (!isBlank(doi) && researchPaperRepository.findByDoi(doi).isPresent()) {
+            var oldPaper = researchPaperRepository.findByDoi(doi).get();
+            if (!oldPaper.getPaperId().equals(paperId)) {
+                log.info("Re-syncing paper '{}' from {} to {} (deterministic UUID)", title,
+                        oldPaper.getPaperId(), paperId);
+                // Delete old paper (cascades PAPER_AUTHOR, PAPER_KEYWORD — they get recreated below)
+                researchPaperRepository.delete(oldPaper);
+                entityManager.flush();
+            }
         }
 
         ResearchField field = resolveResearchField(work);
 
         ResearchPaper newPaper = ResearchPaper.builder()
+                .paperId(paperId)
                 .source(source)
                 .title(title)
                 .abstractText(abstractText)
@@ -388,6 +418,8 @@ public class DataSyncServiceImpl implements DataSyncService {
                 .citationCount(work.getCitedByCount() != null ? work.getCitedByCount() : 0)
                 .isOpenAccess(work.getOpenAccess() != null && Boolean.TRUE.equals(work.getOpenAccess().getIsOa()))
                 .pdfUrl(resolvePdfUrl(work))
+                .type(work.getType())
+                .openAlexWorkId(work.getId())
                 .build();
 
         setPublicationDate(newPaper, work.getPublicationDate());
@@ -413,6 +445,21 @@ public class DataSyncServiceImpl implements DataSyncService {
         notificationTriggerService.notifyNewPaper(savedPaper);
 
         return savedPaper;
+    }
+
+    @Override
+    public void saveSingleWorkFromOpenAlex(OpenAlexResponseDTO.OpenAlexWorkDTO work) {
+        try {
+            ApiSource source = getOrCreateOpenAlexSource();
+            // Use wide year range to accept all papers (top-papers search includes old papers)
+            int startYear = 1900;
+            int endYear = Year.now().getValue();
+            LocalDate today = LocalDate.now();
+            // Use wide year range + skip relevance to accept all papers
+            saveOpenAlexWork(work, source, "fallback-cache", startYear, endYear, today, true);
+        } catch (Exception e) {
+            log.warn("Failed to save fallback paper from OpenAlex: {}", e.getMessage());
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -1588,6 +1635,7 @@ public class DataSyncServiceImpl implements DataSyncService {
 
                         ResearchField field = resolveResearchField(work);
                         ResearchPaper newPaper = ResearchPaper.builder()
+                                .paperId(generatePaperIdFromOpenAlexWork(work))
                                 .source(source)
                                 .title(title)
                                 .abstractText(abstractText)
@@ -1598,6 +1646,8 @@ public class DataSyncServiceImpl implements DataSyncService {
                                 .citationCount(work.getCitedByCount() != null ? work.getCitedByCount() : 0)
                                 .isOpenAccess(work.getOpenAccess() != null && Boolean.TRUE.equals(work.getOpenAccess().getIsOa()))
                                 .pdfUrl(resolvePdfUrl(work))
+                                .type(work.getType())
+                                .openAlexWorkId(work.getId())
                                 .build();
                         setPublicationDate(newPaper, work.getPublicationDate());
 
@@ -1736,6 +1786,7 @@ public class DataSyncServiceImpl implements DataSyncService {
 
                         ResearchField field = resolveResearchField(work);
                         ResearchPaper newPaper = ResearchPaper.builder()
+                                .paperId(generatePaperIdFromOpenAlexWork(work))
                                 .source(source).title(title).abstractText(abstractText).doi(doi)
                                 .journal(resolveJournal(work, source, field)).field(field)
                                 .pubYear(work.getPublicationYear())
@@ -1901,6 +1952,7 @@ public class DataSyncServiceImpl implements DataSyncService {
 
                         ResearchField field = resolveResearchField(work);
                         ResearchPaper newPaper = ResearchPaper.builder()
+                                .paperId(generatePaperIdFromOpenAlexWork(work))
                                 .source(source)
                                 .title(title)
                                 .abstractText(abstractText)
@@ -1911,6 +1963,8 @@ public class DataSyncServiceImpl implements DataSyncService {
                                 .citationCount(work.getCitedByCount() != null ? work.getCitedByCount() : 0)
                                 .isOpenAccess(work.getOpenAccess() != null && Boolean.TRUE.equals(work.getOpenAccess().getIsOa()))
                                 .pdfUrl(resolvePdfUrl(work))
+                                .type(work.getType())
+                                .openAlexWorkId(work.getId())
                                 .build();
                         setPublicationDate(newPaper, work.getPublicationDate());
 

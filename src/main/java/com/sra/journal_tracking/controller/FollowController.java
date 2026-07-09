@@ -34,7 +34,7 @@ public class FollowController {
 
     private final FollowService followService;
 
-    @Operation(summary = "Add follow", description = "Follow a journal, topic, or keyword. Only one target allowed per request.")
+    @Operation(summary = "Add follow", description = "Follow a journal, topic, keyword, or author. Only one target allowed per request.")
     @PostMapping
     public ResponseEntity<AppResponse<FollowResponse>> addFollow(
             Authentication authentication,

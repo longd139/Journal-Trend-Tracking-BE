@@ -13,11 +13,14 @@ import org.springframework.transaction.annotation.Transactional;
 import com.sra.journal_tracking.dto.bookmark.BookmarkRequest;
 import com.sra.journal_tracking.dto.bookmark.BookmarkResponse;
 import com.sra.journal_tracking.dto.bookmark.BulkBookmarkRequest;
+import com.sra.journal_tracking.entity.jpa.ApiSource;
 import com.sra.journal_tracking.entity.jpa.Bookmark;
 import com.sra.journal_tracking.entity.jpa.BookmarkCollection;
+import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.entity.jpa.User;
 import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
+import com.sra.journal_tracking.repository.jpa.ApiSourceRepository;
 import com.sra.journal_tracking.repository.jpa.BookmarkCollectionRepository;
 import com.sra.journal_tracking.repository.jpa.BookmarkRepository;
 import com.sra.journal_tracking.repository.jpa.KeywordRepository;
@@ -41,6 +44,7 @@ public class BookmarkServiceImpl implements BookmarkService {
     private final ResearchPaperRepository researchPaperRepository;
     private final KeywordRepository keywordRepository;
     private final SystemConfigRepository systemConfigRepository;
+    private final ApiSourceRepository apiSourceRepository;
     private final PaperRecommendationService paperRecommendationService;
 
     @Override
@@ -68,10 +72,22 @@ public class BookmarkServiceImpl implements BookmarkService {
             throw new AppException(ErrorCode.BOOKMARK_INVALID_TARGET);
         }
 
-        // Validate target exists
+        // Validate target exists (lazily create minimal paper record for OpenAlex papers)
         if (request.getPaperId() != null) {
             if (!researchPaperRepository.existsById(request.getPaperId())) {
-                throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
+                // Paper not in DB — create minimal record for FK constraint
+                log.info("Creating minimal paper record for bookmark: {}", request.getPaperId());
+                var minimalPaper = ResearchPaper.builder()
+                        .paperId(request.getPaperId())
+                        .title("OpenAlex paper")
+                        .source(apiSourceRepository.findBySourceNameIgnoreCase("OpenAlex")
+                                .orElseGet(() -> apiSourceRepository.save(
+                                        ApiSource.builder().sourceName("OpenAlex")
+                                                .baseUrl("https://api.openalex.org").build())))
+                        .citationCount(0)
+                        .isOpenAccess(false)
+                        .build();
+                researchPaperRepository.save(minimalPaper);
             }
             // Check duplicate
             if (bookmarkRepository.findByUser_UserIdAndPaper_PaperId(user.getUserId(), request.getPaperId()).isPresent()) {

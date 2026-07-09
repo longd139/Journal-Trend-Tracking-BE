@@ -75,6 +75,13 @@ public class TrendingTopicSyncService {
         doRefresh("scheduled");
     }
 
+    /**
+     * Synchronous refresh — call when trending data is needed immediately (e.g., DB is empty).
+     */
+    public void syncNow() {
+        doRefresh("on-demand");
+    }
+
     private void doRefresh(String trigger) {
         if (!syncing.compareAndSet(false, true)) {
             log.info("Trending sync: Already syncing — skipping {} trigger", trigger);

@@ -24,6 +24,7 @@ import java.util.List;
 public class TrendingKeywordService {
 
     private final TrendingTopicRepository trendingTopicRepository;
+    private final TrendingTopicSyncService trendingTopicSyncService;
 
     private static final List<TrendingKeywordResponse> DEFAULT_KEYWORDS = List.of(
             TrendingKeywordResponse.builder().keywordText("Artificial Intelligence").paperCount(0).source("default").displayOrder(1).build(),
@@ -33,17 +34,21 @@ public class TrendingKeywordService {
             TrendingKeywordResponse.builder().keywordText("Bioinformatics").paperCount(0).source("default").displayOrder(5).build()
     );
 
-    /**
-     * Returns trending keywords from the DB cache, or a default fallback list
-     * if no data has been synced yet.
-     *
-     * @param limit max number of keywords to return
-     */
     public List<TrendingKeywordResponse> getTrendingKeywords(int limit) {
         List<TrendingTopic> topics = trendingTopicRepository.findAllByOrderByDisplayOrderAsc();
 
         if (topics.isEmpty()) {
-            log.debug("No trending topics in DB yet — returning default fallback list");
+            log.info("No trending topics in DB — fetching from OpenAlex now...");
+            try {
+                trendingTopicSyncService.syncNow();
+                topics = trendingTopicRepository.findAllByOrderByDisplayOrderAsc();
+            } catch (Exception e) {
+                log.warn("On-demand trending sync failed: {}", e.getMessage());
+            }
+        }
+
+        if (topics.isEmpty()) {
+            log.debug("Still no trending topics after sync — returning default fallback list");
             return DEFAULT_KEYWORDS.stream().limit(limit).toList();
         }
 

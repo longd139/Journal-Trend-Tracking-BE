@@ -32,7 +32,8 @@ public class UserOverviewController {
     @Operation(
         summary = "Get user overview statistics",
         description = "Returns dashboard cards tailored to the current user's role. "
-                    + "Pass ?authorId= to get researcher-specific fields for a followed author."
+                    + "Pass ?authorId= to get researcher-specific fields "
+                    + "(h-index, citationHistory, researchFields, recentPublications) for a followed author."
     )
     @GetMapping("/user")
     public ResponseEntity<AppResponse<UserOverviewResponse>> getUserOverview(
