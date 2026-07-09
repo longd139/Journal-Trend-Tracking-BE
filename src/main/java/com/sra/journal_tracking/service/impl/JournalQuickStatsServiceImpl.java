@@ -9,6 +9,7 @@ import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
 import com.sra.journal_tracking.service.JournalQuickStatsService;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
+import com.sra.journal_tracking.service.PaperCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
@@ -26,6 +27,7 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final OpenAlexFallbackSearchService openAlexSearchService;
+    private final PaperCacheService paperCacheService;
 
     @Value("${app.openalex-api-key:}")
     private String openalexApiKey;
@@ -34,10 +36,12 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
 
     public JournalQuickStatsServiceImpl(RestTemplate restTemplate,
                                          ObjectMapper objectMapper,
-                                         OpenAlexFallbackSearchService openAlexSearchService) {
+                                         OpenAlexFallbackSearchService openAlexSearchService,
+                                         PaperCacheService paperCacheService) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.openAlexSearchService = openAlexSearchService;
+        this.paperCacheService = paperCacheService;
     }
 
     // ═══════════════════════════════════════════════════════
@@ -355,7 +359,7 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
                 ? work.getDoi().replace("https://doi.org/", "").trim() : null;
         var source = work.getPrimaryLocation() != null ? work.getPrimaryLocation().getSource() : null;
 
-        return PaperDetailResponseDTO.builder()
+        PaperDetailResponseDTO dto = PaperDetailResponseDTO.builder()
                 .paperId(java.util.UUID.nameUUIDFromBytes(
                         ("openalex-journal:" + work.getId()).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
                 .title(work.getTitle() != null ? work.getTitle() : work.getDisplayName())
@@ -374,6 +378,11 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
                 .pdfUrl(work.getBestOaLocation() != null ? work.getBestOaLocation().getPdfUrl() : null)
                 .createdAt(java.time.LocalDateTime.now())
                 .build();
+
+        // Save to paper cache for persistence
+        try { paperCacheService.save(dto, work.getId()); } catch (Exception ignored) {}
+
+        return dto;
     }
 
     private String rebuildAbstract(Map<String, ? extends List<Integer>> invertedIndex) {
