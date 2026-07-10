@@ -1,20 +1,32 @@
 package com.sra.journal_tracking.service.impl;
 
+import com.sra.journal_tracking.config.RequestMetricsCollector;
+import com.sra.journal_tracking.dto.admin.AdminChartResponse;
 import com.sra.journal_tracking.dto.admin.AdminOverviewResponse;
+import com.sra.journal_tracking.repository.jpa.AuditLogRepository;
+import com.sra.journal_tracking.repository.jpa.SyncLogRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.service.AdminOverviewService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
+import java.io.File;
 import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.OperatingSystemMXBean;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -31,6 +43,9 @@ public class AdminOverviewServiceImpl implements AdminOverviewService {
     private final UserRepository userRepository;
     private final MeterRegistry meterRegistry;
     private final DataSource dataSource;
+    private final RequestMetricsCollector metricsCollector;
+    private final AuditLogRepository auditLogRepository;
+    private final SyncLogRepository syncLogRepository;
 
     private static final String METRIC_HTTP_REQUESTS = "http.server.requests";
 
@@ -92,8 +107,126 @@ public class AdminOverviewServiceImpl implements AdminOverviewService {
     }
 
     // ──────────────────────────────────────────────
-    //  Private helpers
+    //  Chart endpoints
     // ──────────────────────────────────────────────
+
+    @Override
+    public AdminChartResponse.RequestVolumeResponse getRequestVolume() {
+        List<RequestMetricsCollector.TimeSeriesPoint> raw = metricsCollector.getRequestVolume();
+        List<AdminChartResponse.RequestVolumePoint> points = raw.stream()
+                .map(p -> AdminChartResponse.RequestVolumePoint.builder()
+                        .time(p.time())
+                        .requests(p.requests())
+                        .errors(p.errors())
+                        .build())
+                .toList();
+        return AdminChartResponse.RequestVolumeResponse.builder().points(points).build();
+    }
+
+    @Override
+    public AdminChartResponse.ResourceUsageResponse getResourceUsage() {
+        OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
+        MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
+
+        double cpuPercent = osBean instanceof com.sun.management.OperatingSystemMXBean sunOs
+                ? round2(sunOs.getCpuLoad() * 100.0)
+                : 0.0;
+
+        long heapUsedMb = memBean.getHeapMemoryUsage().getUsed() / (1024 * 1024);
+        long heapMaxMb = memBean.getHeapMemoryUsage().getMax() / (1024 * 1024);
+
+        // Disk: root partition
+        long diskTotalGb = 0;
+        long diskUsedGb = 0;
+        File[] roots = File.listRoots();
+        if (roots != null && roots.length > 0) {
+            File root = roots[0];
+            long total = root.getTotalSpace();
+            long free = root.getFreeSpace();
+            diskTotalGb = total / (1024 * 1024 * 1024);
+            diskUsedGb = (total - free) / (1024 * 1024 * 1024);
+        }
+
+        return AdminChartResponse.ResourceUsageResponse.builder()
+                .cpuPercent(cpuPercent)
+                .heapUsedMb(heapUsedMb)
+                .heapMaxMb(heapMaxMb)
+                .diskUsedGb(diskUsedGb)
+                .diskTotalGb(diskTotalGb)
+                .build();
+    }
+
+    @Override
+    public AdminChartResponse.VisitorTrafficResponse getVisitorTraffic() {
+        List<RequestMetricsCollector.VisitorTrafficPoint> raw = metricsCollector.getVisitorTraffic();
+        List<AdminChartResponse.VisitorTrafficPoint> points = raw.stream()
+                .map(p -> AdminChartResponse.VisitorTrafficPoint.builder()
+                        .hour(p.hour())
+                        .todayVisitors(p.todayVisitors())
+                        .yesterdayVisitors(p.yesterdayVisitors())
+                        .build())
+                .toList();
+        return AdminChartResponse.VisitorTrafficResponse.builder().points(points).build();
+    }
+
+    @Override
+    public AdminChartResponse.RecentEventsResponse getRecentEvents() {
+        List<AdminChartResponse.RecentEventEntry> auditEvents;
+        List<AdminChartResponse.RecentEventEntry> syncEvents;
+
+        // Latest 10 audit logs
+        try {
+            auditEvents = auditLogRepository.findRecentAuditLogs(PageRequest.of(0, 10)).stream()
+                    .map(log -> {
+                        String adminName = log.getAdmin() != null ? log.getAdmin().getFullName() : "System";
+                        return AdminChartResponse.RecentEventEntry.builder()
+                                .type("audit")
+                                .title(log.getAction())
+                                .description(adminName + " — " + (log.getTargetTable() != null ? log.getTargetTable() : ""))
+                                .timestamp(log.getCreatedAt() != null ? log.getCreatedAt().toString() : null)
+                                .build();
+                    })
+                    .toList();
+        } catch (Exception e) {
+            log.debug("Could not load audit logs for recent events: {}", e.getMessage());
+            auditEvents = List.of();
+        }
+
+        // Latest 5 sync logs
+        try {
+            syncEvents = syncLogRepository.findRecentSyncLogs(PageRequest.of(0, 5)).stream()
+                    .map(log -> {
+                        String sourceName = log.getSource() != null ? log.getSource().getSourceName() : "Unknown";
+                        String status = log.getStatus() != null ? log.getStatus() : "unknown";
+                        return AdminChartResponse.RecentEventEntry.builder()
+                                .type("sync")
+                                .title("Sync: " + status)
+                                .description(sourceName + " — " + log.getPapersFetched() + " papers fetched, "
+                                        + log.getPapersInserted() + " inserted")
+                                .timestamp(log.getStartedAt() != null ? log.getStartedAt().toString() : null)
+                                .build();
+                    })
+                    .toList();
+        } catch (Exception e) {
+            log.debug("Could not load sync logs for recent events: {}", e.getMessage());
+            syncEvents = List.of();
+        }
+
+        // Sort combined list by timestamp descending, cap at 10
+        List<AdminChartResponse.RecentEventEntry> events = new ArrayList<>();
+        events.addAll(auditEvents);
+        events.addAll(syncEvents);
+        events.sort((a, b) -> {
+            if (a.getTimestamp() == null) return 1;
+            if (b.getTimestamp() == null) return -1;
+            return b.getTimestamp().compareTo(a.getTimestamp());
+        });
+        if (events.size() > 10) {
+            events = events.subList(0, 10);
+        }
+
+        return AdminChartResponse.RecentEventsResponse.builder().events(events).build();
+    }
 
     /**
      * Count errors by summing all non-SUCCESS outcomes from Micrometer.

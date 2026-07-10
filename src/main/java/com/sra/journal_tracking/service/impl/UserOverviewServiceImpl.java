@@ -11,6 +11,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,15 +23,19 @@ import com.sra.journal_tracking.dto.overview.UserOverviewResponse.CitationYearEn
 import com.sra.journal_tracking.dto.overview.UserOverviewResponse.RecentPublicationEntry;
 import com.sra.journal_tracking.dto.overview.UserOverviewResponse.ResearchFieldEntry;
 import com.sra.journal_tracking.entity.jpa.User;
+import com.sra.journal_tracking.entity.jpa.UserSearchHistory;
 import com.sra.journal_tracking.entity.jpa.UserUsage;
 import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.repository.jpa.AuthorRepository;
+import com.sra.journal_tracking.repository.jpa.BookmarkRepository;
 import com.sra.journal_tracking.repository.jpa.FollowRepository;
+import com.sra.journal_tracking.repository.jpa.KeywordRepository;
 import com.sra.journal_tracking.repository.jpa.KeywordRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
+import com.sra.journal_tracking.repository.jpa.UserSearchHistoryRepository;
 import com.sra.journal_tracking.repository.jpa.UserUsageRepository;
 import com.sra.journal_tracking.service.AuthorQuickStatsService;
 import com.sra.journal_tracking.service.DataSyncService;
@@ -47,11 +52,13 @@ public class UserOverviewServiceImpl implements UserOverviewService {
 
     private final UserRepository userRepository;
     private final UserUsageRepository userUsageRepository;
+    private final UserSearchHistoryRepository searchHistoryRepository;
     private final KeywordRepository keywordRepository;
     private final SystemConfigRepository systemConfigRepository;
     private final ResearchPaperRepository researchPaperRepository;
     private final AuthorRepository authorRepository;
     private final FollowRepository followRepository;
+    private final BookmarkRepository bookmarkRepository;
     private final DataSyncService dataSyncService;
     private final AuthorQuickStatsService authorQuickStatsService;
 
@@ -95,10 +102,22 @@ public class UserOverviewServiceImpl implements UserOverviewService {
         // Card 4: Total keywords
         long totalKeywords = keywordRepository.count();
 
+        // ── Activity Summary ──
+        long bookmarksThisMonth = bookmarkRepository.countByUserAndCreatedBetween(
+                user.getUserId(),
+                YearMonth.now().atDay(1).atStartOfDay(),
+                YearMonth.now().plusMonths(1).atDay(1).atStartOfDay());
+        int searchesThisMonth = userUsageRepository
+                .findByUser_UserIdAndUsageMonth(user.getUserId(), currentMonth)
+                .map(UserUsage::getSearchCount)
+                .orElse(0);
+
+        // ── Research Fields from user's search history ──
+        List<ResearchFieldEntry> researchFields = buildResearchFieldsFromHistory(user.getUserId());
+
         // ── Researcher-specific features (only when authorId is provided) ──
         Integer hIndex = null;
         List<CitationYearEntry> citationHistory = Collections.emptyList();
-        List<ResearchFieldEntry> researchFields = Collections.emptyList();
         List<RecentPublicationEntry> recentPublications = Collections.emptyList();
 
         if (authorId != null) {
@@ -117,20 +136,19 @@ public class UserOverviewServiceImpl implements UserOverviewService {
                                     .build())
                             .collect(Collectors.toList());
 
-                    // Fetch research fields from OpenAlex (topics)
-                    AuthorResearchFocusResponse focus = authorQuickStatsService.getResearchFocus(authorName);
-                    researchFields = focus.getTopics().stream()
-                            .limit(8)
-                            .map(t -> ResearchFieldEntry.builder()
-                                    .name(t.getTopicName())
-                                    .value(t.getPercentage())
-                                    .build())
-                            .collect(Collectors.toList());
-
                 } catch (AppException e) {
                     log.warn("OpenAlex error for '{}': {}", authorName, e.getMessage());
                 } catch (Exception e) {
                     log.warn("Unexpected error for '{}': {}", authorName, e.getMessage());
+                }
+
+                // Fetch recent publications from local DB
+                try {
+                    List<Object[]> recentPublicationRows = researchPaperRepository
+                            .getAuthorRecentPublications(authorName, 10);
+                    recentPublications = buildRecentPublications(recentPublicationRows);
+                } catch (Exception e) {
+                    log.warn("Failed to load recent publications for '{}': {}", authorName, e.getMessage());
                 }
             }
         }
@@ -147,6 +165,8 @@ public class UserOverviewServiceImpl implements UserOverviewService {
                 .searchesRemaining(searchesRemaining)
                 .monthlySearchLimit(monthlySearchLimit)
                 .totalKeywords(totalKeywords)
+                .bookmarksThisMonth(bookmarksThisMonth)
+                .searchesThisMonth(searchesThisMonth)
                 .hIndex(hIndex)
                 .citationHistory(citationHistory)
                 .researchFields(researchFields)
@@ -192,6 +212,45 @@ public class UserOverviewServiceImpl implements UserOverviewService {
                         .citations(e.getValue())
                         .build())
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Build research fields from user's search history keywords.
+     * Aggregates last 50 KEYWORD searches, calculates percentages, returns top 8.
+     */
+    private List<ResearchFieldEntry> buildResearchFieldsFromHistory(UUID userId) {
+        try {
+            List<UserSearchHistory> searches = searchHistoryRepository
+                    .findByUser_UserIdOrderBySearchedAtDesc(userId, PageRequest.of(0, 50));
+
+            Map<String, Long> keywordCounts = new LinkedHashMap<>();
+            for (UserSearchHistory s : searches) {
+                if (!"KEYWORD".equals(s.getSearchType())) continue;
+                String kw = s.getSearchText().toLowerCase().trim();
+                if (kw.isEmpty() || kw.length() < 2) continue;
+                keywordCounts.merge(kw, 1L, Long::sum);
+            }
+
+            if (keywordCounts.isEmpty()) return List.of();
+
+            long total = keywordCounts.values().stream().mapToLong(Long::longValue).sum();
+            if (total == 0) return List.of();
+
+            return keywordCounts.entrySet().stream()
+                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                    .limit(8)
+                    .map(e -> {
+                        double pct = Math.round((e.getValue() * 100.0 / total) * 10.0) / 10.0;
+                        return ResearchFieldEntry.builder()
+                                .name(e.getKey())
+                                .value(pct)
+                                .build();
+                    })
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Failed to build research fields from history: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     /**

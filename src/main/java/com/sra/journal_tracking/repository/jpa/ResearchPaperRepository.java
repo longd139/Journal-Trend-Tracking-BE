@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -555,4 +556,26 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 	    ORDER BY p.CitationCount DESC
 	    """, nativeQuery = true)
 	List<Object[]> getCitationCountsByAuthorId(@Param("authorId") UUID authorId);
+
+	/** Insert a minimal paper stub (used by reading history when paper not in DB). */
+	@Modifying
+	@Query(value = """
+	    INSERT INTO RESEARCH_PAPER (PaperID, SourceID, Title, DOI, PubYear, CitationCount, IsOpenAccess, CreatedAt)
+	    VALUES (:paperId, :sourceId, :title, :doi, :pubYear, 0, 0, GETDATE())
+	    """, nativeQuery = true)
+	int insertPaperStub(@Param("paperId") UUID paperId,
+	                    @Param("sourceId") UUID sourceId,
+	                    @Param("title") String title,
+	                    @Param("doi") String doi,
+	                    @Param("pubYear") Short pubYear);
+
+	/** Top cited papers by author name — no year filter, all time. Used by author top-papers endpoint. */
+	@Query("""
+	    SELECT p FROM ResearchPaper p
+	    JOIN p.authors pa
+	    JOIN pa.author a
+	    WHERE a.fullName = :fullName
+	    ORDER BY p.citationCount DESC
+	    """)
+	List<ResearchPaper> findTopCitedByAuthorName(@Param("fullName") String fullName, Pageable pageable);
 }

@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.repository.jpa;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -25,4 +26,9 @@ public interface SyncLogRepository extends JpaRepository<SyncLog, UUID> {
             @Param("status") String status,
             @Param("isManual") Boolean isManual,
             Pageable pageable);
+
+    /** Latest 5 sync log entries for the admin overview recent events feed. */
+    @EntityGraph(attributePaths = {"source"})
+    @Query("SELECT s FROM SyncLog s ORDER BY s.startedAt DESC")
+    List<SyncLog> findRecentSyncLogs(Pageable pageable);
 }

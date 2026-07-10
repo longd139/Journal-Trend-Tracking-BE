@@ -295,7 +295,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         // Try local DB first
         ResearchPaper paper = researchPaperRepository.findByIdWithDetails(paperId).orElse(null);
         if (paper != null) {
-            readingHistoryService.recordView(userEmail, paperId);
+            readingHistoryService.recordView(userEmail, paperId,
+                    paper.getTitle(), paper.getDoi(),
+                    paper.getPubYear() != null ? (int) paper.getPubYear() : null);
             return mapToDetailDTO(paper);
         }
 
@@ -303,8 +305,11 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         var cached = paperCacheService.get(paperId);
         if (cached.isPresent()) {
             log.info("Paper {} found in PAPER_CACHE", paperId);
-            readingHistoryService.recordView(userEmail, paperId);
-            return cached.get();
+            PaperDetailResponseDTO dto = cached.get();
+            readingHistoryService.recordView(userEmail, paperId,
+                    dto.getTitle(), dto.getDoi(),
+                    dto.getPubYear() != null ? (int) dto.getPubYear() : null);
+            return dto;
         }
 
         // Not in DB or cache — try UUID→workUrl map from search results
@@ -312,7 +317,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             log.info("Paper {} not in DB, trying UUID cache lookup", paperId);
             PaperDetailResponseDTO fromCache = openAlexFallbackSearchService.getPaperByUuid(paperId);
             if (fromCache != null) {
-                readingHistoryService.recordView(userEmail, paperId);
+                readingHistoryService.recordView(userEmail, paperId,
+                        fromCache.getTitle(), fromCache.getDoi(),
+                        fromCache.getPubYear() != null ? (int) fromCache.getPubYear() : null);
                 return fromCache;
             }
         }
@@ -322,7 +329,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             log.info("Paper {} not in DB, fetching from OpenAlex: {}", paperId, sourceUrl);
             PaperDetailResponseDTO fromOpenAlex = openAlexFallbackSearchService.getPaperByOpenAlexId(sourceUrl);
             if (fromOpenAlex != null) {
-                readingHistoryService.recordView(userEmail, paperId);
+                readingHistoryService.recordView(userEmail, paperId,
+                        fromOpenAlex.getTitle(), fromOpenAlex.getDoi(),
+                        fromOpenAlex.getPubYear() != null ? (int) fromOpenAlex.getPubYear() : null);
                 return fromOpenAlex;
             }
         }

@@ -17,6 +17,7 @@ import com.sra.journal_tracking.dto.search.CategoryResponse;
 import com.sra.journal_tracking.dto.search.KeywordComparisonRequest;
 import com.sra.journal_tracking.dto.search.KeywordComparisonResponse;
 import com.sra.journal_tracking.dto.search.NicheTopicResponse;
+import com.sra.journal_tracking.dto.search.CategoryResponse;
 import com.sra.journal_tracking.dto.search.RecentSearchResponse;
 import com.sra.journal_tracking.repository.jpa.ResearchFieldRepository;
 import com.sra.journal_tracking.service.AuthorQuickStatsService;
@@ -310,6 +311,26 @@ public class SearchController {
     }
 
     @Operation(
+            summary = "Top cited papers by an author",
+            description = "Returns the top 5 most-cited papers (all time, no year filter) "
+                        + "for a specific author. Lightweight — only queries OpenAlex works API "
+                        + "by author ID, sorted by citation count descending."
+    )
+    @GetMapping("/author/top-papers")
+    public ResponseEntity<AppResponse<List<PaperDetailResponseDTO>>> authorTopPapers(
+            @RequestParam("keyword") String keyword) {
+
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new IllegalArgumentException("Author name cannot be empty");
+        }
+
+        log.info("Author top papers lookup: author={}", keyword);
+
+        List<PaperDetailResponseDTO> papers = authorQuickStatsService.getTopPapers(keyword.trim());
+        return ResponseEntity.ok(AppResponse.success("Top papers retrieved", papers));
+    }
+
+    @Operation(
             summary = "Get recent search history for current user",
             description = "Returns the 3-5 most recent distinct searches (keywords, authors, or journals) "
                         + "performed by the currently authenticated user. Used for the search page zero state "
@@ -413,6 +434,32 @@ public class SearchController {
         log.info("Fetching suggested authors (zero-state)");
         List<SuggestedAuthorResponse> authors = authorSuggestionService.getSuggestedAuthors();
         return ResponseEntity.ok(AppResponse.success("Suggested authors retrieved", authors));
+    }
+
+    @Operation(
+            summary = "Research field distribution",
+            description = "Returns all tracked research fields (top-level only) with their paper counts. "
+                        + "Used for field distribution visualizations (pie chart / bar chart) on the "
+                        + "overview dashboard. Data source: SQL RESEARCH_FIELD + RESEARCH_PAPER."
+    )
+    @GetMapping("/fields/distribution")
+    public ResponseEntity<AppResponse<List<CategoryResponse>>> getFieldDistribution() {
+        log.info("Fetching field distribution");
+
+        List<CategoryResponse> fields = researchFieldRepository
+                .findByParentFieldIsNullAndIsTrackedTrue()
+                .stream()
+                .map(field -> {
+                    long count = researchFieldRepository.countPapersByFieldId(field.getFieldId());
+                    return CategoryResponse.builder()
+                            .keywordText(field.getFieldName())
+                            .normalizedText(field.getFieldName().toLowerCase().trim())
+                            .paperCount(count)
+                            .build();
+                })
+                .toList();
+
+        return ResponseEntity.ok(AppResponse.success("Field distribution retrieved", fields));
     }
 
 }

@@ -49,6 +49,18 @@ public class UserOverviewResponse {
      */
     private Long totalKeywords;
 
+    // ── Activity Summary ──
+
+    /**
+     * Number of bookmarks created by the user this month.
+     */
+    private Long bookmarksThisMonth;
+
+    /**
+     * Number of searches performed by the user this month.
+     */
+    private Integer searchesThisMonth;
+
     // ── NEW: Researcher-specific fields ──
 
     /**

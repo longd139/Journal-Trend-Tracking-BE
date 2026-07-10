@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -24,4 +25,9 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
             @Param("action") String action,
             @Param("adminId") UUID adminId,
             Pageable pageable);
+
+    /** Latest 10 audit log entries for the admin overview recent events feed. */
+    @EntityGraph(attributePaths = {"admin", "admin.role"})
+    @Query("SELECT a FROM AuditLog a ORDER BY a.createdAt DESC")
+    List<AuditLog> findRecentAuditLogs(Pageable pageable);
 }

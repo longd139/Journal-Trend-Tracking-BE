@@ -124,6 +124,13 @@
 			<version>8.10.1</version>
 		</dependency>
 
+		<!-- Cloudinary — image upload for background/avatar -->
+		<dependency>
+			<groupId>com.cloudinary</groupId>
+			<artifactId>cloudinary-http44</artifactId>
+			<version>1.38.0</version>
+		</dependency>
+
 	</dependencies>
 
 	<build>

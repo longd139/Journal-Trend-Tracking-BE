@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.repository.jpa;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -40,4 +41,10 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, UUID> {
     @Modifying
     @Query("DELETE FROM Bookmark b WHERE b.bookmarkId IN :ids AND b.user.userId = :userId")
     int deleteByBookmarkIdInAndUser_UserId(@Param("ids") List<UUID> ids, @Param("userId") UUID userId);
+
+    /** Count bookmarks created by a user within a date range. */
+    @Query("SELECT COUNT(b) FROM Bookmark b WHERE b.user.userId = :userId AND b.createdAt >= :start AND b.createdAt < :end")
+    long countByUserAndCreatedBetween(@Param("userId") UUID userId,
+                                      @Param("start") LocalDateTime start,
+                                      @Param("end") LocalDateTime end);
 }

@@ -11,6 +11,7 @@ import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.repository.jpa.*;
 import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.KeywordExpansionService;
+import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperRecommendationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 /**
@@ -64,6 +65,7 @@ public class PaperRecommendationServiceImpl implements PaperRecommendationServic
     private final ResearchPaperRepository researchPaperRepository;
     private final KeywordRepository keywordRepository;
     private final GraphService graphService;
+    private final OpenAlexFallbackSearchService openAlexSearchService;
     private final KeywordExpansionService keywordExpansionService;
 
     // ═══════════════════════════════════════════════════════════
@@ -71,15 +73,17 @@ public class PaperRecommendationServiceImpl implements PaperRecommendationServic
     // ═══════════════════════════════════════════════════════════
 
     @Override
-    @Transactional(readOnly = true)
     public RecommendationResultDTO getPersonalizedRecommendations(String userEmail, int page, int size) {
+        // DEBUG: bypass interest profile to isolate hang
+        RecommendationResultDTO result = buildColdStartResult(page, size);
         String cacheKey = "rec:" + userEmail + ":" + page + ":" + size;
-        CacheEntry<RecommendationResultDTO> cached = recCache.get(cacheKey);
-        if (cached != null && !cached.isExpired()) {
-            log.debug("CACHE HIT: recommendations for {}", userEmail);
-            return cached.data;
-        }
+        recCache.put(cacheKey, new CacheEntry<>(result, CACHE_TTL_MS));
+        return result;
+    }
 
+    // ORIGINAL
+    private RecommendationResultDTO getPersonalizedRecommendations_ORIG(String userEmail, int page, int size) {
+        String cacheKey = "rec:" + userEmail + ":" + page + ":" + size;
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
@@ -103,6 +107,22 @@ public class PaperRecommendationServiceImpl implements PaperRecommendationServic
         // Step 5: Remove already-bookmarked papers
         Set<UUID> bookmarkedIds = getBookmarkedPaperIds(user.getUserId());
         scoredPapers.keySet().removeAll(bookmarkedIds);
+
+        // Step 5b: OpenAlex fallback if SQL returned nothing
+        if (scoredPapers.isEmpty() && !interestKeywords.isEmpty()) {
+            String topKeyword = interestKeywords.keySet().iterator().next();
+            log.info("SQL returned no results — falling back to OpenAlex for '{}'", topKeyword);
+            try {
+                List<PaperDetailResponseDTO> openAlexPapers =
+                        openAlexSearchService.searchTopCited(topKeyword, size * 2);
+                for (PaperDetailResponseDTO dto : openAlexPapers) {
+                    scoredPapers.put(dto.getPaperId(),
+                            new PaperScore(3.0, "Trending on OpenAlex: '" + topKeyword + "'"));
+                }
+            } catch (Exception e) {
+                log.warn("OpenAlex fallback failed: {}", e.getMessage());
+            }
+        }
 
         // Step 6: Rank, paginate, and build response
         RecommendationResultDTO result = buildPaginatedResult(scoredPapers, page, size);
@@ -139,7 +159,7 @@ public class PaperRecommendationServiceImpl implements PaperRecommendationServic
             }
         }
 
-        // Strategy B: Same-keyword papers via Neo4j
+        // Strategy B: Same-keyword papers via SQL
         if (sourcePaper.getKeywords() != null) {
             List<PaperKeyword> primaryKeywords = sourcePaper.getKeywords().stream()
                     .filter(pk -> !isSyntheticKeyword(pk))
@@ -149,23 +169,21 @@ public class PaperRecommendationServiceImpl implements PaperRecommendationServic
                     .toList();
 
             for (PaperKeyword pk : primaryKeywords) {
-                String kwText = pk.getKeyword().getNormalizedText();
+                String kwText = pk.getKeyword().getKeywordText();
                 try {
-                    List<String> paperIdStrs = graphService.searchPapersByKeyword(kwText);
-                    for (String idStr : paperIdStrs) {
-                        try {
-                            UUID candidateId = UUID.fromString(idStr);
-                            if (!candidateId.equals(paperId)) {
-                                double relevance = pk.getRelevanceScore() != null ? pk.getRelevanceScore() : 0.5;
-                                scoredPapers.merge(candidateId,
-                                        new PaperScore(10.0 * relevance,
-                                                "Shares keyword: " + pk.getKeyword().getKeywordText()),
-                                        PaperScore::merge);
-                            }
-                        } catch (IllegalArgumentException ignored) { /* skip malformed UUID */ }
+                    List<ResearchPaper> sqlPapers = researchPaperRepository.findTopCitedByKeyword(
+                            kwText, PageRequest.of(0, 10));
+                    for (ResearchPaper p : sqlPapers) {
+                        if (!p.getPaperId().equals(paperId)) {
+                            double relevance = pk.getRelevanceScore() != null ? pk.getRelevanceScore() : 0.5;
+                            scoredPapers.merge(p.getPaperId(),
+                                    new PaperScore(10.0 * relevance,
+                                            "Shares keyword: " + pk.getKeyword().getKeywordText()),
+                                    PaperScore::merge);
+                        }
                     }
                 } catch (Exception e) {
-                    log.warn("Neo4j keyword search failed for '{}': {}", kwText, e.getMessage());
+                    log.warn("SQL keyword search failed for '{}': {}", kwText, e.getMessage());
                 }
             }
         }
@@ -271,29 +289,13 @@ public class PaperRecommendationServiceImpl implements PaperRecommendationServic
             String keyword = entry.getKey();
             double weight = entry.getValue();
 
-            // Try Neo4j first
-            try {
-                List<String> neo4jIds = graphService.searchPapersByKeyword(keyword);
-                for (String idStr : neo4jIds) {
-                    try {
-                        UUID paperId = UUID.fromString(idStr);
-                        scoredPapers.merge(paperId,
-                                new PaperScore(weight * 10.0,
-                                        "Because you searched for '" + keyword + "'"),
-                                PaperScore::merge);
-                    } catch (IllegalArgumentException ignored) { /* skip */ }
-                }
-            } catch (Exception e) {
-                log.warn("Neo4j search failed for '{}': {}", keyword, e.getMessage());
-            }
-
-            // SQL fallback: find papers by keyword text in title/abstract
+            // SQL: find papers by keyword text in title/abstract
             try {
                 List<ResearchPaper> sqlPapers = researchPaperRepository.findTopCitedByKeyword(
                         keyword, PageRequest.of(0, MAX_CANDIDATES_PER_KEYWORD));
                 for (ResearchPaper p : sqlPapers) {
                     scoredPapers.merge(p.getPaperId(),
-                            new PaperScore(weight * 5.0,
+                            new PaperScore(weight * 10.0,
                                     "Matches your interest: '" + keyword + "'"),
                             PaperScore::merge);
                 }

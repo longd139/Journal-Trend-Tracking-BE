@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RateLimitInterceptor implements HandlerInterceptor {
 
     private final RateLimitConfig config;
+    private final RequestMetricsCollector metricsCollector;
 
     /** In-memory bucket store. Key = "user:UUID" or "ip:1.2.3.4". */
     private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
@@ -63,6 +64,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         }
 
         // Rate limit exceeded
+        metricsCollector.recordRateLimited(request);
         long nanosToWait = bucket.tryConsumeAndReturnRemaining(1).getNanosToWaitForRefill();
         long retryAfterSeconds = Math.max(1, nanosToWait / 1_000_000_000L);
 
@@ -76,6 +78,17 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         throw new RateLimitExceededException(
                 "Too many requests. Please wait " + retryAfterSeconds + " seconds before retrying.",
                 retryAfterSeconds);
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
+                                Object handler, Exception ex) {
+        int status = response.getStatus();
+        if (ex != null && status < 400) {
+            // Exception occurred but status not set as error → treat as 500
+            status = 500;
+        }
+        metricsCollector.recordRequest(request, status);
     }
 
     // ──────────────────────────────────────────────

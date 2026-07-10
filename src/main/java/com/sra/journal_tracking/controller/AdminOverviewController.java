@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.controller;
 
+import com.sra.journal_tracking.dto.admin.AdminChartResponse;
 import com.sra.journal_tracking.dto.admin.AdminOverviewResponse;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.service.AdminOverviewService;
@@ -34,5 +35,39 @@ public class AdminOverviewController {
     public ResponseEntity<AppResponse<AdminOverviewResponse>> getOverview() {
         AdminOverviewResponse stats = adminOverviewService.getOverview();
         return ResponseEntity.ok(AppResponse.success("Admin overview statistics retrieved", stats));
+    }
+
+    // ── Chart endpoints ──
+
+    @Operation(summary = "Get request volume time-series for the last 24 hours")
+    @GetMapping("/overview/charts/request-volume")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AppResponse<AdminChartResponse.RequestVolumeResponse>> getRequestVolume() {
+        AdminChartResponse.RequestVolumeResponse data = adminOverviewService.getRequestVolume();
+        return ResponseEntity.ok(AppResponse.success("Request volume data retrieved", data));
+    }
+
+    @Operation(summary = "Get current system resource usage (CPU, memory, disk)")
+    @GetMapping("/overview/charts/resource-usage")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AppResponse<AdminChartResponse.ResourceUsageResponse>> getResourceUsage() {
+        AdminChartResponse.ResourceUsageResponse data = adminOverviewService.getResourceUsage();
+        return ResponseEntity.ok(AppResponse.success("Resource usage data retrieved", data));
+    }
+
+    @Operation(summary = "Get hourly visitor traffic, today vs yesterday")
+    @GetMapping("/overview/charts/visitor-traffic")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AppResponse<AdminChartResponse.VisitorTrafficResponse>> getVisitorTraffic() {
+        AdminChartResponse.VisitorTrafficResponse data = adminOverviewService.getVisitorTraffic();
+        return ResponseEntity.ok(AppResponse.success("Visitor traffic data retrieved", data));
+    }
+
+    @Operation(summary = "Get recent system events (audit logs + sync logs)")
+    @GetMapping("/overview/charts/recent-events")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AppResponse<AdminChartResponse.RecentEventsResponse>> getRecentEvents() {
+        AdminChartResponse.RecentEventsResponse data = adminOverviewService.getRecentEvents();
+        return ResponseEntity.ok(AppResponse.success("Recent events retrieved", data));
     }
 }

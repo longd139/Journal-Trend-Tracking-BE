@@ -7,12 +7,15 @@ import com.sra.journal_tracking.dto.author.AuthorTimelineResponse;
 import com.sra.journal_tracking.dto.author.CoAuthorResponse;
 import com.sra.journal_tracking.dto.author.OpenAlexAuthorResponseDTO;
 import com.sra.journal_tracking.dto.author.OpenAlexWorksResponseDTO;
+import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
+import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
 import com.sra.journal_tracking.entity.jpa.ApiSource;
 import com.sra.journal_tracking.entity.jpa.Author;
 import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.repository.jpa.ApiSourceRepository;
 import com.sra.journal_tracking.repository.jpa.AuthorRepository;
+import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,6 +50,7 @@ public class AuthorQuickStatsService {
     private final ObjectMapper objectMapper;
     private final AuthorRepository authorRepository;
     private final ApiSourceRepository apiSourceRepository;
+    private final ResearchPaperRepository researchPaperRepository;
 
     @Value("${app.openalex-email:}")
     private String openalexEmail;
@@ -427,8 +431,169 @@ public class AuthorQuickStatsService {
     }
 
     /**
-     * Extract the short ID from an OpenAlex URL (e.g. "https://openalex.org/A5112456378" → "A5112456378").
+     * Get an author's top cited papers (all time, no year filter).
+     * DB-first: checks local DB; falls back to OpenAlex API if not found.
+     *
+     * @param keyword author name to search for
+     * @return list of top 5 PaperDetailResponseDTO sorted by citation count desc
      */
+    @Cacheable(value = "search:authorTopPapers", cacheManager = "searchCacheManager",
+               key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
+    public List<PaperDetailResponseDTO> getTopPapers(String keyword) {
+        String trimmedKeyword = keyword.trim();
+        if (trimmedKeyword.isEmpty()) {
+            throw new IllegalArgumentException("Author name cannot be empty");
+        }
+
+        // ── 1. Try local DB first ──
+        List<PaperDetailResponseDTO> fromDb = fetchTopPapersFromDb(trimmedKeyword);
+        if (!fromDb.isEmpty()) {
+            log.info("TopPapers: found {} papers in local DB for '{}'", fromDb.size(), trimmedKeyword);
+            return fromDb;
+        }
+
+        // ── 2. Fallback: OpenAlex API ──
+        return fetchTopPapersFromOpenAlex(trimmedKeyword);
+    }
+
+    /** Try to find top papers in local DB by author name. */
+    private List<PaperDetailResponseDTO> fetchTopPapersFromDb(String authorName) {
+        try {
+            var author = authorRepository.findFirstByFullName(authorName).orElse(null);
+            if (author == null) return List.of();
+
+            var papers = researchPaperRepository.findTopCitedByAuthorName(
+                    author.getFullName(), org.springframework.data.domain.PageRequest.of(0, 5));
+            if (papers == null || papers.isEmpty()) return List.of();
+
+            return papers.stream().map(this::mapEntityToPaper).toList();
+        } catch (Exception e) {
+            log.warn("TopPapers DB lookup failed for '{}': {}", authorName, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** Map a JPA ResearchPaper entity to PaperDetailResponseDTO. */
+    private PaperDetailResponseDTO mapEntityToPaper(com.sra.journal_tracking.entity.jpa.ResearchPaper p) {
+        return PaperDetailResponseDTO.builder()
+                .paperId(p.getPaperId())
+                .title(p.getTitle())
+                .abstractText(p.getAbstractText())
+                .doi(p.getDoi())
+                .pubYear(p.getPubYear())
+                .pubDate(p.getPubDate())
+                .citationCount(p.getCitationCount())
+                .isOpenAccess(p.getIsOpenAccess())
+                .journalName(p.getJournal() != null ? p.getJournal().getJournalName() : null)
+                .journalId(p.getJournal() != null ? p.getJournal().getJournalId() : null)
+                .sourceUrl(p.getDoi() != null ? "https://doi.org/" + p.getDoi() : null)
+                .pdfAvailable(p.getPdfUrl() != null)
+                .pdfUrl(p.getPdfUrl())
+                .createdAt(p.getCreatedAt())
+                .build();
+    }
+
+    /** Fetch top cited papers from OpenAlex API by author ID. */
+    private List<PaperDetailResponseDTO> fetchTopPapersFromOpenAlex(String keyword) {
+        // ── Find author on OpenAlex ──
+        String url = buildUrl(keyword);
+        log.info("TopPapers: finding author '{}' on OpenAlex", keyword);
+
+        String rawJson = fetchRawWithRetry(url, keyword);
+        if (rawJson == null) throw new AppException(ErrorCode.EXTERNAL_API_ERROR);
+
+        OpenAlexAuthorResponseDTO response;
+        try {
+            response = objectMapper.readValue(rawJson, OpenAlexAuthorResponseDTO.class);
+        } catch (Exception e) {
+            log.error("TopPapers: failed to parse author response: {}", e.getMessage());
+            throw new AppException(ErrorCode.EXTERNAL_API_ERROR);
+        }
+
+        if (response == null || response.getResults() == null || response.getResults().isEmpty()) {
+            throw new AppException(ErrorCode.AUTHOR_NOT_FOUND);
+        }
+
+        var bestMatch = pickBestMatch(response.getResults(), keyword);
+        if (bestMatch == null) throw new AppException(ErrorCode.AUTHOR_NOT_FOUND);
+
+        String shortId = extractShortId(bestMatch.getId());
+        log.info("TopPapers: best match = {} (id={})", bestMatch.getDisplayName(), shortId);
+
+        // ── Fetch works ──
+        String worksUrl = UriComponentsBuilder
+                .fromHttpUrl("https://api.openalex.org/works")
+                .queryParam("filter", "authorships.author.id:" + shortId)
+                .queryParam("per-page", 5)
+                .queryParam("sort", "cited_by_count:desc")
+                .build().encode().toUriString();
+
+        log.info("TopPapers: fetching works from {}", worksUrl);
+
+        String worksRawJson = fetchRawWithRetry(worksUrl, keyword);
+        if (worksRawJson == null) throw new AppException(ErrorCode.EXTERNAL_API_ERROR);
+
+        OpenAlexResponseDTO worksResponse;
+        try {
+            worksResponse = objectMapper.readValue(worksRawJson, OpenAlexResponseDTO.class);
+        } catch (Exception e) {
+            log.error("TopPapers: failed to parse works response: {}", e.getMessage());
+            throw new AppException(ErrorCode.EXTERNAL_API_ERROR);
+        }
+
+        if (worksResponse == null || worksResponse.getResults() == null || worksResponse.getResults().isEmpty()) {
+            log.warn("TopPapers: no works found for {}", bestMatch.getDisplayName());
+            return List.of();
+        }
+
+        return worksResponse.getResults().stream()
+                .limit(5)
+                .map(this::mapWorkToPaper)
+                .toList();
+    }
+
+    /** Map an OpenAlex work to PaperDetailResponseDTO. */
+    private PaperDetailResponseDTO mapWorkToPaper(OpenAlexResponseDTO.OpenAlexWorkDTO work) {
+        String doi = work.getDoi() != null
+                ? work.getDoi().replace("https://doi.org/", "").trim() : null;
+        var source = work.getPrimaryLocation() != null ? work.getPrimaryLocation().getSource() : null;
+
+        return PaperDetailResponseDTO.builder()
+                .paperId(java.util.UUID.nameUUIDFromBytes(
+                        ("openalex-author:" + work.getId()).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .title(work.getTitle() != null ? work.getTitle() : work.getDisplayName())
+                .abstractText(rebuildAbstract(work.getAbstractInvertedIndex()))
+                .doi(doi)
+                .pubYear(work.getPublicationYear())
+                .pubDate(work.getPublicationDate() != null
+                        ? java.time.LocalDate.parse(work.getPublicationDate()) : null)
+                .citationCount(work.getCitedByCount() != null ? work.getCitedByCount() : 0)
+                .isOpenAccess(work.getOpenAccess() != null
+                        && Boolean.TRUE.equals(work.getOpenAccess().getIsOa()))
+                .journalName(source != null ? source.getDisplayName() : null)
+                .sourceUrl(doi != null ? "https://doi.org/" + doi : work.getId())
+                .pdfAvailable(work.getBestOaLocation() != null
+                        && work.getBestOaLocation().getPdfUrl() != null)
+                .pdfUrl(work.getBestOaLocation() != null ? work.getBestOaLocation().getPdfUrl() : null)
+                .createdAt(java.time.LocalDateTime.now())
+                .build();
+    }
+
+    /** Rebuild abstract text from OpenAlex inverted index. */
+    private String rebuildAbstract(Map<String, ? extends List<Integer>> invertedIndex) {
+        if (invertedIndex == null || invertedIndex.isEmpty()) return null;
+        var entries = new ArrayList<java.util.AbstractMap.SimpleEntry<Integer, String>>();
+        for (var e : invertedIndex.entrySet()) {
+            var positions = e.getValue();
+            if (positions != null) {
+                for (int pos : positions) entries.add(new java.util.AbstractMap.SimpleEntry<>(pos, e.getKey()));
+            }
+        }
+        entries.sort(Map.Entry.comparingByKey());
+        return entries.stream().map(java.util.AbstractMap.SimpleEntry::getValue)
+                .collect(Collectors.joining(" "));
+    }
+
     private String extractShortId(String openAlexUrl) {
         if (openAlexUrl == null) return null;
         int lastSlash = openAlexUrl.lastIndexOf('/');
