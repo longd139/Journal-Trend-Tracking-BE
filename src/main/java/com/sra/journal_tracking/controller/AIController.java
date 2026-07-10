@@ -14,6 +14,7 @@ import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.service.AISummarizationService;
 import com.sra.journal_tracking.service.BatchAnalysisResult;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
+import com.sra.journal_tracking.service.PaperCacheService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -45,6 +46,7 @@ public class AIController {
     private final AISummarizationService aiSummarizationService;
     private final ResearchPaperRepository researchPaperRepository;
     private final OpenAlexFallbackSearchService openAlexFallbackSearchService;
+    private final PaperCacheService paperCacheService;
 
     // ═══════════════════════════════════════════════════════════════
     //  ENDPOINTS
@@ -68,6 +70,14 @@ public class AIController {
         ResearchPaper paper = researchPaperRepository.findByIdWithAuthors(paperId).orElse(null);
         if (paper != null) {
             dto = mapToDetailDTO(paper);
+            // If DB paper has no abstract, try fetching from cache or OpenAlex
+            if (isBlank(dto.getAbstractText())) {
+                log.info("Paper {} found in DB but has no abstract, trying fallback sources", paperId);
+                String enrichedAbstract = fetchAbstractFromFallback(paperId, paper.getOpenAlexWorkId());
+                if (enrichedAbstract != null) {
+                    dto.setAbstractText(enrichedAbstract);
+                }
+            }
         } else if (sourceUrl != null && !sourceUrl.isBlank()) {
             dto = openAlexFallbackSearchService.getPaperByOpenAlexId(sourceUrl);
         } else {
@@ -178,6 +188,45 @@ public class AIController {
     // ═══════════════════════════════════════════════════════════════
     //  MAPPING (mirrors PaperSearchOrchestrator.mapToDetailDTO)
     // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Try to fetch the abstract for a paper from fallback sources
+     * when the local DB record has no abstract.
+     * 1. PaperCache (7-day TTL, populated during OpenAlex searches)
+     * 2. OpenAlex API (if the paper has an openAlexWorkId)
+     */
+    private String fetchAbstractFromFallback(UUID paperId, String openAlexWorkId) {
+        // 1. Try PaperCache first (fast, local)
+        try {
+            var cached = paperCacheService.get(paperId);
+            if (cached.isPresent() && !isBlank(cached.get().getAbstractText())) {
+                log.info("Abstract found in PaperCache for paper {}", paperId);
+                return cached.get().getAbstractText();
+            }
+        } catch (Exception e) {
+            log.debug("PaperCache lookup failed for {}: {}", paperId, e.getMessage());
+        }
+
+        // 2. Try OpenAlex API if we have a work ID
+        if (openAlexWorkId != null && !openAlexWorkId.isBlank()) {
+            try {
+                PaperDetailResponseDTO fromOpenAlex =
+                        openAlexFallbackSearchService.getPaperByOpenAlexId(openAlexWorkId);
+                if (fromOpenAlex != null && !isBlank(fromOpenAlex.getAbstractText())) {
+                    log.info("Abstract fetched from OpenAlex for paper {}", paperId);
+                    return fromOpenAlex.getAbstractText();
+                }
+            } catch (Exception e) {
+                log.debug("OpenAlex fallback failed for {}: {}", paperId, e.getMessage());
+            }
+        }
+
+        return null;
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
 
     private PaperDetailResponseDTO mapToDetailDTO(ResearchPaper paper) {
         List<AuthorDTO> authors = paper.getAuthors() != null ? paper.getAuthors().stream()

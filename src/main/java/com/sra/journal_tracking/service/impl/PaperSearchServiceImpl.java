@@ -298,7 +298,18 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             readingHistoryService.recordView(userEmail, paperId,
                     paper.getTitle(), paper.getDoi(),
                     paper.getPubYear() != null ? (int) paper.getPubYear() : null);
-            return mapToDetailDTO(paper);
+            PaperDetailResponseDTO dto = mapToDetailDTO(paper);
+
+            // Enrich abstract from fallback sources if DB has no abstract
+            if (dto.getAbstractText() == null || dto.getAbstractText().isBlank()) {
+                log.info("Paper {} found in DB but has no abstract, trying fallback sources", paperId);
+                String enrichedAbstract = enrichAbstractFromFallback(paperId, paper.getOpenAlexWorkId());
+                if (enrichedAbstract != null) {
+                    dto.setAbstractText(enrichedAbstract);
+                }
+            }
+
+            return dto;
         }
 
         // Try paper cache (survives DB switches)
@@ -842,6 +853,41 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 .commentCount(0)
                 .createdAt(paper.getCreatedAt())
                 .build();
+    }
+
+    /**
+     * Try to fetch abstract from PaperCache or OpenAlex when DB paper has no abstract.
+     * Mirrors the logic in AIController.fetchAbstractFromFallback().
+     */
+    private String enrichAbstractFromFallback(UUID paperId, String openAlexWorkId) {
+        // 1. Try PaperCache first (fast, local)
+        try {
+            var cached = paperCacheService.get(paperId);
+            if (cached.isPresent() && cached.get().getAbstractText() != null
+                    && !cached.get().getAbstractText().isBlank()) {
+                log.info("Abstract enriched from PaperCache for paper {}", paperId);
+                return cached.get().getAbstractText();
+            }
+        } catch (Exception e) {
+            log.debug("PaperCache lookup failed for {}: {}", paperId, e.getMessage());
+        }
+
+        // 2. Try OpenAlex API if we have a work ID
+        if (openAlexWorkId != null && !openAlexWorkId.isBlank()) {
+            try {
+                PaperDetailResponseDTO fromOpenAlex =
+                        openAlexFallbackSearchService.getPaperByOpenAlexId(openAlexWorkId);
+                if (fromOpenAlex != null && fromOpenAlex.getAbstractText() != null
+                        && !fromOpenAlex.getAbstractText().isBlank()) {
+                    log.info("Abstract enriched from OpenAlex for paper {}", paperId);
+                    return fromOpenAlex.getAbstractText();
+                }
+            } catch (Exception e) {
+                log.debug("OpenAlex fallback failed for {}: {}", paperId, e.getMessage());
+            }
+        }
+
+        return null;
     }
 
     private boolean isSyntheticKeyword(PaperKeyword paperKeyword) {
