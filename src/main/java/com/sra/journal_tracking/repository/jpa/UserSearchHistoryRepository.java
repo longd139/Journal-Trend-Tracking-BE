@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,4 +30,14 @@ public interface UserSearchHistoryRepository extends JpaRepository<UserSearchHis
     List<UUID> findUsersBySearchTerms(
             @Param("normalizedTerms") List<String> normalizedTerms,
             @Param("excludeUserId") UUID excludeUserId);
+
+    /**
+     * Count how many searches a user performed within a date range (this month).
+     */
+    @Query("SELECT COUNT(h) FROM UserSearchHistory h "
+         + "WHERE h.user.userId = :userId "
+         + "AND h.searchedAt >= :start AND h.searchedAt < :end")
+    long countByUserAndSearchedBetween(@Param("userId") UUID userId,
+                                        @Param("start") LocalDateTime start,
+                                        @Param("end") LocalDateTime end);
 }

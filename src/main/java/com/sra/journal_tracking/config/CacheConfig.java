@@ -67,4 +67,20 @@ public class CacheConfig {
         cacheManager.setAsyncCacheMode(false);
         return cacheManager;
     }
+
+    /**
+     * Cache manager cho user overview — TTL 5 phút, tối đa 500 entries.
+     * Short TTL keeps dashboard stats reasonably fresh while still reducing DB load
+     * from repeated dashboard loads.
+     */
+    @Bean("overviewCacheManager")
+    public CacheManager overviewCacheManager() {
+        CaffeineCacheManager cacheManager = new CaffeineCacheManager();
+        cacheManager.setCaffeine(Caffeine.newBuilder()
+                .expireAfterWrite(5, TimeUnit.MINUTES)
+                .maximumSize(500)
+                .recordStats());
+        cacheManager.setAsyncCacheMode(false);
+        return cacheManager;
+    }
 }

@@ -31,7 +31,7 @@ import com.sra.journal_tracking.repository.jpa.AuthorRepository;
 import com.sra.journal_tracking.repository.jpa.BookmarkRepository;
 import com.sra.journal_tracking.repository.jpa.FollowRepository;
 import com.sra.journal_tracking.repository.jpa.KeywordRepository;
-import com.sra.journal_tracking.repository.jpa.KeywordRepository;
+import com.sra.journal_tracking.repository.jpa.ReadingHistoryRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
@@ -59,11 +59,12 @@ public class UserOverviewServiceImpl implements UserOverviewService {
     private final AuthorRepository authorRepository;
     private final FollowRepository followRepository;
     private final BookmarkRepository bookmarkRepository;
+    private final ReadingHistoryRepository readingHistoryRepository;
     private final DataSyncService dataSyncService;
     private final AuthorQuickStatsService authorQuickStatsService;
 
     @Override
-    @Cacheable(value = "overview:user", cacheManager = "defaultCacheManager",
+    @Cacheable(value = "overview:user", cacheManager = "overviewCacheManager",
                key = "#userEmail + '_' + (#authorId != null ? #authorId.toString() : 'none')",
                unless = "#result == null")
     public UserOverviewResponse getUserOverview(String userEmail, UUID authorId) {
@@ -77,11 +78,10 @@ public class UserOverviewServiceImpl implements UserOverviewService {
         long totalPapers = researchPaperRepository.count();
 
         // Card 2: Papers viewed this month
-        long papersViewed = userUsageRepository
-                .findByUser_UserIdAndUsageMonth(user.getUserId(), currentMonth)
-                .map(UserUsage::getViewCount)
-                .map(Long::valueOf)
-                .orElse(0L);
+        long papersViewed = readingHistoryRepository.countByUserAndViewedBetween(
+                user.getUserId(),
+                YearMonth.now().atDay(1).atStartOfDay(),
+                YearMonth.now().plusMonths(1).atDay(1).atStartOfDay());
 
         // Card 3: Searches remaining
         Integer searchesRemaining = null;
@@ -107,10 +107,10 @@ public class UserOverviewServiceImpl implements UserOverviewService {
                 user.getUserId(),
                 YearMonth.now().atDay(1).atStartOfDay(),
                 YearMonth.now().plusMonths(1).atDay(1).atStartOfDay());
-        int searchesThisMonth = userUsageRepository
-                .findByUser_UserIdAndUsageMonth(user.getUserId(), currentMonth)
-                .map(UserUsage::getSearchCount)
-                .orElse(0);
+        int searchesThisMonth = (int) searchHistoryRepository.countByUserAndSearchedBetween(
+                user.getUserId(),
+                YearMonth.now().atDay(1).atStartOfDay(),
+                YearMonth.now().plusMonths(1).atDay(1).atStartOfDay());
 
         // ── Research Fields from user's search history ──
         List<ResearchFieldEntry> researchFields = buildResearchFieldsFromHistory(user.getUserId());

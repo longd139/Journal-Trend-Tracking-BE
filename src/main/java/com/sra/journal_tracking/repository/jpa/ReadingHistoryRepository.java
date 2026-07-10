@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -49,4 +50,14 @@ public interface ReadingHistoryRepository extends JpaRepository<ReadingHistory, 
             )
             """, nativeQuery = true)
     int deleteOldEntries(@Param("userId") UUID userId, @Param("keep") int keep);
+
+    /**
+     * Count how many paper views a user had within a date range (this month).
+     */
+    @Query("SELECT COUNT(rh) FROM ReadingHistory rh "
+         + "WHERE rh.user.userId = :userId "
+         + "AND rh.viewedAt >= :start AND rh.viewedAt < :end")
+    long countByUserAndViewedBetween(@Param("userId") UUID userId,
+                                     @Param("start") LocalDateTime start,
+                                     @Param("end") LocalDateTime end);
 }
