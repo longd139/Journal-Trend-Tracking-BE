@@ -25,6 +25,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -53,9 +56,11 @@ public class AuthController {
 
     @Operation(summary = "Google login", description = "Authenticate user via Google OAuth ID token. If the user does not exist, creates a new account automatically. Returns a JWT token for subsequent API calls.")
     @ApiResponse(responseCode = "200", description = "Google login successful")
-    @PostMapping("/google")
+    @PostMapping({"/google", "/google-login"})
     public ResponseEntity<AppResponse<AuthResponse>> googleLogin(
             @Valid @RequestBody GoogleLoginRequest request) {
+        log.info(">>> CONTROLLER: googleLogin called, credential={}",
+                request.getCredential() != null ? request.getCredential().substring(0, Math.min(20, request.getCredential().length())) + "..." : "NULL");
         AuthResponse authResponse = authService.googleLogin(request);
         return ResponseEntity.ok(AppResponse.success("Google login successful", authResponse));
     }

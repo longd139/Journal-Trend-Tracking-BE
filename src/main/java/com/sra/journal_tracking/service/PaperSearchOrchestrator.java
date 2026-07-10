@@ -73,102 +73,43 @@ public class PaperSearchOrchestrator {
             searchResultCache.remove(cacheKey);
         }
 
-        // Truncate keyword to max allowed length
-        if (trimmedKeyword.length() > KeywordConstants.MAX_KEYWORD_LENGTH) {
-            log.warn("Keyword truncated from {} chars to {} chars", trimmedKeyword.length(), KeywordConstants.MAX_KEYWORD_LENGTH);
-            trimmedKeyword = trimmedKeyword.substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
-        }
+        log.info("Search: keyword='{}', user='{}'", trimmedKeyword, userEmail);
 
-        log.info("Graph search: keyword='{}', user='{}'", trimmedKeyword, userEmail);
+        // Record search history (non-blocking)
+        try { searchKeywordService.recordSearch(trimmedKeyword); } catch (Exception e) { log.warn("Record search failed: {}", e.getMessage()); }
+        try { userSearchHistoryService.recordSearch(userEmail, trimmedKeyword, "KEYWORD"); } catch (Exception e) { log.warn("Record history failed: {}", e.getMessage()); }
 
-        // Record the search keyword for hot-keywords tracking (non-blocking)
-        try {
-            searchKeywordService.recordSearch(trimmedKeyword);
-        } catch (Exception e) {
-            log.warn("Failed to record search keyword '{}': {}", trimmedKeyword, e.getMessage());
-        }
-
-        // Record per-user search history for zero-state recent-searches feature
-        try {
-            userSearchHistoryService.recordSearch(userEmail, trimmedKeyword, "KEYWORD");
-        } catch (Exception e) {
-            log.warn("Failed to record user search history '{}': {}", trimmedKeyword, e.getMessage());
-        }
-
+        // ── Fetch directly from OpenAlex API ──
+        log.info("Fetching from OpenAlex for '{}'", trimmedKeyword);
         PaperSearchResultDTO result;
-
-        List<String> neo4jPaperIds = graphService.searchPapersByKeyword(trimmedKeyword);
-
-        if (!neo4jPaperIds.isEmpty()) {
-            log.info("Neo4j HIT: {} papers found for '{}'", neo4jPaperIds.size(), trimmedKeyword);
-
-            List<ResearchPaper> sqlPapers = filterRelevantPapers(fetchPapersFromSql(neo4jPaperIds), trimmedKeyword);
-
-            if (!sqlPapers.isEmpty()) {
-                log.info("SQL MATCH: {} papers valid in SQL", sqlPapers.size());
-                result = mapToSearchResultDTO(sqlPapers);
-                searchResultCache.put(cacheKey, new CacheEntry<>(result));
-                log.info("CACHE STORE: orchestrator '{}' → {} papers (TTL=1h)", trimmedKeyword, sqlPapers.size());
-                return result;
-            }
-
-            log.warn("Neo4j STALE: {} IDs found in Neo4j but 0 in SQL. Cleaning up & falling back to SQL full-text.",
-                    neo4jPaperIds.size());
-            graphService.deleteStalePapers(neo4jPaperIds);
-        } else {
-            log.info("Neo4j MISS for '{}'", trimmedKeyword);
-        }
-
-        // ── SQL full-text fallback (no external API call) ──
-        log.info("Trying SQL full-text search for '{}'", trimmedKeyword);
-        List<ResearchPaper> sqlResults = researchPaperRepository.findTopCitedByKeyword(
-                trimmedKeyword, org.springframework.data.domain.PageRequest.of(0, safeLimit));
-
-        if (!sqlResults.isEmpty()) {
-            log.info("SQL FULL-TEXT HIT: {} papers found for '{}'", sqlResults.size(), trimmedKeyword);
-            result = mapToSearchResultDTO(sqlResults);
-            searchResultCache.put(cacheKey, new CacheEntry<>(result));
-            log.info("CACHE STORE: orchestrator '{}' → {} papers (TTL=1h)", trimmedKeyword, sqlResults.size());
-
-            // Background async sync to enrich Neo4j for next search
-            try {
-                dataSyncService.syncFromOpenAlexAsync(trimmedKeyword, safeLimit);
-            } catch (Exception e) {
-                log.warn("Background sync failed for '{}': {}", trimmedKeyword, e.getMessage());
-            }
-
-            return result;
-        }
-
-        // Nothing in DB — fetch directly from OpenAlex API
-        log.info("No papers found in local DB for '{}'. Fetching from OpenAlex directly.", trimmedKeyword);
         try {
-            List<PaperDetailResponseDTO> openAlexPapers = openAlexFallbackSearchService.search(trimmedKeyword, safeLimit);
-            if (!openAlexPapers.isEmpty()) {
-                log.info("OpenAlex HIT: {} papers for '{}'", openAlexPapers.size(), trimmedKeyword);
+            List<PaperDetailResponseDTO> papers = openAlexFallbackSearchService.searchTopCited(trimmedKeyword, safeLimit);
+
+            // Also try relevance-sorted search and merge unique papers
+            List<PaperDetailResponseDTO> relevancePapers = openAlexFallbackSearchService.searchNoYearFilter(trimmedKeyword, safeLimit);
+            var seen = new java.util.HashSet<UUID>();
+            List<PaperDetailResponseDTO> merged = new java.util.ArrayList<>();
+            for (var p : papers) { if (seen.add(p.getPaperId())) merged.add(p); }
+            for (var p : relevancePapers) { if (seen.add(p.getPaperId())) merged.add(p); }
+            papers = merged.stream().limit(safeLimit).collect(java.util.stream.Collectors.toList());
+
+            if (!papers.isEmpty()) {
+                log.info("OpenAlex HIT: {} papers for '{}'", papers.size(), trimmedKeyword);
                 result = PaperSearchResultDTO.builder()
-                        .papers(openAlexPapers)
-                        .totalElements((long) openAlexPapers.size())
+                        .papers(papers)
+                        .totalElements((long) papers.size())
                         .totalPages(1)
                         .currentPage(0)
-                        .pageSize(openAlexPapers.size())
+                        .pageSize(papers.size())
                         .hasNext(false)
                         .hasPrev(false)
                         .build();
                 searchResultCache.put(cacheKey, new CacheEntry<>(result));
-                log.info("CACHE STORE: orchestrator '{}' → {} papers (TTL=6h, source=OpenAlex)", trimmedKeyword, openAlexPapers.size());
+                log.info("CACHE STORE: '{}' → {} papers (TTL=6h)", trimmedKeyword, papers.size());
                 return result;
             }
         } catch (Exception e) {
-            log.warn("OpenAlex fallback failed for '{}': {}", trimmedKeyword, e.getMessage());
-        }
-
-        // Truly nothing found — trigger background sync for future searches
-        log.info("No papers found for '{}' in any source. Triggering background sync.", trimmedKeyword);
-        try {
-            dataSyncService.syncFromOpenAlexAsync(trimmedKeyword, safeLimit);
-        } catch (Exception e) {
-            log.warn("Background sync trigger failed for '{}': {}", trimmedKeyword, e.getMessage());
+            log.warn("OpenAlex search failed for '{}': {}", trimmedKeyword, e.getMessage());
         }
 
         return buildEmptyResult();

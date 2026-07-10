@@ -115,6 +115,37 @@ public class OpenAlexFallbackSearchService {
         }
     }
 
+    /**
+     * Search by relevance score — all time, no year filter.
+     * Used by the orchestrator for fast keyword search via OpenAlex API.
+     */
+    public List<PaperDetailResponseDTO> searchNoYearFilter(String query, int size) {
+        String normalizedQuery = normalizeOpenAlexSearchQuery(query);
+        if (normalizedQuery.isBlank()) return List.of();
+
+        int perPage = Math.min(25, Math.max(size * 2, 10));
+        String url = withApiKey(UriComponentsBuilder
+                .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
+                .queryParam("search", normalizedQuery)
+                .queryParam("sort", "relevance_score:desc")
+                .queryParam("per-page", perPage)
+                .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,cited_by_count,abstract_inverted_index,open_access,primary_location,best_oa_location,topics,keywords,authorships"))
+                .build().encode().toUriString();
+
+        try {
+            OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
+            if (response == null || response.getResults() == null) return List.of();
+            return response.getResults().stream()
+                    .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
+                    .map(work -> mapToPaper(work.work(), work.abstractText()))
+                    .limit(size)
+                    .collect(Collectors.toList());
+        } catch (RestClientException e) {
+            log.warn("OpenAlex relevance search failed for '{}': {}", query, e.getMessage());
+            return List.of();
+        }
+    }
+
     public List<PaperDetailResponseDTO> search(String query, int size) {
         String normalizedQuery = normalizeOpenAlexSearchQuery(query);
         if (normalizedQuery.isBlank()) return List.of();

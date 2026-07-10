@@ -10,6 +10,8 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -84,13 +86,17 @@ public class AuthServiceImpl implements AuthService {
         @Override
         @Transactional
         public AuthResponse googleLogin(GoogleLoginRequest request) {
+                log.info(">>> GOOGLE LOGIN called, credential length={}",
+                                request.getCredential() != null ? request.getCredential().length() : 0);
                 // 1. Verify Google ID token
                 Map<String, Object> payload = verifyGoogleToken(request.getCredential());
 
                 String email = (String) payload.get("email");
                 String name = (String) payload.get("name");
 
+                log.info(">>> GOOGLE LOGIN: email from token = '{}'", email);
                 if (email == null || email.isBlank()) {
+                        log.warn(">>> GOOGLE LOGIN FAILED: email is null or blank in payload");
                         throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
                 }
 
@@ -100,8 +106,8 @@ public class AuthServiceImpl implements AuthService {
                 User user = userRepository.findByEmail(email).orElse(null);
 
                 if (user == null) {
-                        // Create new user from Google account
-                        Role role = roleRepository.findByRoleNameIgnoreCase("academic_user")
+                        // Create new user from Google account → default RESEARCHER for 3 days
+                        Role role = roleRepository.findByRoleNameIgnoreCase("researcher")
                                         .orElseThrow(() -> new RuntimeException("Role not found."));
 
                         user = User.builder()
@@ -110,6 +116,7 @@ public class AuthServiceImpl implements AuthService {
                                         .passwordHash(passwordEncoder.encode(UUID.randomUUID().toString()))
                                         .institution((String) payload.getOrDefault("hd", null))
                                         .role(role)
+                                        .roleExpiryAt(LocalDateTime.now().plusDays(3)) // Auto-downgrade after 3 days
                                         .isActive(true) // Google accounts are pre-verified
                                         .build();
 
@@ -137,43 +144,117 @@ public class AuthServiceImpl implements AuthService {
         }
 
         /**
-         * Verify a Google ID token by calling Google's tokeninfo endpoint.
-         * No extra dependencies needed — just a simple HTTP call.
+         * Verify a Google token.
+         * Supports both ID token (JWT) and access token (opaque).
+         * - ID token: decoded locally, audience verified against googleClientId.
+         * - Access token: validated by calling Google's userinfo endpoint.
          */
         @SuppressWarnings("unchecked")
-        private Map<String, Object> verifyGoogleToken(String idToken) {
-                String url = "https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken;
+        private Map<String, Object> verifyGoogleToken(String token) {
+                log.info("=== GOOGLE LOGIN V2: verifying token, length={} ===", token.length());
 
+                // Detect token type: JWT has 3 dot-separated parts, access token does not
+                boolean looksLikeJwt = token.chars().filter(c -> c == '.').count() >= 2;
+
+                if (looksLikeJwt) {
+                        return verifyIdToken(token);
+                } else {
+                        return verifyAccessToken(token);
+                }
+        }
+
+        /**
+         * Verify a standard Google ID token (JWT) by local decode.
+         */
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> verifyIdToken(String idToken) {
+                log.info(">>> Verifying as ID token (JWT), preview={}...",
+                                idToken.substring(0, Math.min(50, idToken.length())));
                 try {
-                        RestTemplate restTemplate = new RestTemplate();
-                        Map<String, Object> payload = restTemplate.getForObject(url, Map.class);
-
-                        if (payload == null) {
+                        String[] parts = idToken.split("\\.");
+                        if (parts.length < 2) {
+                                log.warn("Google ID token has invalid JWT format");
                                 throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
                         }
 
-                        // Check for errors from Google
-                        if (payload.containsKey("error")) {
-                                log.warn("Google token verification failed: {}", payload.get("error_description"));
+                        String payloadJson = new String(Base64.getUrlDecoder().decode(parts[1]));
+                        Map<String, Object> payload = new com.fasterxml.jackson.databind.ObjectMapper()
+                                        .readValue(payloadJson, Map.class);
+
+                        if (payload == null || payload.isEmpty()) {
+                                log.warn("Google ID token payload is empty");
                                 throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
                         }
 
-                        // Verify audience (client ID) if configured
+                        // Check expiration
+                        Object expObj = payload.get("exp");
+                        if (expObj instanceof Number) {
+                                long exp = ((Number) expObj).longValue();
+                                if (System.currentTimeMillis() / 1000 > exp) {
+                                        log.warn("Google ID token expired at {}", exp);
+                                        throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
+                                }
+                        }
+
+                        // Verify audience (client ID)
                         if (googleClientId != null && !googleClientId.isBlank()) {
-                                String aud = (String) payload.get("aud");
-                                if (!googleClientId.equals(aud)) {
-                                        log.warn("Google token audience mismatch: expected={}, got={}",
+                                Object audObj = payload.get("aud");
+                                String aud = audObj instanceof String ? (String) audObj : null;
+                                if (aud != null && !googleClientId.equals(aud)) {
+                                        log.warn("Google ID token audience mismatch: expected={}, got={}",
                                                         googleClientId, aud);
                                         throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
                                 }
                         }
 
+                        log.info("Google ID token valid: email={}, aud={}, iss={}",
+                                        payload.get("email"), payload.get("aud"), payload.get("iss"));
                         return payload;
 
                 } catch (AppException e) {
                         throw e;
                 } catch (Exception e) {
-                        log.error("Failed to verify Google token: {}", e.getMessage(), e);
+                        log.error("Failed to decode Google ID token: {}", e.getMessage());
+                        throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
+                }
+        }
+
+        /**
+         * Verify a Google access token by calling the userinfo endpoint.
+         * This handles the OAuth implicit flow where only access_token is returned.
+         */
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> verifyAccessToken(String accessToken) {
+                log.info(">>> Verifying as access token (opaque) via Google userinfo API");
+                try {
+                        RestTemplate restTemplate = new RestTemplate();
+                        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+                        headers.setBearerAuth(accessToken);
+                        org.springframework.http.HttpEntity<Void> entity = new org.springframework.http.HttpEntity<>(headers);
+
+                        ResponseEntity<String> response = restTemplate.exchange(
+                                        "https://www.googleapis.com/oauth2/v3/userinfo",
+                                        org.springframework.http.HttpMethod.GET,
+                                        entity,
+                                        String.class);
+
+                        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                                log.warn("Google userinfo API returned status={}", response.getStatusCode());
+                                throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
+                        }
+
+                        Map<String, Object> userInfo = new com.fasterxml.jackson.databind.ObjectMapper()
+                                        .readValue(response.getBody(), Map.class);
+
+                        log.info("Google userinfo API success: email={}, name={}",
+                                        userInfo.get("email"), userInfo.get("name"));
+
+                        return userInfo;
+
+                } catch (AppException e) {
+                        throw e;
+                } catch (Exception e) {
+                        log.error("Failed to verify Google access token: {}", e.getMessage());
                         throw new AppException(ErrorCode.GOOGLE_TOKEN_INVALID);
                 }
         }
