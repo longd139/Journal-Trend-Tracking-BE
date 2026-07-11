@@ -11,6 +11,7 @@ import java.util.UUID;
 
 public interface PdfRequestService {
     PdfRequestResponse requestPdf(UUID paperId, String userEmail, PdfRequestCreateRequest request);
+    boolean hasRequestedPdf(UUID paperId, String userEmail);
     List<PdfRequestResponse> getAdminRequests(String status, int page, int size);
     PdfCandidateSearchResponse findCandidates(UUID requestId);
     PdfRequestResponse fulfillRequest(UUID requestId, String adminEmail, PdfRequestFulfillRequest request);

@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,6 +23,15 @@ import java.util.UUID;
 public class PdfRequestController {
 
     private final PdfRequestService pdfRequestService;
+
+    @GetMapping("/{paperId}/pdf-requests/status")
+    public ResponseEntity<AppResponse<Boolean>> getMyRequestStatus(
+            @PathVariable UUID paperId,
+            Authentication authentication) {
+        boolean hasRequested = pdfRequestService.hasRequestedPdf(
+                paperId, authentication.getName());
+        return ResponseEntity.ok(AppResponse.success("Request status retrieved", hasRequested));
+    }
 
     @PostMapping("/{paperId}/pdf-requests")
     public ResponseEntity<AppResponse<PdfRequestResponse>> requestPdf(

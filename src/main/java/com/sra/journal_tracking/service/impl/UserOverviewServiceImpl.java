@@ -32,6 +32,7 @@ import com.sra.journal_tracking.repository.jpa.BookmarkRepository;
 import com.sra.journal_tracking.repository.jpa.FollowRepository;
 import com.sra.journal_tracking.repository.jpa.KeywordRepository;
 import com.sra.journal_tracking.repository.jpa.ReadingHistoryRepository;
+import com.sra.journal_tracking.repository.jpa.ResearchFieldRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
@@ -60,6 +61,7 @@ public class UserOverviewServiceImpl implements UserOverviewService {
     private final FollowRepository followRepository;
     private final BookmarkRepository bookmarkRepository;
     private final ReadingHistoryRepository readingHistoryRepository;
+    private final ResearchFieldRepository researchFieldRepository;
     private final DataSyncService dataSyncService;
     private final AuthorQuickStatsService authorQuickStatsService;
 
@@ -112,8 +114,15 @@ public class UserOverviewServiceImpl implements UserOverviewService {
                 YearMonth.now().atDay(1).atStartOfDay(),
                 YearMonth.now().plusMonths(1).atDay(1).atStartOfDay());
 
-        // ── Research Fields from user's search history ──
-        List<ResearchFieldEntry> researchFields = buildResearchFieldsFromHistory(user.getUserId());
+        // ── Research Fields ──
+        // When viewing a followed author: use their actual research topics from OpenAlex
+        // When no authorId: use the logged-in user's search history keywords
+        List<ResearchFieldEntry> researchFields;
+        if (authorId != null) {
+            researchFields = buildResearchFieldsFromAuthor(authorId);
+        } else {
+            researchFields = buildResearchFieldsFromHistory(user.getUserId());
+        }
 
         // ── Researcher-specific features (only when authorId is provided) ──
         Integer hIndex = null;
@@ -215,40 +224,88 @@ public class UserOverviewServiceImpl implements UserOverviewService {
     }
 
     /**
-     * Build research fields from user's search history keywords.
-     * Aggregates last 50 KEYWORD searches, calculates percentages, returns top 8.
+     * Build research fields from an author's actual research topics via OpenAlex.
+     * Fetches the author's top topics and maps to ResearchFieldEntry with percentages.
+     */
+    private List<ResearchFieldEntry> buildResearchFieldsFromAuthor(UUID authorId) {
+        try {
+            var author = authorRepository.findById(authorId).orElse(null);
+            if (author == null) return List.of();
+
+            AuthorResearchFocusResponse focus = authorQuickStatsService.getResearchFocus(author.getFullName());
+            if (focus == null || focus.getTopics() == null || focus.getTopics().isEmpty()) return List.of();
+
+            return focus.getTopics().stream()
+                    .limit(8)
+                    .map(topic -> ResearchFieldEntry.builder()
+                            .name(topic.getTopicName())
+                            .value(topic.getPercentage())
+                            .build())
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Failed to build research fields from author {}: {}", authorId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Build research fields from the user's keyword searches, but only counting
+     * terms that match actual keywords in the database (filters out noise like
+     * "improving", "preferred" that aren't real research topics).
+     * Falls back to system-wide top fields if no matching keywords found.
      */
     private List<ResearchFieldEntry> buildResearchFieldsFromHistory(UUID userId) {
         try {
-            List<UserSearchHistory> searches = searchHistoryRepository
-                    .findByUser_UserIdOrderBySearchedAtDesc(userId, PageRequest.of(0, 50));
-
-            Map<String, Long> keywordCounts = new LinkedHashMap<>();
-            for (UserSearchHistory s : searches) {
-                if (!"KEYWORD".equals(s.getSearchType())) continue;
-                String kw = s.getSearchText().toLowerCase().trim();
-                if (kw.isEmpty() || kw.length() < 2) continue;
-                keywordCounts.merge(kw, 1L, Long::sum);
+            List<Object[]> rows = searchHistoryRepository.countKeywordSearchesMatchingDb(userId);
+            if (!rows.isEmpty()) {
+                long total = rows.stream().mapToLong(r -> ((Number) r[1]).longValue()).sum();
+                if (total > 0) {
+                    return rows.stream()
+                            .limit(8)
+                            .map(r -> {
+                                String keyword = (String) r[0];
+                                long count = ((Number) r[1]).longValue();
+                                double pct = Math.round((count * 100.0 / total) * 10.0) / 10.0;
+                                return ResearchFieldEntry.builder()
+                                        .name(keyword)
+                                        .value(pct)
+                                        .build();
+                            })
+                            .toList();
+                }
             }
+        } catch (Exception e) {
+            log.warn("Failed to build research fields from search history: {}", e.getMessage());
+        }
 
-            if (keywordCounts.isEmpty()) return List.of();
+        // Fallback: system-wide top tracked research fields
+        return buildSystemWideFields();
+    }
 
-            long total = keywordCounts.values().stream().mapToLong(Long::longValue).sum();
-            if (total == 0) return List.of();
+    /**
+     * Fallback: show top tracked research fields from the entire system.
+     */
+    private List<ResearchFieldEntry> buildSystemWideFields() {
+        try {
+            var fields = researchFieldRepository.findByParentFieldIsNullAndIsTrackedTrue();
+            if (fields.isEmpty()) return List.of();
 
-            return keywordCounts.entrySet().stream()
-                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                    .limit(8)
-                    .map(e -> {
-                        double pct = Math.round((e.getValue() * 100.0 / total) * 10.0) / 10.0;
+            return fields.stream()
+                    .map(field -> {
+                        long count = researchFieldRepository.countPapersByFieldId(field.getFieldId());
                         return ResearchFieldEntry.builder()
-                                .name(e.getKey())
-                                .value(pct)
+                                .name(field.getFieldName())
+                                .value((double) count)
                                 .build();
                     })
+                    .filter(f -> f.getValue() > 0)
+                    .sorted((a, b) -> Long.compare(
+                            ((Double) b.getValue()).longValue(),
+                            ((Double) a.getValue()).longValue()))
+                    .limit(8)
                     .toList();
         } catch (Exception e) {
-            log.warn("Failed to build research fields from history: {}", e.getMessage());
+            log.warn("Failed to build system-wide fields: {}", e.getMessage());
             return List.of();
         }
     }

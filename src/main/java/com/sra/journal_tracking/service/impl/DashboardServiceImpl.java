@@ -79,8 +79,14 @@ public class DashboardServiceImpl implements DashboardService {
             long totalCitations = openAlexStats.getTotalCitations() != null ? openAlexStats.getTotalCitations() : 0L;
             int hIndex = openAlexStats.getHIndex() != null ? openAlexStats.getHIndex() : 0;
 
-            // Co-authors from local DB (only if author has papers synced locally)
-            long coAuthors = paperAuthorRepository.countCoAuthorsByAuthorId(authorId);
+            // Co-authors from OpenAlex (real collaboration data, not limited to local DB sync)
+            long coAuthors = 0;
+            try {
+                var coAuthorResponse = authorQuickStatsService.getCoAuthors(authorName);
+                coAuthors = coAuthorResponse.getTotalCoAuthors();
+            } catch (Exception e) {
+                log.warn("Failed to fetch co-authors from OpenAlex for '{}': {}", authorName, e.getMessage());
+            }
 
             log.info("Author '{}' from OpenAlex: papers={}, citations={}, hIndex={}, coAuthors={}",
                     authorName, totalPapers, totalCitations, hIndex, coAuthors);

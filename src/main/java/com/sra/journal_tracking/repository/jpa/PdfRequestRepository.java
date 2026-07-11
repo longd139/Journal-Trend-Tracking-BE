@@ -20,6 +20,11 @@ public interface PdfRequestRepository extends JpaRepository<PdfRequest, UUID> {
             PdfRequestStatus status);
 
     @EntityGraph(attributePaths = {"user", "paper", "paper.journal", "resolvedByAdmin"})
+    Optional<PdfRequest> findFirstByUser_UserIdAndPaper_PaperIdOrderByRequestedAtDesc(
+            UUID userId,
+            UUID paperId);
+
+    @EntityGraph(attributePaths = {"user", "paper", "paper.journal", "resolvedByAdmin"})
     Page<PdfRequest> findAllByOrderByRequestedAtDesc(Pageable pageable);
 
     @EntityGraph(attributePaths = {"user", "paper", "paper.journal", "resolvedByAdmin"})

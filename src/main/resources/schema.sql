@@ -84,6 +84,26 @@ BEGIN
             WHERE Status = ''pending'''
 END
 
+-- PAPER_RATING table (user rates paper 1-5)
+IF OBJECT_ID('PAPER_RATING', 'U') IS NULL
+BEGIN
+    EXEC sp_executesql N'
+        CREATE TABLE PAPER_RATING (
+            RatingID UNIQUEIDENTIFIER NOT NULL,
+            UserID UNIQUEIDENTIFIER NOT NULL,
+            PaperID UNIQUEIDENTIFIER NOT NULL,
+            Score INT NOT NULL,
+            RatedAt DATETIME2 NOT NULL,
+            CONSTRAINT PK_PAPER_RATING PRIMARY KEY (RatingID),
+            CONSTRAINT FK_PAPER_RATING_User FOREIGN KEY (UserID)
+                REFERENCES [USER](UserID),
+            CONSTRAINT FK_PAPER_RATING_Paper FOREIGN KEY (PaperID)
+                REFERENCES RESEARCH_PAPER(PaperID),
+            CONSTRAINT UK_PAPER_RATING_UserPaper UNIQUE (UserID, PaperID),
+            CONSTRAINT CK_PAPER_RATING_Score CHECK (Score >= 1 AND Score <= 5)
+        )'
+END
+
 -- 5. RESEARCH_FIELD — Seed additional top-level fields if missing
 -- 4b. USER_SESSION refresh token columns
 IF OBJECT_ID('USER_SESSION', 'U') IS NOT NULL

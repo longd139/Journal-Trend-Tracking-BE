@@ -67,6 +67,9 @@ public class PaperRecommendationController {
                         .build())
                 .collect(java.util.stream.Collectors.toList());
 
+        // Enrich citation counts from OpenAlex for papers with 0 in DB
+        enrichCitationCounts(result);
+
         // OpenAlex fallback if SQL returns nothing
         if (result.isEmpty()) {
             try {
@@ -125,10 +128,31 @@ public class PaperRecommendationController {
                             .build())
                     .toList();
 
+            enrichCitationCounts(result);
+
             return ResponseEntity.ok(AppResponse.success("Trending papers retrieved", result));
         } catch (Exception e) {
             return ResponseEntity.ok(AppResponse.success(
                     "ERR: " + e.getClass().getSimpleName() + " - " + e.getMessage(), List.of()));
+        }
+    }
+
+    /**
+     * Enrich citation counts from OpenAlex for papers with 0 in the local DB.
+     * Tries by DOI (which is always available) to fetch the real-time cited_by_count.
+     */
+    private void enrichCitationCounts(List<PaperDetailResponseDTO> papers) {
+        for (PaperDetailResponseDTO p : papers) {
+            if (p.getCitationCount() != null && p.getCitationCount() > 0) continue;
+            if (p.getDoi() == null || p.getDoi().isBlank()) continue;
+            try {
+                Integer count = openAlexSearchService.fetchCitationCountByDoi(p.getDoi());
+                if (count != null && count > 0) {
+                    p.setCitationCount(count);
+                }
+            } catch (Exception ignored) {
+                // best-effort enrichment
+            }
         }
     }
 }

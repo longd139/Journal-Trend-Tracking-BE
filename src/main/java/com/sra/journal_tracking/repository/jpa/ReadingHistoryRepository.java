@@ -60,4 +60,31 @@ public interface ReadingHistoryRepository extends JpaRepository<ReadingHistory, 
     long countByUserAndViewedBetween(@Param("userId") UUID userId,
                                      @Param("start") LocalDateTime start,
                                      @Param("end") LocalDateTime end);
+
+    /** Count total views for a specific paper. */
+    @Query("SELECT COUNT(rh) FROM ReadingHistory rh WHERE rh.paper.paperId = :paperId")
+    long countByPaper_PaperId(@Param("paperId") UUID paperId);
+
+    /** Count keyword occurrences in papers the user has viewed (top research interests). */
+    @Query(value = """
+            SELECT TOP 8 k.KeywordText, COUNT(DISTINCT rh.PaperID) AS cnt
+            FROM USER_READING_HISTORY rh
+            JOIN PAPER_KEYWORD pk ON rh.PaperID = pk.PaperID
+            JOIN KEYWORD k ON pk.KeywordID = k.KeywordID
+            WHERE rh.UserID = :userId
+            GROUP BY k.KeywordText
+            ORDER BY cnt DESC
+            """, nativeQuery = true)
+    List<Object[]> countKeywordsInViewedPapers(@Param("userId") UUID userId);
+
+    /** Count views per research field for a user (top fields they read). */
+    @Query("""
+            SELECT rf.fieldName, COUNT(rh) FROM ReadingHistory rh
+            JOIN rh.paper p
+            JOIN p.field rf
+            WHERE rh.user.userId = :userId AND rf.fieldName IS NOT NULL
+            GROUP BY rf.fieldName
+            ORDER BY COUNT(rh) DESC
+            """)
+    List<Object[]> countViewsByFieldForUser(@Param("userId") UUID userId, Pageable pageable);
 }

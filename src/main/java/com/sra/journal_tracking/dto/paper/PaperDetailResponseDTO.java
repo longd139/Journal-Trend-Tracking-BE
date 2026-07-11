@@ -37,9 +37,10 @@ public class PaperDetailResponseDTO {
     private Boolean pdfAvailable;
     private String downloadUrl;
     private String pdfUrl;
+    private Boolean hasRequestedPdf;
     private Double rating;
-    private Integer downloadCount;
-    private Integer commentCount;
+    private Long viewCount;
+    private Long bookmarkCount;
     private LocalDateTime createdAt;
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

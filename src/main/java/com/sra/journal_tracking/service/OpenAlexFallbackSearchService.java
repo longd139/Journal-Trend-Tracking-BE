@@ -84,6 +84,58 @@ public class OpenAlexFallbackSearchService {
     }
 
     /**
+     * Lightweight: fetch only citation count from OpenAlex for a given work URL.
+     * Returns null if the call fails or the work is not found.
+     */
+    public Integer fetchCitationCount(String openAlexWorkUrl) {
+        String shortId = extractShortId(openAlexWorkUrl);
+        if (shortId == null) return null;
+
+        String url = withApiKey(UriComponentsBuilder
+                .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works/" + shortId)
+                .queryParam("select", "cited_by_count"))
+                .build().encode().toUriString();
+
+        try {
+            OpenAlexResponseDTO.OpenAlexWorkDTO work =
+                    restTemplate.getForObject(url, OpenAlexResponseDTO.OpenAlexWorkDTO.class);
+            if (work == null) return null;
+            return work.getCitedByCount();
+        } catch (RestClientException e) {
+            log.debug("OpenAlex citation count fetch failed for '{}': {}", shortId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Lightweight: fetch citation count from OpenAlex by DOI.
+     * Uses filter=doi: to find the work, then extracts cited_by_count.
+     */
+    public Integer fetchCitationCountByDoi(String doi) {
+        if (doi == null || doi.isBlank()) return null;
+        String doiUrl = doi.startsWith("http") ? doi : "https://doi.org/" + doi;
+
+        String url = withApiKey(UriComponentsBuilder
+                .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
+                .queryParam("filter", "doi:" + doiUrl)
+                .queryParam("select", "cited_by_count")
+                .queryParam("per-page", 1))
+                .build().encode().toUriString();
+
+        try {
+            OpenAlexResponseDTO response =
+                    restTemplate.getForObject(url, OpenAlexResponseDTO.class);
+            if (response == null || response.getResults() == null || response.getResults().isEmpty()) {
+                return null;
+            }
+            return response.getResults().get(0).getCitedByCount();
+        } catch (RestClientException e) {
+            log.debug("OpenAlex citation count fetch by DOI failed for '{}': {}", doi, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Search top cited papers by keyword — all time, sorted by citation count.
      */
     public List<PaperDetailResponseDTO> searchTopCited(String query, int size) {
@@ -258,8 +310,8 @@ public class OpenAlexFallbackSearchService {
                 .downloadUrl(sourceUrl)
                 .pdfUrl(resolvePdfUrl(work))
                 .rating(0.0d)
-                .downloadCount(0)
-                .commentCount(0)
+                .viewCount(0L)
+                .bookmarkCount(0L)
                 .createdAt(LocalDateTime.now())
                 .build();
 

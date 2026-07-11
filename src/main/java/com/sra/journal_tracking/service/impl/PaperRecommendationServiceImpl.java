@@ -522,8 +522,8 @@ public class PaperRecommendationServiceImpl implements PaperRecommendationServic
                 .downloadUrl(downloadUrl)
                 .pdfUrl(paper.getPdfUrl())
                 .rating(0.0)
-                .downloadCount(0)
-                .commentCount(0)
+                .viewCount(0L)
+                .bookmarkCount(0L)
                 .createdAt(paper.getCreatedAt())
                 .build();
     }

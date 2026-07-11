@@ -13,6 +13,10 @@ import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserUsageRepository;
 import com.sra.journal_tracking.repository.jpa.JournalRepository;
 import com.sra.journal_tracking.repository.jpa.NotificationRepository;
+import com.sra.journal_tracking.repository.jpa.PdfRequestRepository;
+import com.sra.journal_tracking.repository.jpa.ReadingHistoryRepository;
+import com.sra.journal_tracking.repository.jpa.BookmarkRepository;
+import com.sra.journal_tracking.repository.jpa.PaperRatingRepository;
 import com.sra.journal_tracking.service.NotificationEventPublisher;
 import com.sra.journal_tracking.service.AuthorQuickStatsService;
 import com.sra.journal_tracking.service.DataSyncService;
@@ -69,6 +73,10 @@ public class PaperSearchServiceImpl implements PaperSearchService {
     private final NotificationEventPublisher eventPublisher;
     private final ReadingHistoryService readingHistoryService;
     private final PaperCacheService paperCacheService;
+    private final PdfRequestRepository pdfRequestRepository;
+    private final ReadingHistoryRepository readingHistoryRepository;
+    private final BookmarkRepository bookmarkRepository;
+    private final PaperRatingRepository paperRatingRepository;
 
     @Override
     public PaperSearchResultDTO searchPapers(PaperSearchRequestDTO request, String userEmail) {
@@ -309,6 +317,23 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 }
             }
 
+            // Enrich citation count from OpenAlex if DB has 0
+            Integer enrichedCitations = enrichCitationCount(paperId, paper.getOpenAlexWorkId(), paper);
+            if (enrichedCitations != null && enrichedCitations > 0) {
+                dto.setCitationCount(enrichedCitations);
+            }
+
+            // Compute real viewCount and bookmarkCount
+            dto.setViewCount(readingHistoryRepository.countByPaper_PaperId(paperId));
+            dto.setBookmarkCount(bookmarkRepository.countByPaper_PaperId(paperId));
+
+            // Compute average rating
+            Double avgRating = paperRatingRepository.avgScoreByPaper_PaperId(paperId);
+            dto.setRating(avgRating != null ? Math.round(avgRating * 10.0) / 10.0 : 0.0);
+
+            dto.setHasRequestedPdf(pdfRequestRepository
+                    .findFirstByUser_UserIdAndPaper_PaperIdOrderByRequestedAtDesc(user.getUserId(), paperId)
+                    .isPresent());
             return dto;
         }
 
@@ -320,6 +345,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             readingHistoryService.recordView(userEmail, paperId,
                     dto.getTitle(), dto.getDoi(),
                     dto.getPubYear() != null ? (int) dto.getPubYear() : null);
+            dto.setHasRequestedPdf(pdfRequestRepository
+                    .findFirstByUser_UserIdAndPaper_PaperIdOrderByRequestedAtDesc(user.getUserId(), paperId)
+                    .isPresent());
             return dto;
         }
 
@@ -331,6 +359,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 readingHistoryService.recordView(userEmail, paperId,
                         fromCache.getTitle(), fromCache.getDoi(),
                         fromCache.getPubYear() != null ? (int) fromCache.getPubYear() : null);
+                fromCache.setHasRequestedPdf(pdfRequestRepository
+                        .findFirstByUser_UserIdAndPaper_PaperIdOrderByRequestedAtDesc(user.getUserId(), paperId)
+                        .isPresent());
                 return fromCache;
             }
         }
@@ -343,6 +374,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 readingHistoryService.recordView(userEmail, paperId,
                         fromOpenAlex.getTitle(), fromOpenAlex.getDoi(),
                         fromOpenAlex.getPubYear() != null ? (int) fromOpenAlex.getPubYear() : null);
+                fromOpenAlex.setHasRequestedPdf(pdfRequestRepository
+                        .findFirstByUser_UserIdAndPaper_PaperIdOrderByRequestedAtDesc(user.getUserId(), paperId)
+                        .isPresent());
                 return fromOpenAlex;
             }
         }
@@ -849,8 +883,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 .downloadUrl(downloadUrl)
                 .pdfUrl(paper.getPdfUrl())
                 .rating(0.0)
-                .downloadCount(0)
-                .commentCount(0)
+                .viewCount(0L)
+                .bookmarkCount(0L)
                 .createdAt(paper.getCreatedAt())
                 .build();
     }
@@ -887,6 +921,41 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             }
         }
 
+        return null;
+    }
+
+    /**
+     * Enrich citation count from OpenAlex when DB has 0.
+     * Updates both the returned value and the DB entity for future use.
+     */
+    private Integer enrichCitationCount(UUID paperId, String openAlexWorkId, ResearchPaper paper) {
+        if (paper.getCitationCount() != null && paper.getCitationCount() > 0) {
+            return null; // already has citations, no enrichment needed
+        }
+
+        // Try by OpenAlex work ID first, then by DOI
+        Integer count = null;
+        if (openAlexWorkId != null && !openAlexWorkId.isBlank()) {
+            try {
+                count = openAlexFallbackSearchService.fetchCitationCount(openAlexWorkId);
+            } catch (Exception e) {
+                log.debug("Citation enrichment by workId failed for {}: {}", paperId, e.getMessage());
+            }
+        }
+        if (count == null && paper.getDoi() != null && !paper.getDoi().isBlank()) {
+            try {
+                count = openAlexFallbackSearchService.fetchCitationCountByDoi(paper.getDoi());
+            } catch (Exception e) {
+                log.debug("Citation enrichment by DOI failed for {}: {}", paperId, e.getMessage());
+            }
+        }
+
+        if (count != null && count > 0) {
+            log.info("Citation count enriched for paper {}: {} → {}", paperId, paper.getCitationCount(), count);
+            paper.setCitationCount(count);
+            researchPaperRepository.save(paper);
+            return count;
+        }
         return null;
     }
 

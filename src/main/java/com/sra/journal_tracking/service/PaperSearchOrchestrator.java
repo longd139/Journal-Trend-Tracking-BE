@@ -7,7 +7,13 @@ import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.paper.PaperSearchResultDTO;
 import com.sra.journal_tracking.entity.jpa.PaperKeyword;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
+import com.sra.journal_tracking.entity.jpa.User;
+import com.sra.journal_tracking.entity.jpa.UserUsage;
+import com.sra.journal_tracking.exception.UsageLimitExceededException;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
+import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
+import com.sra.journal_tracking.repository.jpa.UserRepository;
+import com.sra.journal_tracking.repository.jpa.UserUsageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,6 +23,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.util.stream.Collectors;
 
 /**
@@ -47,6 +55,9 @@ public class PaperSearchOrchestrator {
     private final UserSearchHistoryService userSearchHistoryService;
     private final ResearchPaperRepository researchPaperRepository;
     private final OpenAlexFallbackSearchService openAlexFallbackSearchService;
+    private final UserRepository userRepository;
+    private final UserUsageRepository userUsageRepository;
+    private final SystemConfigRepository systemConfigRepository;
 
     @Transactional
     public PaperSearchResultDTO searchByKeyword(String keyword, String userEmail) {
@@ -72,6 +83,9 @@ public class PaperSearchOrchestrator {
         if (cached != null) {
             searchResultCache.remove(cacheKey);
         }
+
+        // Check & increment search usage for ACADEMIC_USER
+        checkAndIncrementSearchUsage(userEmail);
 
         log.info("Search: keyword='{}', user='{}'", trimmedKeyword, userEmail);
 
@@ -196,8 +210,8 @@ public class PaperSearchOrchestrator {
                 .downloadUrl(downloadUrl)
                 .pdfUrl(paper.getPdfUrl())
                 .rating(0.0)
-                .downloadCount(0)
-                .commentCount(0)
+                .viewCount(0L)
+                .bookmarkCount(0L)
                 .createdAt(paper.getCreatedAt())
                 .build();
     }
@@ -351,5 +365,37 @@ public class PaperSearchOrchestrator {
         return !isSyntheticKeyword(paperKeyword)
                 && paperKeyword.getRelevanceScore() != null
                 && paperKeyword.getRelevanceScore() >= MIN_PRIMARY_KEYWORD_SCORE;
+    }
+
+    /** Check and increment search usage for ACADEMIC_USER (mirrors PaperSearchServiceImpl). */
+    private void checkAndIncrementSearchUsage(String userEmail) {
+        User user = userRepository.findByEmail(userEmail).orElse(null);
+        if (user == null || !"ACADEMIC_USER".equalsIgnoreCase(user.getRole().getRoleName())) {
+            return;
+        }
+        String currentMonth = YearMonth.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
+        UserUsage usage = userUsageRepository
+                .findByUser_UserIdAndUsageMonth(user.getUserId(), currentMonth)
+                .orElseGet(() -> {
+                    UserUsage newUsage = UserUsage.builder()
+                            .user(user)
+                            .usageMonth(currentMonth)
+                            .searchCount(0)
+                            .viewCount(0)
+                            .chartViewCount(0)
+                            .build();
+                    return userUsageRepository.save(newUsage);
+                });
+
+        int limit = systemConfigRepository.findByConfigKey("academic_monthly_search_limit")
+                .map(cfg -> Integer.parseInt(cfg.getConfigValue()))
+                .orElse(30);
+
+        if (usage.getSearchCount() >= limit) {
+            throw new UsageLimitExceededException(
+                    "You have reached your monthly search limit (" + limit + "). Upgrade to Researcher?");
+        }
+        usage.setSearchCount(usage.getSearchCount() + 1);
+        userUsageRepository.save(usage);
     }
 }

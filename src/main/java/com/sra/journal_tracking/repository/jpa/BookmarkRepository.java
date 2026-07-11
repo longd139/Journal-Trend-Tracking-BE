@@ -47,4 +47,8 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, UUID> {
     long countByUserAndCreatedBetween(@Param("userId") UUID userId,
                                       @Param("start") LocalDateTime start,
                                       @Param("end") LocalDateTime end);
+
+    /** Count bookmarks for a specific paper. */
+    @Query("SELECT COUNT(b) FROM Bookmark b WHERE b.paper.paperId = :paperId")
+    long countByPaper_PaperId(@Param("paperId") UUID paperId);
 }

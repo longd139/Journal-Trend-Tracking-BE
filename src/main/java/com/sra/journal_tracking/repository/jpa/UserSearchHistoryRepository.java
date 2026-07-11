@@ -40,4 +40,18 @@ public interface UserSearchHistoryRepository extends JpaRepository<UserSearchHis
     long countByUserAndSearchedBetween(@Param("userId") UUID userId,
                                         @Param("start") LocalDateTime start,
                                         @Param("end") LocalDateTime end);
+
+    /**
+     * Count keyword searches that match actual keywords in the KEYWORD table.
+     * Filters out noise terms like "improving", "preferred" that aren't real topics.
+     */
+    @Query(value = """
+            SELECT TOP 8 k.KeywordText, COUNT(h.SearchHistoryID) AS cnt
+            FROM USER_SEARCH_HISTORY h
+            JOIN KEYWORD k ON LOWER(h.SearchText) = LOWER(k.KeywordText)
+            WHERE h.UserID = :userId AND h.SearchType = 'KEYWORD'
+            GROUP BY k.KeywordText
+            ORDER BY cnt DESC
+            """, nativeQuery = true)
+    List<Object[]> countKeywordSearchesMatchingDb(@Param("userId") UUID userId);
 }

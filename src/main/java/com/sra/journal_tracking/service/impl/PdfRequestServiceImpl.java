@@ -87,6 +87,19 @@ public class PdfRequestServiceImpl implements PdfRequestService {
 
     @Override
     @Transactional(readOnly = true)
+    public boolean hasRequestedPdf(UUID paperId, String userEmail) {
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+        researchPaperRepository.findById(paperId)
+                .orElseThrow(() -> new PaperNotFoundException("Paper not found with ID: " + paperId));
+
+        return pdfRequestRepository
+                .findFirstByUser_UserIdAndPaper_PaperIdOrderByRequestedAtDesc(user.getUserId(), paperId)
+                .isPresent();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<PdfRequestResponse> getAdminRequests(String status, int page, int size) {
         PageRequest pageRequest = PageRequest.of(Math.max(0, page), Math.min(50, Math.max(1, size)));
         Page<PdfRequest> result;
