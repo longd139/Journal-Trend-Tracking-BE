@@ -6,6 +6,7 @@ import com.sra.journal_tracking.dto.paper.PaperAdvancedFilterRequestDTO;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.paper.PaperSearchRequestDTO;
 import com.sra.journal_tracking.dto.paper.PaperSearchResultDTO;
+import com.sra.journal_tracking.dto.paper.SearchQuotaResponseDTO;
 import com.sra.journal_tracking.dto.paper.UsageLimitResponseDTO;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
@@ -223,6 +224,15 @@ public class PaperSearchController {
     @GetMapping("/usage")
     public ResponseEntity<AppResponse<UsageLimitResponseDTO>> getRemainingUsage(Authentication authentication) {
         return ResponseEntity.ok(AppResponse.success("Usage info retrieved", paperSearchService.getRemainingUsage(authentication.getName())));
+    }
+
+    @Operation(summary = "Check & consume search quota for a keyword", description = "Called when user presses Enter in search input. Only consumes quota if keyword is not cached and OpenAlex has data.")
+    @GetMapping("/search/quota")
+    public ResponseEntity<AppResponse<SearchQuotaResponseDTO>> checkSearchQuota(
+            @RequestParam("query") String query,
+            Authentication authentication) {
+        SearchQuotaResponseDTO result = paperSearchOrchestrator.checkSearchQuota(query, authentication.getName());
+        return ResponseEntity.ok(AppResponse.success("Quota check completed", result));
     }
 
     @Operation(summary = "Graph-based keyword search", description = "Search papers by keyword using Neo4j graph. Falls back to OpenAlex API if not found locally.")

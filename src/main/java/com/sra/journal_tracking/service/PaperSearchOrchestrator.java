@@ -5,12 +5,14 @@ import com.sra.journal_tracking.dto.paper.AuthorDTO;
 import com.sra.journal_tracking.dto.paper.KeywordDTO;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.paper.PaperSearchResultDTO;
+import com.sra.journal_tracking.dto.paper.SearchQuotaResponseDTO;
 import com.sra.journal_tracking.entity.jpa.PaperKeyword;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.entity.jpa.User;
 import com.sra.journal_tracking.entity.jpa.UserUsage;
 import com.sra.journal_tracking.exception.UsageLimitExceededException;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
+import com.sra.journal_tracking.service.UsageNotificationService;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserUsageRepository;
@@ -58,6 +60,7 @@ public class PaperSearchOrchestrator {
     private final UserRepository userRepository;
     private final UserUsageRepository userUsageRepository;
     private final SystemConfigRepository systemConfigRepository;
+    private final UsageNotificationService usageNotificationService;
 
     @Transactional
     public PaperSearchResultDTO searchByKeyword(String keyword, String userEmail) {
@@ -127,6 +130,61 @@ public class PaperSearchOrchestrator {
         }
 
         return buildEmptyResult();
+    }
+
+    /**
+     * Check whether searching a keyword should consume quota, and consume it if so.
+     * Called by FE when user presses Enter in the search input — BEFORE loading
+     * child components (KeywordQuickStats, TopPapers, etc.).
+     *
+     * Rules:
+     * - Cache hit (searched within 6 hours) → quota NOT consumed
+     * - Cache miss + OpenAlex has data → quota consumed + result cached for 6h
+     * - Cache miss + OpenAlex no data → quota NOT consumed
+     */
+    @Transactional
+    public SearchQuotaResponseDTO checkSearchQuota(String keyword, String userEmail) {
+        String trimmed = keyword.trim();
+        if (trimmed.isEmpty()) {
+            return SearchQuotaResponseDTO.builder()
+                    .quotaConsumed(false).fromCache(false).keyword(keyword).build();
+        }
+
+        String cacheKey = trimmed.toLowerCase();
+
+        // If already cached → don't consume quota again
+        CacheEntry<PaperSearchResultDTO> cached = searchResultCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            log.info("QUOTA: '{}' → cache hit, quota NOT consumed", trimmed);
+            return SearchQuotaResponseDTO.builder()
+                    .quotaConsumed(false).fromCache(true).keyword(trimmed).build();
+        }
+
+        // Cache miss → check if OpenAlex has data for this keyword
+        boolean hasData = false;
+        try {
+            List<PaperDetailResponseDTO> papers = openAlexFallbackSearchService.searchTopCited(trimmed, 1);
+            hasData = !papers.isEmpty();
+        } catch (Exception e) {
+            log.warn("QUOTA: OpenAlex check failed for '{}': {}", trimmed, e.getMessage());
+        }
+
+        if (hasData) {
+            checkAndIncrementSearchUsage(userEmail);
+            // Cache an empty placeholder so re-searches within 6h won't consume quota
+            PaperSearchResultDTO placeholder = PaperSearchResultDTO.builder()
+                    .papers(List.of())
+                    .totalElements(0L).totalPages(0).currentPage(0).pageSize(0)
+                    .hasNext(false).hasPrev(false)
+                    .build();
+            searchResultCache.put(cacheKey, new CacheEntry<>(placeholder));
+            log.info("QUOTA: '{}' → has data, quota consumed + cached", trimmed);
+        } else {
+            log.info("QUOTA: '{}' → no data, quota NOT consumed", trimmed);
+        }
+
+        return SearchQuotaResponseDTO.builder()
+                .quotaConsumed(hasData).fromCache(false).keyword(trimmed).build();
     }
 
     // ============================================
@@ -391,11 +449,23 @@ public class PaperSearchOrchestrator {
                 .map(cfg -> Integer.parseInt(cfg.getConfigValue()))
                 .orElse(30);
 
-        if (usage.getSearchCount() >= limit) {
+        int currentCount = usage.getSearchCount();
+
+        if (currentCount >= limit) {
+            // Generate UPGRADE_PROMPT notification before throwing (in a new txn to survive rollback)
+            usageNotificationService.createUpgradePromptNotification(
+                    user.getUserId(), "search", currentCount, limit, true);
             throw new UsageLimitExceededException(
                     "You have reached your monthly search limit (" + limit + "). Upgrade to Researcher?");
         }
-        usage.setSearchCount(usage.getSearchCount() + 1);
-        userUsageRepository.save(usage);
+
+        userUsageRepository.incrementSearchCount(user.getUserId(), currentMonth);
+
+        if (currentCount + 1 >= limit * 0.8) {
+            log.info("Usage at 80%: userId={}, type=search, current={}, limit={}",
+                    user.getUserId(), currentCount + 1, limit);
+            usageNotificationService.createUpgradePromptNotification(
+                    user.getUserId(), "search", currentCount + 1, limit, false);
+        }
     }
 }
