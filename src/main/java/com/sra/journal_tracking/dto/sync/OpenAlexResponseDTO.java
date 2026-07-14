@@ -42,6 +42,9 @@ public class OpenAlexResponseDTO {
         @JsonProperty("cited_by_count")
         private Integer citedByCount;
 
+        @JsonProperty("counts_by_year")
+        private List<CitationByYear> countsByYear;
+
         @JsonProperty("abstract_inverted_index")
         private Map<String, List<Integer>> abstractInvertedIndex;
 
@@ -171,5 +174,13 @@ public class OpenAlexResponseDTO {
 
         @JsonProperty("country_code")
         private String countryCode;
+    }
+
+    @Data
+    public static class CitationByYear {
+        private Integer year;
+
+        @JsonProperty("cited_by_count")
+        private Integer citedByCount;
     }
 }

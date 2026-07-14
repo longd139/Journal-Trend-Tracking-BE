@@ -259,6 +259,9 @@ public class PaperSearchOrchestrator {
                 .isOpenAccess(paper.getIsOpenAccess())
                 .journalName(paper.getJournal() != null ? paper.getJournal().getJournalName() : null)
                 .journalId(paper.getJournal() != null ? paper.getJournal().getJournalId() : null)
+                .journalQuartile(paper.getJournal() != null ? paper.getJournal().getQuartile() : null)
+                .journalImpactFactor(paper.getJournal() != null && paper.getJournal().getImpactFactor() != null
+                        ? paper.getJournal().getImpactFactor().doubleValue() : null)
                 .fieldName(paper.getField() != null ? paper.getField().getFieldName() : null)
                 .fieldId(paper.getField() != null ? paper.getField().getFieldId() : null)
                 .authors(authors)
@@ -267,7 +270,7 @@ public class PaperSearchOrchestrator {
                 .pdfAvailable(pdfAvailable)
                 .downloadUrl(downloadUrl)
                 .pdfUrl(paper.getPdfUrl())
-                .rating(0.0)
+                .rating(RatingCalculator.compute(paper.getJournal(), paper.getCitationCount(), null))
                 .viewCount(0L)
                 .bookmarkCount(0L)
                 .createdAt(paper.getCreatedAt())

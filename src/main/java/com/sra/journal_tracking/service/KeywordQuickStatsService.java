@@ -15,22 +15,26 @@ import java.util.List;
 public interface KeywordQuickStatsService {
 
     /**
-     * Compute quick stats for a given keyword using Neo4j graph + SQL aggregation.
+     * Compute quick stats for a given keyword using OpenAlex API + Neo4j/SQL fallback.
      *
      * @param keyword the search keyword (raw user input)
+     * @param pubYearFrom optional filter: publication year from (inclusive)
+     * @param pubYearTo optional filter: publication year to (inclusive)
+     * @param isOpenAccess optional filter: true = open access only, null = both
      * @return aggregated stats for the keyword
      */
-    KeywordQuickStatsResponse getStats(String keyword);
+    KeywordQuickStatsResponse getStats(String keyword, Integer pubYearFrom, Integer pubYearTo, Boolean isOpenAccess);
 
     /**
-     * Discover keywords that frequently co-occur with the given keyword
-     * in recent papers (last 2 years). Uses Neo4j graph traversal to find
-     * "satellite keywords" — helps users discover research niches.
+     * Discover keywords that frequently co-occur with the given keyword.
+     * Uses Neo4j graph traversal to find "satellite keywords" — helps users discover research niches.
      *
      * @param keyword the search keyword (raw user input)
+     * @param pubYearFrom optional filter: start year for co-occurrence window (default: currentYear - 2)
+     * @param pubYearTo optional filter: end year for co-occurrence window (default: currentYear)
      * @return top 10 co-occurring keywords ranked by frequency, with growth rates
      */
-    List<RelatedKeywordResponse> getRelatedTrends(String keyword);
+    List<RelatedKeywordResponse> getRelatedTrends(String keyword, Integer pubYearFrom, Integer pubYearTo);
 
     /**
      * Get the top 5 most-cited (influential) papers for a keyword.
@@ -38,9 +42,11 @@ public interface KeywordQuickStatsService {
      * These are the "foundation papers" anyone new to the topic should read first.
      *
      * @param keyword the search keyword (raw user input)
+     * @param yearFrom optional: filter papers from this publication year (inclusive)
+     * @param yearTo   optional: filter papers to this publication year (inclusive)
      * @return top 5 papers sorted by citation count descending
      */
-    List<PaperDetailResponseDTO> getTopInfluentialPapers(String keyword);
+    List<PaperDetailResponseDTO> getTopInfluentialPapers(String keyword, Integer yearFrom, Integer yearTo);
 
     /**
      * Compare multiple keywords side-by-side — returns paper count, citation count,

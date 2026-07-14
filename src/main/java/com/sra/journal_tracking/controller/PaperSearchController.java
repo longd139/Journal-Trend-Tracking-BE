@@ -14,6 +14,7 @@ import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.service.CitationService;
 import com.sra.journal_tracking.service.PaperSearchOrchestrator;
 import com.sra.journal_tracking.service.PaperSearchService;
+import com.sra.journal_tracking.service.RatingCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -271,11 +272,15 @@ public class PaperSearchController {
                 .citationCount(paper.getCitationCount())
                 .isOpenAccess(paper.getIsOpenAccess())
                 .journalName(paper.getJournal() != null ? paper.getJournal().getJournalName() : null)
+                .journalQuartile(paper.getJournal() != null ? paper.getJournal().getQuartile() : null)
+                .journalImpactFactor(paper.getJournal() != null && paper.getJournal().getImpactFactor() != null
+                        ? paper.getJournal().getImpactFactor().doubleValue() : null)
                 .sourceUrl(paper.getDoi() != null ? "https://doi.org/" + paper.getDoi() : null)
                 .pdfAvailable(Boolean.TRUE.equals(paper.getIsOpenAccess())
                         || (paper.getPdfUrl() != null && !paper.getPdfUrl().isBlank()))
                 .pdfUrl(paper.getPdfUrl())
                 .keywords(keywords)
+                .rating(RatingCalculator.compute(paper.getJournal(), paper.getCitationCount(), null))
                 .createdAt(paper.getCreatedAt())
                 .build();
     }

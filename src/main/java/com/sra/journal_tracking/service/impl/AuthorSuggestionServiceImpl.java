@@ -72,34 +72,37 @@ public class AuthorSuggestionServiceImpl implements AuthorSuggestionService {
         List<Author> candidates = authorRepository.findTopAuthorsByPaperCount(
                 PageRequest.of(0, CANDIDATE_COUNT));
 
-        if (candidates.isEmpty()) {
-            log.warn("No authors with papers found in DB — returning empty list");
-            return Collections.emptyList();
-        }
-
-        log.info("Selected {} candidates from DB (top by paper count)", candidates.size());
-
-        // ── Step 2: Extract short OpenAlex IDs (handles both full URL and short ID) ──
-        String idFilter = candidates.stream()
-                .map(Author::getExternalAuthorId)
-                .map(AuthorSuggestionServiceImpl::extractShortId)
-                .collect(Collectors.joining("|"));
-
-        // ── Step 3: Build batch OpenAlex URL ──
         String authParam = (openalexApiKey != null && !openalexApiKey.isBlank())
                 ? "&api_key=" + openalexApiKey
                 : (openalexEmail != null && !openalexEmail.isBlank())
                 ? "&mailto=" + openalexEmail : "";
 
-        String url = "https://api.openalex.org/authors?filter=ids.openalex:" + idFilter
-                + "&sort=cited_by_count:desc&per-page=" + SUGGESTED_LIMIT + authParam;
-        log.info("OpenAlex batch author call: {} candidates → {} IDs", candidates.size(),
-                idFilter.length() > 120 ? idFilter.substring(0, 120) + "..." : idFilter);
+        String url;
+        if (candidates.isEmpty()) {
+            // ── Fallback: DB has no data → query OpenAlex directly for top-cited authors ──
+            log.info("No authors with papers in DB, falling back to direct OpenAlex top-cited query");
+            url = "https://api.openalex.org/authors?sort=cited_by_count:desc&per-page="
+                    + SUGGESTED_LIMIT + authParam;
+        } else {
+            log.info("Selected {} candidates from DB (top by paper count)", candidates.size());
 
-        // ── Step 4: Call OpenAlex API with retry (1 HTTP call for all candidates) ──
+            // ── Step 2: Extract short OpenAlex IDs ──
+            String idFilter = candidates.stream()
+                    .map(Author::getExternalAuthorId)
+                    .map(AuthorSuggestionServiceImpl::extractShortId)
+                    .collect(Collectors.joining("|"));
+
+            // ── Step 3: Build batch OpenAlex URL ──
+            url = "https://api.openalex.org/authors?filter=ids.openalex:" + idFilter
+                    + "&sort=cited_by_count:desc&per-page=" + SUGGESTED_LIMIT + authParam;
+            log.info("OpenAlex batch author call: {} candidates → {} IDs", candidates.size(),
+                    idFilter.length() > 120 ? idFilter.substring(0, 120) + "..." : idFilter);
+        }
+
+        // ── Step 4: Call OpenAlex API with retry ──
         String rawJson = fetchRawWithRetry(url);
         if (rawJson == null) {
-            log.warn("OpenAlex batch author fetch failed after {} retries", MAX_RETRIES);
+            log.warn("OpenAlex author fetch failed after {} retries", MAX_RETRIES);
             return Collections.emptyList();
         }
 
@@ -114,13 +117,23 @@ public class AuthorSuggestionServiceImpl implements AuthorSuggestionService {
         }
 
         if (apiResults == null || apiResults.isEmpty()) {
-            log.warn("OpenAlex returned no authors for batch filter ({} IDs)", candidates.size());
+            log.warn("OpenAlex returned no authors");
             return Collections.emptyList();
         }
 
-        log.info("OpenAlex returned {} authors (from {} candidates)", apiResults.size(), candidates.size());
+        log.info("OpenAlex returned {} authors", apiResults.size());
 
-        // ── Step 5: Build response (already sorted by cited_by_count from API) ──
+        // ── Step 5: Build response ──
+        List<SuggestedAuthorResponse> result = buildSuggestedAuthors(apiResults);
+        log.info("Suggested authors: {} entries ready (cached 7 days)", result.size());
+        return result;
+    }
+
+    /**
+     * Build SuggestedAuthorResponse list from OpenAlex API results.
+     */
+    private List<SuggestedAuthorResponse> buildSuggestedAuthors(
+            List<OpenAlexAuthorResponseDTO.AuthorResult> apiResults) {
         List<SuggestedAuthorResponse> result = new ArrayList<>();
         for (OpenAlexAuthorResponseDTO.AuthorResult ar : apiResults) {
             // Prefer summary_stats.h_index over top-level h_index (more reliable)
@@ -149,12 +162,10 @@ public class AuthorSuggestionServiceImpl implements AuthorSuggestionService {
                     .hIndex(hIndex)
                     .totalCitations(ar.getCitedByCount())
                     .topField(topField)
-                    .topFieldId(null) // OpenAlex doesn't give us internal field UUID
+                    .topFieldId(null)
                     .paperCount(ar.getWorksCount() != null ? Long.valueOf(ar.getWorksCount()) : 0L)
                     .build());
         }
-
-        log.info("Suggested authors: {} entries ready (cached 7 days)", result.size());
         return result;
     }
 

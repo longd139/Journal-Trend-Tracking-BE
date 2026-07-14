@@ -26,6 +26,8 @@ public class PaperDetailResponseDTO {
     private Boolean isOpenAccess;
     private String journalName;
     private UUID journalId;
+    private String journalQuartile;
+    private Double journalImpactFactor;
     private String fieldName;
     private UUID fieldId;
     @JsonInclude(JsonInclude.Include.NON_NULL)

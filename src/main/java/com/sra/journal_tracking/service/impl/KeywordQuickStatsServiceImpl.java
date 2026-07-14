@@ -80,8 +80,9 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
 
     @Override
     @Cacheable(value = "search:keywordQuickStats", cacheManager = "searchCacheManager",
-               key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.totalPapers == 0")
-    public KeywordQuickStatsResponse getStats(String keyword) {
+               key = "#keyword.trim().toLowerCase() + ':' + (#pubYearFrom != null ? #pubYearFrom : '') + ':' + (#pubYearTo != null ? #pubYearTo : '') + ':' + (#isOpenAccess != null ? #isOpenAccess : '')",
+               unless = "#result == null || #result.totalPapers == 0")
+    public KeywordQuickStatsResponse getStats(String keyword, Integer pubYearFrom, Integer pubYearTo, Boolean isOpenAccess) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) {
             return buildEmptyResponse(keyword);
@@ -90,10 +91,12 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
             trimmedKeyword = trimmedKeyword.substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
         }
 
-        log.info("Computing quick stats via OpenAlex API for keyword: '{}'", trimmedKeyword);
+        log.info("Computing quick stats via OpenAlex API for keyword: '{}' (from={}, to={}, oa={})",
+                trimmedKeyword, pubYearFrom, pubYearTo, isOpenAccess);
 
         // OpenAlex API path (primary)
-        KeywordQuickStatsResponse response = getStatsFromOpenAlex(trimmedKeyword);
+        String openAlexFilter = buildOpenAlexFilter(pubYearFrom, pubYearTo, isOpenAccess);
+        KeywordQuickStatsResponse response = getStatsFromOpenAlex(trimmedKeyword, openAlexFilter);
         if (response != null && response.getTotalPapers() > 0) {
             return response;
         }
@@ -121,10 +124,10 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
     //  OpenAlex API implementation
     // ═══════════════════════════════════════════════════════════════
 
-    private KeywordQuickStatsResponse getStatsFromOpenAlex(String keyword) {
+    private KeywordQuickStatsResponse getStatsFromOpenAlex(String keyword, String openAlexFilter) {
         try {
             // Call 1: Sample papers + total count
-            String baseUrl = buildWorksUrl(keyword, SAMPLE_SIZE, "cited_by_count:desc", null);
+            String baseUrl = buildWorksUrl(keyword, SAMPLE_SIZE, "cited_by_count:desc", openAlexFilter);
             OpenAlexResponseDTO r1 = fetchOpenAlexWithRetry(baseUrl, keyword);
             if (r1 == null || r1.getMeta() == null || r1.getMeta().getCount() == 0) return null;
 
@@ -171,6 +174,20 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
             log.warn("OpenAlex stats failed for '{}': {}", keyword, e.getMessage());
             return null;
         }
+    }
+
+    private String buildOpenAlexFilter(Integer pubYearFrom, Integer pubYearTo, Boolean isOpenAccess) {
+        List<String> filters = new ArrayList<>();
+        if (pubYearFrom != null) {
+            filters.add("from_publication_date:" + pubYearFrom + "-01-01");
+        }
+        if (pubYearTo != null) {
+            filters.add("to_publication_date:" + pubYearTo + "-12-31");
+        }
+        if (Boolean.TRUE.equals(isOpenAccess)) {
+            filters.add("open_access.is_oa:true");
+        }
+        return filters.isEmpty() ? null : String.join(",", filters);
     }
 
     private String buildWorksUrl(String keyword, int perPage, String sort, String filter) {
@@ -286,8 +303,9 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
 
     @Override
     @Cacheable(value = "search:keywordRelatedTrends", cacheManager = "searchCacheManager",
-               key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
-    public List<RelatedKeywordResponse> getRelatedTrends(String keyword) {
+               key = "#keyword.trim().toLowerCase() + ':' + (#pubYearFrom != null ? #pubYearFrom : '') + ':' + (#pubYearTo != null ? #pubYearTo : '')",
+               unless = "#result == null || #result.isEmpty()")
+    public List<RelatedKeywordResponse> getRelatedTrends(String keyword, Integer pubYearFrom, Integer pubYearTo) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) {
             return List.of();
@@ -299,7 +317,8 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
 
         short thisYear = (short) Year.now().getValue();
         short lastYear = (short) (thisYear - 1);
-        int startYear = thisYear - 2; // last 2 years
+        // Default: last 2 years; override with user-provided filter
+        int startYear = pubYearFrom != null ? pubYearFrom : thisYear - 2;
 
         log.info("Computing related trends for keyword: '{}' ({}–{})", trimmedKeyword, startYear, thisYear);
 
@@ -346,17 +365,19 @@ public class KeywordQuickStatsServiceImpl implements KeywordQuickStatsService {
 
     @Override
     @Cacheable(value = "search:keywordTopPapers", cacheManager = "searchCacheManager",
-               key = "#keyword.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
-    public List<PaperDetailResponseDTO> getTopInfluentialPapers(String keyword) {
+               key = "#keyword.trim().toLowerCase() + ':' + (#yearFrom != null ? #yearFrom : '') + ':' + (#yearTo != null ? #yearTo : '')",
+               unless = "#result == null || #result.isEmpty()")
+    public List<PaperDetailResponseDTO> getTopInfluentialPapers(String keyword, Integer yearFrom, Integer yearTo) {
         String trimmedKeyword = keyword.trim();
         if (trimmedKeyword.isEmpty()) return List.of();
         if (trimmedKeyword.length() > KeywordConstants.MAX_KEYWORD_LENGTH)
             trimmedKeyword = trimmedKeyword.substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
 
-        log.info("Fetching top influential papers via OpenAlex for: '{}'", trimmedKeyword);
+        log.info("Fetching top influential papers via OpenAlex for: '{}' (from={}, to={})",
+                trimmedKeyword, yearFrom, yearTo);
 
-        // Call OpenAlex /works directly — sorted by cited_by_count:desc, all time
-        List<PaperDetailResponseDTO> papers = openAlexSearchService.searchTopCited(trimmedKeyword, 5);
+        // Call OpenAlex /works — sorted by cited_by_count:desc, with optional year filter
+        List<PaperDetailResponseDTO> papers = openAlexSearchService.searchTopCited(trimmedKeyword, 5, yearFrom, yearTo);
         log.info("OpenAlex top papers for '{}': {} results", trimmedKeyword, papers.size());
         return papers;
     }

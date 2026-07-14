@@ -15,6 +15,7 @@ import com.sra.journal_tracking.service.AISummarizationService;
 import com.sra.journal_tracking.service.BatchAnalysisResult;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperCacheService;
+import com.sra.journal_tracking.service.RatingCalculator;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -273,7 +274,10 @@ public class AIController {
                 .pdfAvailable(pdfAvailable)
                 .downloadUrl(downloadUrl)
                 .pdfUrl(paper.getPdfUrl())
-                .rating(0.0)
+                .journalQuartile(paper.getJournal() != null ? paper.getJournal().getQuartile() : null)
+                .journalImpactFactor(paper.getJournal() != null && paper.getJournal().getImpactFactor() != null
+                        ? paper.getJournal().getImpactFactor().doubleValue() : null)
+                .rating(RatingCalculator.compute(paper.getJournal(), paper.getCitationCount(), null))
                 .viewCount(0L)
                 .bookmarkCount(0L)
                 .createdAt(paper.getCreatedAt())

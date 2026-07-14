@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -23,6 +24,9 @@ public interface JournalRepository extends JpaRepository<Journal, UUID> {
     /** Fuzzy search journal by name (case-insensitive LIKE). */
     @Query("SELECT j FROM Journal j WHERE LOWER(j.journalName) LIKE LOWER(CONCAT('%', :name, '%'))")
     List<Journal> searchByName(@Param("name") String name, Pageable pageable);
+
+    /** All journals paginated by name (for batch processing). */
+    Page<Journal> findAllByOrderByJournalNameAsc(Pageable pageable);
 
     /** Top-tier journals for a field, sorted by impact factor descending (Q1 first). */
     List<Journal> findByField_FieldIdAndIsActiveTrueOrderByImpactFactorDesc(UUID fieldId, Pageable pageable);

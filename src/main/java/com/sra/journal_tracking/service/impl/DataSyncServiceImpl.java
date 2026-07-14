@@ -462,6 +462,27 @@ public class DataSyncServiceImpl implements DataSyncService {
         }
     }
 
+    @Override
+    @Async("taskExecutor")
+    public void saveWorksFromOpenAlexAsync(List<OpenAlexResponseDTO.OpenAlexWorkDTO> works) {
+        if (works == null || works.isEmpty()) {
+            return;
+        }
+        log.info("Save-on-search: starting async save of {} works", works.size());
+        int saved = 0;
+        int skipped = 0;
+        for (OpenAlexResponseDTO.OpenAlexWorkDTO work : works) {
+            try {
+                saveSingleWorkFromOpenAlex(work);
+                saved++;
+            } catch (Exception e) {
+                skipped++;
+                log.debug("Save-on-search skipped work {}: {}", work.getId(), e.getMessage());
+            }
+        }
+        log.info("Save-on-search: completed — saved={}, skipped={}", saved, skipped);
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  arXiv sync (XML Atom, free)
     // ═══════════════════════════════════════════════════════════

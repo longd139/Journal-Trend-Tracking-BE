@@ -4,6 +4,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -47,6 +50,9 @@ public class BookmarkServiceImpl implements BookmarkService {
     private final ApiSourceRepository apiSourceRepository;
     private final PaperRecommendationService paperRecommendationService;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     @Override
     @Transactional
     public BookmarkResponse addBookmark(String email, BookmarkRequest request) {
@@ -87,7 +93,10 @@ public class BookmarkServiceImpl implements BookmarkService {
                         .citationCount(0)
                         .isOpenAccess(false)
                         .build();
-                researchPaperRepository.save(minimalPaper);
+                // Use persist() instead of save() to preserve the explicit paperId
+                // (save() calls merge() for non-null IDs, which may regenerate the UUID)
+                entityManager.persist(minimalPaper);
+                entityManager.flush(); // Ensure FK constraint is satisfied immediately
             }
             // Check duplicate
             if (bookmarkRepository.findByUser_UserIdAndPaper_PaperId(user.getUserId(), request.getPaperId()).isPresent()) {

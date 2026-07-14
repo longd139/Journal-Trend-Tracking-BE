@@ -27,6 +27,7 @@ import com.sra.journal_tracking.service.JournalQuickStatsService;
 import com.sra.journal_tracking.service.KeywordQuickStatsService;
 import com.sra.journal_tracking.service.UserSearchHistoryService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -150,7 +151,13 @@ public class SearchController {
     )
     @GetMapping("/keyword/quick-stats")
     public ResponseEntity<AppResponse<KeywordQuickStatsResponse>> keywordQuickStats(
-            @RequestParam("keyword") String keyword) {
+            @RequestParam("keyword") String keyword,
+            @Parameter(description = "Optional: filter by publication year from (inclusive)")
+            @RequestParam(required = false) Integer pubYearFrom,
+            @Parameter(description = "Optional: filter by publication year to (inclusive)")
+            @RequestParam(required = false) Integer pubYearTo,
+            @Parameter(description = "Optional: filter by open access (true = OA only)")
+            @RequestParam(required = false) Boolean isOpenAccess) {
 
         if (keyword == null || keyword.trim().isEmpty()) {
             throw new IllegalArgumentException("Keyword cannot be empty");
@@ -161,9 +168,11 @@ public class SearchController {
             keyword = keyword.trim().substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
         }
 
-        log.info("Keyword quick stats lookup: keyword={}", keyword.trim());
+        log.info("Keyword quick stats lookup: keyword={}, from={}, to={}, oa={}",
+                keyword.trim(), pubYearFrom, pubYearTo, isOpenAccess);
 
-        KeywordQuickStatsResponse stats = keywordQuickStatsService.getStats(keyword.trim());
+        KeywordQuickStatsResponse stats = keywordQuickStatsService.getStats(
+                keyword.trim(), pubYearFrom, pubYearTo, isOpenAccess);
         return ResponseEntity.ok(AppResponse.success("Quick stats retrieved", stats));
     }
 
@@ -178,15 +187,20 @@ public class SearchController {
     )
     @GetMapping("/keyword/related-trends")
     public ResponseEntity<AppResponse<List<RelatedKeywordResponse>>> relatedTrends(
-            @RequestParam("keyword") String keyword) {
+            @RequestParam("keyword") String keyword,
+            @Parameter(description = "Optional: start year for co-occurrence window (default: currentYear - 2)")
+            @RequestParam(required = false) Integer pubYearFrom,
+            @Parameter(description = "Optional: end year for co-occurrence window (default: currentYear)")
+            @RequestParam(required = false) Integer pubYearTo) {
 
         if (keyword == null || keyword.trim().isEmpty()) {
             throw new IllegalArgumentException("Keyword cannot be empty");
         }
 
-        log.info("Related trends lookup: keyword={}", keyword);
+        log.info("Related trends lookup: keyword={}, from={}, to={}", keyword, pubYearFrom, pubYearTo);
 
-        List<RelatedKeywordResponse> trends = keywordQuickStatsService.getRelatedTrends(keyword.trim());
+        List<RelatedKeywordResponse> trends = keywordQuickStatsService.getRelatedTrends(
+                keyword.trim(), pubYearFrom, pubYearTo);
         return ResponseEntity.ok(AppResponse.success("Related trends retrieved", trends));
     }
 
@@ -199,15 +213,20 @@ public class SearchController {
     )
     @GetMapping("/keyword/top-papers")
     public ResponseEntity<AppResponse<List<PaperDetailResponseDTO>>> topPapers(
-            @RequestParam("keyword") String keyword) {
+            @RequestParam("keyword") String keyword,
+            @Parameter(description = "Optional: filter by publication year from (inclusive)")
+            @RequestParam(required = false) Integer startYear,
+            @Parameter(description = "Optional: filter by publication year to (inclusive)")
+            @RequestParam(required = false) Integer endYear) {
 
         if (keyword == null || keyword.trim().isEmpty()) {
             throw new IllegalArgumentException("Keyword cannot be empty");
         }
 
-        log.info("Top papers lookup: keyword={}", keyword);
+        log.info("Top papers lookup: keyword={}, startYear={}, endYear={}", keyword, startYear, endYear);
 
-        List<PaperDetailResponseDTO> papers = keywordQuickStatsService.getTopInfluentialPapers(keyword.trim());
+        List<PaperDetailResponseDTO> papers = keywordQuickStatsService.getTopInfluentialPapers(
+                keyword.trim(), startYear, endYear);
         return ResponseEntity.ok(AppResponse.success("Top papers retrieved", papers));
     }
 

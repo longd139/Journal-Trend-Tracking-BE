@@ -4,6 +4,7 @@ import com.sra.journal_tracking.dto.paper.AuthorDTO;
 import com.sra.journal_tracking.dto.paper.KeywordDTO;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
+import com.sra.journal_tracking.service.DataSyncService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class OpenAlexFallbackSearchService {
     private final RestTemplate restTemplate;
     private final KeywordExpansionService keywordExpansionService;
     private final PaperCacheService paperCacheService;
+    private final DataSyncService dataSyncService;
 
     // In-memory map: stablePreviewId UUID → OpenAlex work URL. No DB needed.
     private final ConcurrentHashMap<UUID, String> paperIdToWorkUrl = new ConcurrentHashMap<>();
@@ -139,30 +141,168 @@ public class OpenAlexFallbackSearchService {
      * Search top cited papers by keyword — all time, sorted by citation count.
      */
     public List<PaperDetailResponseDTO> searchTopCited(String query, int size) {
+        return searchTopCited(query, size, null, null);
+    }
+
+    /**
+     * Search top cited papers by keyword with optional year filter.
+     *
+     * @param yearFrom optional: filter papers published from this year (inclusive)
+     * @param yearTo   optional: filter papers published to this year (inclusive)
+     */
+    public List<PaperDetailResponseDTO> searchTopCited(String query, int size, Integer yearFrom, Integer yearTo) {
         String normalizedQuery = normalizeOpenAlexSearchQuery(query);
         if (normalizedQuery.isBlank()) return List.of();
 
-        String url = withApiKey(UriComponentsBuilder
+        // Build OpenAlex filters — use fulltext.search filter with quotes for exact matching.
+        // IMPORTANT: use build().toUriString() (no .encode()) because .encode() would turn
+        // " and : inside the filter value into %22 and %3A, which OpenAlex cannot parse.
+        List<String> filters = new ArrayList<>();
+        filters.add("fulltext.search:" + quotedFilterValue(normalizedQuery));
+        if (yearFrom != null) filters.add("from_publication_date:" + yearFrom + "-01-01");
+        if (yearTo != null) filters.add("to_publication_date:" + yearTo + "-12-31");
+
+        var builder = UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
-                .queryParam("search", normalizedQuery)
+                .queryParam("filter", String.join(",", filters))
                 .queryParam("sort", "cited_by_count:desc")
                 .queryParam("per-page", size)
                 .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,"
-                        + "cited_by_count,abstract_inverted_index,open_access,"
-                        + "primary_location,best_oa_location,topics,keywords,authorships"))
-                .build().encode().toUriString();
+                        + "cited_by_count,counts_by_year,abstract_inverted_index,open_access,"
+                        + "primary_location,best_oa_location,topics,keywords,authorships");
+
+        // No .encode() — the filter syntax (fulltext.search:"...") must pass through as-is
+        String url = withApiKey(builder).build().toUriString();
 
         try {
             OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
             if (response == null || response.getResults() == null) return List.of();
 
-            return response.getResults().stream()
-                    .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
-                    .map(work -> mapToPaper(work.work(), work.abstractText()))
+            List<OpenAlexResponseDTO.OpenAlexWorkDTO> rawWorks = response.getResults().stream()
                     .limit(size)
+                    .collect(Collectors.toList());
+
+            // Fire-and-forget: async save to local DB (save-on-search)
+            try {
+                dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
+            } catch (Exception e) {
+                log.debug("Save-on-search dispatch failed: {}", e.getMessage());
+            }
+
+            return rawWorks.stream()
+                    .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
+                    .map(w -> mapToPaper(w.work(), w.abstractText()))
                     .collect(Collectors.toList());
         } catch (RestClientException e) {
             log.warn("OpenAlex top-cited search failed for '{}': {}", query, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Get total works count for a keyword from OpenAlex meta.
+     * Uses fulltext.search filter for consistency with searchTopCited.
+     * Returns 0 on failure or if the keyword returns no results.
+     */
+    public long getKeywordTotalCount(String keyword) {
+        String normalizedQuery = normalizeOpenAlexSearchQuery(keyword);
+        if (normalizedQuery.isBlank()) return 0;
+
+        String url = withApiKey(UriComponentsBuilder
+                .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
+                .queryParam("filter", "fulltext.search:" + quotedFilterValue(normalizedQuery))
+                .queryParam("per-page", "1")
+                .queryParam("select", "id"))
+                .build().toUriString();
+
+        try {
+            OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
+            if (response == null || response.getMeta() == null || response.getMeta().getCount() == null) {
+                return 0;
+            }
+            log.info("OpenAlex total count for '{}': {}", keyword, response.getMeta().getCount());
+            return response.getMeta().getCount();
+        } catch (RestClientException e) {
+            log.warn("OpenAlex count lookup failed for '{}': {}", keyword, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Get yearly publication breakdown for a keyword from OpenAlex group_by.
+     * Returns list of [year, count] pairs for years >= startYear, sorted by year ASC.
+     */
+    public List<OpenAlexYearlyCount> getKeywordYearlyBreakdown(String keyword, int startYear) {
+        String normalizedQuery = normalizeOpenAlexSearchQuery(keyword);
+        if (normalizedQuery.isBlank()) return List.of();
+
+        String url = withApiKey(UriComponentsBuilder
+                .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
+                .queryParam("filter",
+                        "fulltext.search:" + quotedFilterValue(normalizedQuery)
+                        + ",from_publication_date:" + startYear + "-01-01")
+                .queryParam("group_by", "publication_year")
+                .queryParam("per-page", "50"))
+                .build().toUriString();
+
+        try {
+            OpenAlexGroupByResponse response = restTemplate.getForObject(url, OpenAlexGroupByResponse.class);
+            if (response == null || response.getGroupBy() == null) return List.of();
+
+            return response.getGroupBy().stream()
+                    .map(g -> new OpenAlexYearlyCount(Integer.parseInt(g.getKey()), g.getCount()))
+                    .sorted(java.util.Comparator.comparingInt(OpenAlexYearlyCount::year))
+                    .toList();
+        } catch (RestClientException e) {
+            log.warn("OpenAlex yearly breakdown failed for '{}': {}", keyword, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Simple record for yearly publication counts from OpenAlex group_by.
+     */
+    public record OpenAlexYearlyCount(int year, long count) {}
+
+    /**
+     * Aggregates citation counts by year from the top-cited papers for a keyword.
+     * Fetches raw OpenAlex works (up to 50), sums up counts_by_year across all papers,
+     * and returns sorted yearly citation totals for years >= startYear.
+     */
+    public List<OpenAlexYearlyCount> getAggregatedCitationTrend(String keyword, int startYear) {
+        String normalizedQuery = normalizeOpenAlexSearchQuery(keyword);
+        if (normalizedQuery.isBlank()) return List.of();
+
+        String url = withApiKey(UriComponentsBuilder
+                .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
+                .queryParam("filter", "fulltext.search:" + quotedFilterValue(normalizedQuery))
+                .queryParam("sort", "cited_by_count:desc")
+                .queryParam("per-page", "50")
+                .queryParam("select", "id,cited_by_count,counts_by_year"))
+                .build().toUriString();
+
+        try {
+            OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
+            if (response == null || response.getResults() == null) return List.of();
+
+            // Aggregate citations by year across all fetched papers
+            Map<Integer, Long> citationByYear = new java.util.TreeMap<>();
+            for (var work : response.getResults()) {
+                if (work.getCountsByYear() != null) {
+                    for (var cy : work.getCountsByYear()) {
+                        if (cy.getYear() != null && cy.getCitedByCount() != null && cy.getYear() >= startYear) {
+                            citationByYear.merge(cy.getYear(), cy.getCitedByCount().longValue(), Long::sum);
+                        }
+                    }
+                }
+            }
+
+            return citationByYear.entrySet().stream()
+                    .map(e -> new OpenAlexYearlyCount(e.getKey(), e.getValue()))
+                    .sorted(java.util.Comparator.comparingInt(OpenAlexYearlyCount::year))
+                    .toList();
+        } catch (RestClientException e) {
+            log.warn("OpenAlex citation trend fetch failed for '{}': {}", keyword, e.getMessage());
             return List.of();
         }
     }
@@ -187,10 +327,20 @@ public class OpenAlexFallbackSearchService {
         try {
             OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
             if (response == null || response.getResults() == null) return List.of();
-            return response.getResults().stream()
-                    .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
-                    .map(work -> mapToPaper(work.work(), work.abstractText()))
+
+            List<OpenAlexResponseDTO.OpenAlexWorkDTO> rawWorks = response.getResults().stream()
                     .limit(size)
+                    .collect(Collectors.toList());
+
+            try {
+                dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
+            } catch (Exception e) {
+                log.debug("Save-on-search dispatch failed: {}", e.getMessage());
+            }
+
+            return rawWorks.stream()
+                    .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
+                    .map(w -> mapToPaper(w.work(), w.abstractText()))
                     .collect(Collectors.toList());
         } catch (RestClientException e) {
             log.warn("OpenAlex relevance search failed for '{}': {}", query, e.getMessage());
@@ -219,11 +369,21 @@ public class OpenAlexFallbackSearchService {
             OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
             if (response == null || response.getResults() == null) return List.of();
 
-            return response.getResults().stream()
+            List<OpenAlexResponseDTO.OpenAlexWorkDTO> rawWorks = response.getResults().stream()
                     .filter(work -> isRecent(work, startYear, today))
+                    .collect(Collectors.toList());
+
+            // Async save all recent works (even those that fail local relevance check)
+            try {
+                dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
+            } catch (Exception e) {
+                log.debug("Save-on-search dispatch failed: {}", e.getMessage());
+            }
+
+            return rawWorks.stream()
                     .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
-                    .filter(work -> isRelevant(work.work(), work.abstractText(), query))
-                    .map(work -> mapToPaper(work.work(), work.abstractText()))
+                    .filter(w -> isRelevant(w.work(), w.abstractText(), query))
+                    .map(w -> mapToPaper(w.work(), w.abstractText()))
                     .limit(Math.max(1, size))
                     .collect(Collectors.toList());
         } catch (RestClientException e) {
@@ -309,7 +469,7 @@ public class OpenAlexFallbackSearchService {
                 .pdfAvailable(work.getOpenAccess() != null && Boolean.TRUE.equals(work.getOpenAccess().getIsOa()))
                 .downloadUrl(sourceUrl)
                 .pdfUrl(resolvePdfUrl(work))
-                .rating(0.0d)
+                .rating(RatingCalculator.compute(null, work.getCitedByCount(), null))
                 .viewCount(0L)
                 .bookmarkCount(0L)
                 .createdAt(LocalDateTime.now())
@@ -416,6 +576,16 @@ public class OpenAlexFallbackSearchService {
         return query.replace("&", " ").replace("/", " ").replace("\\", " ").trim().replaceAll("\\s+", " ");
     }
 
+    /**
+     * Wraps a filter value in double quotes so OpenAlex treats it as a single value.
+     * Required for multi-word queries in comma-separated filter parameters.
+     * Escapes any embedded double quotes.
+     */
+    private String quotedFilterValue(String value) {
+        if (value == null || value.isBlank()) return "\"\"";
+        return "\"" + value.replace("\"", "\\\"") + "\"";
+    }
+
     private String normalizeDoi(String doi) {
         if (doi == null || doi.isBlank()) return null;
         return doi.replace("https://doi.org/", "").replace("http://doi.org/", "").trim();
@@ -441,4 +611,20 @@ public class OpenAlexFallbackSearchService {
     }
 
     private record WorkWithAbstract(OpenAlexResponseDTO.OpenAlexWorkDTO work, String abstractText) {}
+
+    // ── DTO for OpenAlex group_by response ──
+
+    @lombok.Data
+    private static class OpenAlexGroupByResponse {
+        @com.fasterxml.jackson.annotation.JsonProperty("group_by")
+        private List<GroupByEntry> groupBy;
+    }
+
+    @lombok.Data
+    private static class GroupByEntry {
+        private String key;
+        @com.fasterxml.jackson.annotation.JsonProperty("key_display_name")
+        private String keyDisplayName;
+        private Integer count;
+    }
 }

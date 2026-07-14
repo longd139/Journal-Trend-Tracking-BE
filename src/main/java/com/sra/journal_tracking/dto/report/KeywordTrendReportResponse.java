@@ -9,9 +9,9 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
- * Keyword Trend Report — answers the question: "Is this topic heating up or cooling down?"
- * Contains total papers, YoY growth rate, status classification,
- * AI-generated insight text, related keywords, and yearly breakdown for charts.
+ * Keyword Trend Report — comprehensive chart-ready data for a research keyword.
+ * Contains publication & citation trends, co-occurring keywords with counts,
+ * top journals, and an aggregated summary with peak-year and top-journal info.
  */
 @Data
 @Builder
@@ -20,48 +20,88 @@ import java.util.List;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class KeywordTrendReportResponse {
 
-    /** Report type identifier for frontend routing. */
-    @Builder.Default
-    private String reportType = "KEYWORD_TREND_REPORT";
-
-    /** Report title in Vietnamese: "Báo cáo phân tích chủ đề: [Keyword]" */
-    private String reportTitle;
-
     /** The searched keyword. */
     private String keyword;
 
-    /** Total number of research papers matching this keyword. */
-    private Long totalPapers;
+    /** Report title in Vietnamese: "Báo cáo xu hướng: [Keyword]" */
+    private String reportTitle;
 
-    /** Year-over-year growth rate as a percentage (e.g. +25.5 means 25.5% growth). */
-    private Double yoyGrowthRate;
+    /** Aggregated summary statistics. */
+    private Summary summary;
 
-    /**
-     * Trend status based on growth rate:
-     * "Đang bùng nổ" (exploding, >20% growth),
-     * "Ổn định" (stable, 0-20%),
-     * "Bão hòa" (saturating, <0%).
-     */
-    private String status;
+    /** Yearly publication counts for line/bar chart (last 5 years). */
+    private List<TrendPoint> publicationTrend;
+
+    /** Yearly citation counts for line/bar chart (last 5 years). */
+    private List<TrendPoint> citationTrend;
+
+    /** Top 8 co-occurring keywords with their paper counts. */
+    private List<CoOccurringKeyword> coOccurringKeywords;
+
+    /** Top journals publishing on this keyword with paper counts. */
+    private List<TopJournal> topJournals;
 
     /** AI-style insight text in Vietnamese describing the keyword trend. */
     private String insight;
 
-    /** Top 3 related (co-occurring) keywords — research niches the user should consider. */
-    private List<String> topRelatedKeywords;
-
-    /** Yearly breakdown of paper counts for chart visualization. */
-    private List<YearlyDataPoint> yearlyBreakdown;
-
-    // ── Nested DTO ──
+    // ── Inner DTOs ──
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public static class YearlyDataPoint {
+    public static class Summary {
+        /** Total number of research papers matching this keyword. */
+        private Long totalPublications;
+
+        /** Year with the highest number of publications. */
+        private Integer peakYear;
+
+        /** Total citation count across all matching papers. */
+        private Long totalCitations;
+
+        /** The journal with the most publications on this keyword. */
+        private TopJournalInfo topJournal;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class TopJournalInfo {
+        private String name;
+        private Integer paperCount;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class TrendPoint {
         private Integer year;
-        private Long paperCount;
+        private Long count;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class CoOccurringKeyword {
+        private String keyword;
+        private Long count;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class TopJournal {
+        private String name;
+        private Long count;
     }
 }

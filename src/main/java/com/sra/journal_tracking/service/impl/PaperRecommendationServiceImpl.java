@@ -13,6 +13,7 @@ import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.KeywordExpansionService;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperRecommendationService;
+import com.sra.journal_tracking.service.RatingCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -521,7 +522,10 @@ public class PaperRecommendationServiceImpl implements PaperRecommendationServic
                 .pdfAvailable(pdfAvailable)
                 .downloadUrl(downloadUrl)
                 .pdfUrl(paper.getPdfUrl())
-                .rating(0.0)
+                .journalQuartile(paper.getJournal() != null ? paper.getJournal().getQuartile() : null)
+                .journalImpactFactor(paper.getJournal() != null && paper.getJournal().getImpactFactor() != null
+                        ? paper.getJournal().getImpactFactor().doubleValue() : null)
+                .rating(RatingCalculator.compute(paper.getJournal(), paper.getCitationCount(), null))
                 .viewCount(0L)
                 .bookmarkCount(0L)
                 .createdAt(paper.getCreatedAt())

@@ -23,6 +23,7 @@ import com.sra.journal_tracking.service.KeywordExpansionService;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperCacheService;
 import com.sra.journal_tracking.service.PaperSearchService;
+import com.sra.journal_tracking.service.RatingCalculator;
 import com.sra.journal_tracking.service.ReadingHistoryService;
 import com.sra.journal_tracking.service.SearchBackfillService;
 import com.sra.journal_tracking.service.UserSearchHistoryService;
@@ -104,8 +105,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             checkAndIncrementUsage(user.getUserId(), "search");
         }
 
-        short startYear = recentStartYear();
-        short endYear = currentYear();
+        short startYear = resolveStartYear(request.getPubYearFrom());
+        short endYear = resolveEndYear(request.getPubYearTo());
         List<String> expandedTerms = keywordExpansionService.expand(query, 6);
         RankedSearchResult rankedResults = loadRankedSearchResults(
                 query,
@@ -120,7 +121,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         if (rankedResults.totalElements() == 0 && authorName == null && journalId == null) {
             log.info("No local results for '{}'; searching OpenAlex fallback", query);
             if (page == 0) {
-                List<PaperDetailResponseDTO> fallbackPapers = openAlexFallbackSearchService.search(query, size);
+                List<PaperDetailResponseDTO> fallbackPapers = openAlexFallbackSearchService.searchNoYearFilter(query, size);
                 searchBackfillService.requestBackfill(query, size);
                 if (!fallbackPapers.isEmpty()) {
                     return mapFallbackSearchResultDTO(fallbackPapers, page, size);
@@ -130,7 +131,11 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             }
         }
 
-        return mapToSearchResultDTO(rankedResults.papers(), page, size, rankedResults.totalElements());
+        // Apply quartile filter if requested
+        List<ResearchPaper> filtered = filterByQuartile(rankedResults.papers(), request.getQuartile());
+        long totalFiltered = filtered.size() < rankedResults.totalElements() ? filtered.size() : rankedResults.totalElements();
+
+        return mapToSearchResultDTO(filtered, page, size, totalFiltered);
     }
 
     @Override
@@ -160,8 +165,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
 
         Page<ResearchPaper> results = researchPaperRepository.searchByAuthorName(
                 authorName,
-                recentStartYear(),
-                currentYear(),
+                resolveStartYear(request.getPubYearFrom()),
+                resolveEndYear(request.getPubYearTo()),
                 pageable);
 
         // ── OpenAlex fallback: author not in local DB ──
@@ -243,8 +248,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
 
         Page<ResearchPaper> results = researchPaperRepository.findByJournal_JournalIdAndPubYearBetween(
                 journalId,
-                recentStartYear(),
-                currentYear(),
+                resolveStartYear(request.getPubYearFrom()),
+                resolveEndYear(request.getPubYearTo()),
                 pageable);
 
         return mapToSearchResultDTO(results);
@@ -262,8 +267,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             throw new UnauthorizedAccessException("Advanced filtering is available for Researcher or Admin users only");
         }
 
-        Short pubYearFrom = maxYear(filterRequest.getPubYearFrom(), recentStartYear());
-        Short pubYearTo = minYear(filterRequest.getPubYearTo(), currentYear());
+        // Use user-provided year filters as-is; no clamping to recent years
+        Short pubYearFrom = filterRequest.getPubYearFrom();
+        Short pubYearTo = filterRequest.getPubYearTo();
         if (pubYearFrom != null && pubYearTo != null && pubYearFrom > pubYearTo) {
             throw new IllegalArgumentException("pubYearFrom must be <= pubYearTo");
         }
@@ -323,9 +329,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
             dto.setViewCount(readingHistoryRepository.countByPaper_PaperId(paperId));
             dto.setBookmarkCount(bookmarkRepository.countByPaper_PaperId(paperId));
 
-            // Compute average rating
+            // Compute composite rating (quartile + citations + user votes)
             Double avgRating = paperRatingRepository.avgScoreByPaper_PaperId(paperId);
-            dto.setRating(avgRating != null ? Math.round(avgRating * 10.0) / 10.0 : 0.0);
+            dto.setRating(RatingCalculator.compute(paper.getJournal(), paper.getCitationCount(), avgRating));
 
             dto.setHasRequestedPdf(pdfRequestRepository
                     .findFirstByUser_UserIdAndPaper_PaperIdOrderByRequestedAtDesc(user.getUserId(), paperId)
@@ -480,6 +486,16 @@ public class PaperSearchServiceImpl implements PaperSearchService {
 
     private short recentStartYear() {
         return (short) (currentYear() - RECENT_PUBLICATION_YEAR_WINDOW + 1);
+    }
+
+    /** Resolve start year from user input. Default: 1900 (no practical lower bound). */
+    private short resolveStartYear(Integer pubYearFrom) {
+        return pubYearFrom != null ? pubYearFrom.shortValue() : (short) 1900;
+    }
+
+    /** Resolve end year from user input. Default: 2100 (no practical upper bound). */
+    private short resolveEndYear(Integer pubYearTo) {
+        return pubYearTo != null ? pubYearTo.shortValue() : (short) 2100;
     }
 
     private Short maxYear(Short requestedYear, short minimumYear) {
@@ -816,6 +832,9 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 .isOpenAccess(paper.getIsOpenAccess())
                 .journalName(paper.getJournal() != null ? paper.getJournal().getJournalName() : null)
                 .journalId(paper.getJournal() != null ? paper.getJournal().getJournalId() : null)
+                .journalQuartile(paper.getJournal() != null ? paper.getJournal().getQuartile() : null)
+                .journalImpactFactor(paper.getJournal() != null && paper.getJournal().getImpactFactor() != null
+                        ? paper.getJournal().getImpactFactor().doubleValue() : null)
                 .fieldName(paper.getField() != null ? paper.getField().getFieldName() : null)
                 .fieldId(paper.getField() != null ? paper.getField().getFieldId() : null)
                 .authors(authors)
@@ -824,11 +843,27 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 .pdfAvailable(pdfAvailable)
                 .downloadUrl(downloadUrl)
                 .pdfUrl(paper.getPdfUrl())
-                .rating(0.0)
+                .rating(computeRating(paper))
                 .viewCount(0L)
                 .bookmarkCount(0L)
                 .createdAt(paper.getCreatedAt())
                 .build();
+    }
+
+    /** Compute composite rating for a paper (without user votes — used in search/list). */
+    private double computeRating(ResearchPaper paper) {
+        return RatingCalculator.compute(paper.getJournal(), paper.getCitationCount(), null);
+    }
+
+    /** Post-filter papers by journal quartile. Returns all papers if quartile is null/blank. */
+    private List<ResearchPaper> filterByQuartile(List<ResearchPaper> papers, String quartile) {
+        if (quartile == null || quartile.isBlank()) return papers;
+        java.util.Set<String> allowed = java.util.Set.of(quartile.toUpperCase().split("\\s*,\\s*"));
+        return papers.stream()
+                .filter(p -> p.getJournal() != null
+                        && p.getJournal().getQuartile() != null
+                        && allowed.contains(p.getJournal().getQuartile().toUpperCase()))
+                .toList();
     }
 
     /**

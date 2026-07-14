@@ -426,6 +426,18 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 	            @Param("ids") List<UUID> ids,
 	            @Param("startYear") Short startYear);
 
+    /**
+     * Get yearly citation sum for a set of paper IDs.
+     * Returns [pubYear, sumCitationCount] ordered by year ASC.
+     * Used for keyword trend report citation trend chart.
+     */
+    @Query("SELECT p.pubYear, COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p "
+         + "WHERE p.paperId IN :ids AND p.pubYear >= :startYear "
+         + "GROUP BY p.pubYear ORDER BY p.pubYear ASC")
+    List<Object[]> sumCitationsByYearForIds(
+            @Param("ids") List<UUID> ids,
+            @Param("startYear") Short startYear);
+
 	// ── Recommendation Queries ──
 
 	/**

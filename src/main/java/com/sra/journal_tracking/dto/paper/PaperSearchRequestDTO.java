@@ -58,6 +58,30 @@ public class PaperSearchRequestDTO {
     private String sortBy = "relevance";
 
     /**
+     * Optional: Filter by publication year from (inclusive).
+     * When not provided, searches all years.
+     */
+    private Integer pubYearFrom;
+
+    /**
+     * Optional: Filter by publication year to (inclusive).
+     * When not provided, searches all years.
+     */
+    private Integer pubYearTo;
+
+    /**
+     * Optional: Filter by open access status.
+     * null = both, true = open access only, false = non-open-access only
+     */
+    private Boolean isOpenAccess;
+
+    /**
+     * Optional: Filter by journal quartile (comma-separated, e.g. "Q1,Q2").
+     * When not provided, all quartiles are included.
+     */
+    private String quartile;
+
+    /**
      * Sort direction. "asc" or "desc" (default: "desc").
      * Ignored when sortBy = "relevance".
      */

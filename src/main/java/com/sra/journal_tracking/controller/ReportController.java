@@ -2,6 +2,7 @@ package com.sra.journal_tracking.controller;
 
 import com.sra.journal_tracking.dto.report.AuthorImpactReportResponse;
 import com.sra.journal_tracking.dto.report.JournalQualityReportResponse;
+import com.sra.journal_tracking.dto.report.KeywordTrendHistoryItem;
 import com.sra.journal_tracking.dto.report.KeywordTrendReportResponse;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.exception.AppException;
@@ -14,6 +15,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * Report generation API — provides analytical reports for keywords, authors, and journals.
@@ -43,6 +46,51 @@ public class ReportController {
         }
         KeywordTrendReportResponse report = reportService.getKeywordTrendReport(keyword);
         return ResponseEntity.ok(AppResponse.success("Keyword trend report generated successfully", report));
+    }
+
+    @Operation(
+            summary = "Get keyword trend report history",
+            description = "Returns all previously generated keyword trend reports "
+                    + "with keyword and timestamps. Sorted by most recently updated first."
+    )
+    @ApiResponse(responseCode = "200", description = "Report history retrieved successfully")
+    @GetMapping("/keyword-trend/history")
+    public ResponseEntity<AppResponse<List<KeywordTrendHistoryItem>>> getKeywordTrendHistory() {
+        List<KeywordTrendHistoryItem> history = reportService.getKeywordTrendHistory();
+        return ResponseEntity.ok(AppResponse.success("Keyword trend history retrieved successfully", history));
+    }
+
+    @Operation(
+            summary = "Get cached keyword trend report",
+            description = "Retrieves a previously cached keyword trend report from the database. "
+                    + "If no cache entry exists, generates a fresh report and caches it automatically."
+    )
+    @ApiResponse(responseCode = "200", description = "Cached keyword trend report retrieved successfully")
+    @GetMapping("/keyword-trend/cached")
+    public ResponseEntity<AppResponse<KeywordTrendReportResponse>> getCachedKeywordTrendReport(
+            @Parameter(description = "The keyword to retrieve the cached report for", required = true, example = "machine learning")
+            @RequestParam String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        KeywordTrendReportResponse report = reportService.getCachedKeywordTrendReport(keyword);
+        return ResponseEntity.ok(AppResponse.success("Cached keyword trend report retrieved successfully", report));
+    }
+
+    @Operation(
+            summary = "Delete cached keyword trend report",
+            description = "Removes a previously cached keyword trend report from the database."
+    )
+    @ApiResponse(responseCode = "200", description = "Cached report deleted successfully")
+    @DeleteMapping("/keyword-trend/cached")
+    public ResponseEntity<AppResponse<Void>> deleteCachedKeywordTrendReport(
+            @Parameter(description = "The keyword whose cached report should be deleted", required = true, example = "machine learning")
+            @RequestParam String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        reportService.deleteCachedKeywordTrendReport(keyword);
+        return ResponseEntity.ok(AppResponse.success("Cached keyword trend report deleted successfully", null));
     }
 
     @Operation(

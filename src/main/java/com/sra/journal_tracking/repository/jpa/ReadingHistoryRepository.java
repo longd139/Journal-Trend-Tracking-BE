@@ -65,6 +65,9 @@ public interface ReadingHistoryRepository extends JpaRepository<ReadingHistory, 
     @Query("SELECT COUNT(rh) FROM ReadingHistory rh WHERE rh.paper.paperId = :paperId")
     long countByPaper_PaperId(@Param("paperId") UUID paperId);
 
+    /** Check if a user has already viewed a specific paper. */
+    boolean existsByUser_UserIdAndPaper_PaperId(UUID userId, UUID paperId);
+
     /** Count keyword occurrences in papers the user has viewed (top research interests). */
     @Query(value = """
             SELECT TOP 8 k.KeywordText, COUNT(DISTINCT rh.PaperID) AS cnt

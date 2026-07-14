@@ -5,6 +5,7 @@ import com.sra.journal_tracking.dto.admin.SyncTriggerRequest;
 import com.sra.journal_tracking.dto.admin.SyncTriggerResponse;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.service.AdminService;
+import com.sra.journal_tracking.service.JournalEnrichmentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminSyncController {
 
     private final AdminService adminService;
+    private final JournalEnrichmentService journalEnrichmentService;
 
     @PostMapping("/trigger")
     public ResponseEntity<AppResponse<SyncTriggerResponse>> triggerManualSync(
@@ -42,5 +44,11 @@ public class AdminSyncController {
         return ResponseEntity.ok(AppResponse.success(
                 "Sync history retrieved",
                 adminService.getSyncHistory(page, size, status, manual)));
+    }
+
+    @PostMapping("/enrich-journals")
+    public ResponseEntity<AppResponse<String>> enrichJournals() {
+        String result = journalEnrichmentService.enrichJournals();
+        return ResponseEntity.ok(AppResponse.success(result));
     }
 }

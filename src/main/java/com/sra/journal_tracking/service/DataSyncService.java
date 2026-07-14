@@ -37,6 +37,15 @@ public interface DataSyncService {
     void saveSingleWorkFromOpenAlex(OpenAlexResponseDTO.OpenAlexWorkDTO work);
 
     /**
+     * Async batch save of OpenAlex works to local DB (save-on-search).
+     * Each work is saved individually with full dedup — failures are logged,
+     * not thrown, so one bad work does not stop the batch.
+     *
+     * @param works OpenAlex work DTOs from search results
+     */
+    void saveWorksFromOpenAlexAsync(java.util.List<OpenAlexResponseDTO.OpenAlexWorkDTO> works);
+
+    /**
      * Get comprehensive database statistics for admin dashboard.
      */
     com.sra.journal_tracking.dto.dashboard.DatabaseStatsResponse getDatabaseStats();

@@ -10,6 +10,7 @@ import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
 import com.sra.journal_tracking.service.JournalQuickStatsService;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperCacheService;
+import com.sra.journal_tracking.service.DataSyncService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
@@ -28,6 +29,7 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
     private final ObjectMapper objectMapper;
     private final OpenAlexFallbackSearchService openAlexSearchService;
     private final PaperCacheService paperCacheService;
+    private final DataSyncService dataSyncService;
 
     @Value("${app.openalex-api-key:}")
     private String openalexApiKey;
@@ -37,11 +39,13 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
     public JournalQuickStatsServiceImpl(RestTemplate restTemplate,
                                          ObjectMapper objectMapper,
                                          OpenAlexFallbackSearchService openAlexSearchService,
-                                         PaperCacheService paperCacheService) {
+                                         PaperCacheService paperCacheService,
+                                         DataSyncService dataSyncService) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.openAlexSearchService = openAlexSearchService;
         this.paperCacheService = paperCacheService;
+        this.dataSyncService = dataSyncService;
     }
 
     // ═══════════════════════════════════════════════════════
@@ -168,7 +172,16 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
         OpenAlexResponseDTO response = fetchOpenAlex(url, trimmed);
         if (response == null || response.getResults() == null) return List.of();
 
-        return response.getResults().stream()
+        List<OpenAlexResponseDTO.OpenAlexWorkDTO> rawWorks = new ArrayList<>(response.getResults());
+
+        // Fire-and-forget: async save to local DB (save-on-search)
+        try {
+            dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
+        } catch (Exception e) {
+            log.debug("Save-on-search dispatch failed for journal '{}': {}", trimmed, e.getMessage());
+        }
+
+        return rawWorks.stream()
                 .map(this::mapWorkToPaper)
                 .collect(Collectors.toList());
     }

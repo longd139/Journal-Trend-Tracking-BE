@@ -51,6 +51,7 @@ public class AuthorQuickStatsService {
     private final AuthorRepository authorRepository;
     private final ApiSourceRepository apiSourceRepository;
     private final ResearchPaperRepository researchPaperRepository;
+    private final DataSyncService dataSyncService;
 
     @Value("${app.openalex-email:}")
     private String openalexEmail;
@@ -546,8 +547,18 @@ public class AuthorQuickStatsService {
             return List.of();
         }
 
-        return worksResponse.getResults().stream()
+        List<OpenAlexResponseDTO.OpenAlexWorkDTO> rawWorks = worksResponse.getResults().stream()
                 .limit(5)
+                .collect(Collectors.toList());
+
+        // Fire-and-forget: async save to local DB (save-on-search)
+        try {
+            dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
+        } catch (Exception e) {
+            log.debug("Save-on-search dispatch failed for author '{}': {}", keyword, e.getMessage());
+        }
+
+        return rawWorks.stream()
                 .map(this::mapWorkToPaper)
                 .toList();
     }

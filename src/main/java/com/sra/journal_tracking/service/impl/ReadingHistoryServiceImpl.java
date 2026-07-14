@@ -70,10 +70,17 @@ public class ReadingHistoryServiceImpl implements ReadingHistoryService {
     }
 
     @Override
+    @Transactional
     public void recordView(String userEmail, UUID paperId, String title, String doi, Integer pubYear) {
         User user = userRepository.findByEmail(userEmail).orElse(null);
         if (user == null) {
             log.warn("User not found for reading history: {}", userEmail);
+            return;
+        }
+
+        // Don't count duplicate views — one view per user per paper
+        if (readingHistoryRepository.existsByUser_UserIdAndPaper_PaperId(user.getUserId(), paperId)) {
+            log.debug("User {} already viewed paper {} — skipping duplicate view", userEmail, paperId);
             return;
         }
 
