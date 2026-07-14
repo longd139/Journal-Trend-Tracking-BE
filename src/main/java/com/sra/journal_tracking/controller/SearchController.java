@@ -3,11 +3,13 @@ package com.sra.journal_tracking.controller;
 import com.sra.journal_tracking.constants.KeywordConstants;
 import com.sra.journal_tracking.dto.author.AuthorQuickStatsResponse;
 import com.sra.journal_tracking.dto.author.AuthorResearchFocusResponse;
+import com.sra.journal_tracking.dto.author.AuthorSuggestionResponse;
 import com.sra.journal_tracking.dto.author.AuthorTimelineResponse;
 import com.sra.journal_tracking.dto.author.CoAuthorResponse;
 import com.sra.journal_tracking.dto.author.SuggestedAuthorResponse;
 import com.sra.journal_tracking.dto.journal.JournalAuthorResponse;
 import com.sra.journal_tracking.dto.journal.JournalQuickStatsResponse;
+import com.sra.journal_tracking.dto.journal.JournalSuggestionResponse;
 import com.sra.journal_tracking.dto.journal.JournalTimelineResponse;
 import com.sra.journal_tracking.dto.paper.KeywordQuickStatsResponse;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
@@ -479,6 +481,52 @@ public class SearchController {
                 .toList();
 
         return ResponseEntity.ok(AppResponse.success("Field distribution retrieved", fields));
+    }
+
+    @Operation(
+            summary = "Journal name autocomplete from OpenAlex",
+            description = "As the user types a journal name, returns up to 10 matching journals "
+                        + "from OpenAlex sources API. Used by the FE search box for autocomplete "
+                        + "so the user doesn't need to type the exact journal name."
+    )
+    @GetMapping("/journal/suggest")
+    public ResponseEntity<AppResponse<List<JournalSuggestionResponse>>> suggestJournals(
+            @Parameter(description = "Partial journal name to search", required = true)
+            @RequestParam("query") String query) {
+
+        if (query == null || query.trim().isEmpty()) {
+            return ResponseEntity.ok(AppResponse.success("Empty query", List.of()));
+        }
+
+        log.info("Journal suggestion lookup: query={}", query.trim());
+        List<JournalSuggestionResponse> suggestions = journalQuickStatsService.suggestJournals(query.trim());
+        return ResponseEntity.ok(AppResponse.success("Journal suggestions retrieved", suggestions));
+    }
+
+    @Operation(
+            summary = "Author name autocomplete from OpenAlex",
+            description = "As the user types an author name, returns up to 10 matching authors "
+                        + "from OpenAlex /authors search API. Used by the FE search box for "
+                        + "autocomplete so the user doesn't need to type the exact author name."
+    )
+    @GetMapping("/author/suggest")
+    public ResponseEntity<AppResponse<java.util.Map<String, Object>>> suggestAuthors(
+            @Parameter(description = "Partial author name to search", required = true)
+            @RequestParam("query") String query,
+            @Parameter(description = "Page number (1-based, default 1)")
+            @RequestParam(defaultValue = "1") int page,
+            @Parameter(description = "Results per page (default 20, max 50)")
+            @RequestParam(defaultValue = "20") int size) {
+
+        if (query == null || query.trim().isEmpty()) {
+            return ResponseEntity.ok(AppResponse.success("Empty query",
+                    java.util.Map.of("data", List.of(), "total", 0, "page", page, "hasMore", false)));
+        }
+        if (size > 50) size = 50;
+
+        log.info("Author suggestion lookup: query={} page={} size={}", query.trim(), page, size);
+        java.util.Map<String, Object> result = authorQuickStatsService.suggestAuthors(query.trim(), page, size);
+        return ResponseEntity.ok(AppResponse.success("Author suggestions retrieved", result));
     }
 
 }

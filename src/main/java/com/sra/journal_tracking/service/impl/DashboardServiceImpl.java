@@ -54,7 +54,6 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     @Override
-    @Cacheable(value = "dashboardOverview", key = "#authorId != null ? 'author_' + #authorId.toString() : 'system'")
     public OverviewStatsResponse getOverviewStats(UUID authorId) {
         if (authorId != null) {
             return buildAuthorStats(authorId);

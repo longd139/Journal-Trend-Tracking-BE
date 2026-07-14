@@ -19,7 +19,7 @@ public interface ReportService {
      * @param keyword the search keyword to analyze
      * @return KeywordTrendReportResponse with publication/citation trends, co-occurring keywords, and top journals
      */
-    KeywordTrendReportResponse getKeywordTrendReport(String keyword);
+    KeywordTrendReportResponse getKeywordTrendReport(String keyword, Integer startYear, Integer endYear);
 
     /**
      * Retrieve a previously cached keyword trend report from the database.

@@ -256,7 +256,12 @@ public class UserOverviewServiceImpl implements UserOverviewService {
      */
     private List<ResearchFieldEntry> buildResearchFieldsFromHistory(UUID userId) {
         try {
+            // Try matching against KEYWORD table first (filtered, cleaner results)
             List<Object[]> rows = searchHistoryRepository.countKeywordSearchesMatchingDb(userId);
+            if (rows.isEmpty()) {
+                // Fallback: raw search history (works even when KEYWORD table is empty)
+                rows = searchHistoryRepository.countKeywordSearchesRaw(userId);
+            }
             if (!rows.isEmpty()) {
                 long total = rows.stream().mapToLong(r -> ((Number) r[1]).longValue()).sum();
                 if (total > 0) {

@@ -868,4 +868,54 @@ public class AuthorQuickStatsService {
         // Strip ORCID URL prefix if present
         return orcid.replace("https://orcid.org/", "").trim();
     }
+
+    // ── Author autocomplete from OpenAlex ──
+
+    /**
+     * Search OpenAlex authors by name with pagination.
+     * @return Map with keys: "data" (List<AuthorSuggestionResponse>), "total" (long), "page" (int), "hasMore" (boolean)
+     */
+    public java.util.Map<String, Object> suggestAuthors(String query, int page, int size) {
+        if (query == null || query.isBlank()) return java.util.Map.of("data", List.of(), "total", 0, "page", page, "hasMore", false);
+
+        String authParam = (openalexApiKey != null && !openalexApiKey.isBlank())
+                ? "&api_key=" + openalexApiKey
+                : (openalexEmail != null && !openalexEmail.isBlank())
+                ? "&mailto=" + openalexEmail : "";
+
+        // OpenAlex uses 1-based pages, per-page param
+        String url = "https://api.openalex.org/authors?search="
+                + java.net.URLEncoder.encode(query.trim(), java.nio.charset.StandardCharsets.UTF_8)
+                + "&sort=cited_by_count:desc&page=" + page + "&per-page=" + size + authParam;
+
+        try {
+            String rawJson = restTemplate.getForObject(url, String.class);
+            if (rawJson == null) return java.util.Map.of("data", List.of(), "total", 0, "page", page, "hasMore", false);
+
+            OpenAlexAuthorResponseDTO response = objectMapper.readValue(rawJson, OpenAlexAuthorResponseDTO.class);
+            if (response.getResults() == null || response.getResults().isEmpty())
+                return java.util.Map.of("data", List.of(), "total", response.getMeta() != null ? response.getMeta().getCount() : 0, "page", page, "hasMore", false);
+
+            long total = response.getMeta() != null && response.getMeta().getCount() != null
+                    ? response.getMeta().getCount() : response.getResults().size();
+            boolean hasMore = (long) page * size < total;
+
+            List<com.sra.journal_tracking.dto.author.AuthorSuggestionResponse> data = response.getResults().stream()
+                    .map(a -> com.sra.journal_tracking.dto.author.AuthorSuggestionResponse.builder()
+                            .authorId(a.getId())
+                            .fullName(a.getDisplayName())
+                            .affiliation(a.getLastKnownInstitution() != null
+                                    ? a.getLastKnownInstitution().getDisplayName() : null)
+                            .hIndex(a.getSummaryStats() != null ? a.getSummaryStats().getHIndex() : a.getHIndex())
+                            .totalCitations(a.getCitedByCount())
+                            .paperCount(a.getWorksCount() != null ? Long.valueOf(a.getWorksCount()) : 0L)
+                            .build())
+                    .toList();
+
+            return java.util.Map.of("data", data, "total", total, "page", page, "hasMore", hasMore);
+        } catch (Exception e) {
+            log.warn("Author suggest failed for '{}': {}", query, e.getMessage());
+            return java.util.Map.of("data", List.of(), "total", 0, "page", page, "hasMore", false);
+        }
+    }
 }

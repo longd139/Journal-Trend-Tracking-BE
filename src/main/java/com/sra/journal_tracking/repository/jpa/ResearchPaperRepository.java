@@ -301,6 +301,16 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
     List<Object[]> findTopKeywordsByJournalId(@Param("journalId") UUID journalId, Pageable pageable);
 
     /**
+     * Top keywords from a list of paper IDs.
+     * Returns [keywordText, paperCount] ordered by frequency DESC.
+     */
+    @Query("SELECT kw.keywordText, COUNT(DISTINCT p) FROM ResearchPaper p "
+         + "JOIN p.keywords pk JOIN pk.keyword kw "
+         + "WHERE p.paperId IN :ids "
+         + "GROUP BY kw.keywordText ORDER BY COUNT(DISTINCT p) DESC")
+    List<Object[]> findTopKeywordsByPaperIds(@Param("ids") List<UUID> ids, Pageable pageable);
+
+    /**
      * Yearly paper count and citation sum for a journal (timeline).
      * Returns [pubYear, paperCount, citationCount] ordered by year ASC.
      */

@@ -40,11 +40,15 @@ public class ReportController {
     @GetMapping("/keyword-trend")
     public ResponseEntity<AppResponse<KeywordTrendReportResponse>> getKeywordTrendReport(
             @Parameter(description = "The keyword to analyze", required = true, example = "machine learning")
-            @RequestParam String keyword) {
+            @RequestParam String keyword,
+            @Parameter(description = "Optional: filter by publication year from (inclusive)")
+            @RequestParam(required = false) Integer startYear,
+            @Parameter(description = "Optional: filter by publication year to (inclusive)")
+            @RequestParam(required = false) Integer endYear) {
         if (keyword == null || keyword.trim().isEmpty()) {
             throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
         }
-        KeywordTrendReportResponse report = reportService.getKeywordTrendReport(keyword);
+        KeywordTrendReportResponse report = reportService.getKeywordTrendReport(keyword, startYear, endYear);
         return ResponseEntity.ok(AppResponse.success("Keyword trend report generated successfully", report));
     }
 

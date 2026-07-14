@@ -204,13 +204,18 @@ public class OpenAlexFallbackSearchService {
      * Uses fulltext.search filter for consistency with searchTopCited.
      * Returns 0 on failure or if the keyword returns no results.
      */
-    public long getKeywordTotalCount(String keyword) {
+    public long getKeywordTotalCount(String keyword, Integer yearFrom, Integer yearTo) {
         String normalizedQuery = normalizeOpenAlexSearchQuery(keyword);
         if (normalizedQuery.isBlank()) return 0;
 
+        List<String> filters = new ArrayList<>();
+        filters.add("fulltext.search:" + quotedFilterValue(normalizedQuery));
+        if (yearFrom != null) filters.add("from_publication_date:" + yearFrom + "-01-01");
+        if (yearTo != null) filters.add("to_publication_date:" + yearTo + "-12-31");
+
         String url = withApiKey(UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
-                .queryParam("filter", "fulltext.search:" + quotedFilterValue(normalizedQuery))
+                .queryParam("filter", String.join(",", filters))
                 .queryParam("per-page", "1")
                 .queryParam("select", "id"))
                 .build().toUriString();
@@ -220,7 +225,7 @@ public class OpenAlexFallbackSearchService {
             if (response == null || response.getMeta() == null || response.getMeta().getCount() == null) {
                 return 0;
             }
-            log.info("OpenAlex total count for '{}': {}", keyword, response.getMeta().getCount());
+            log.info("OpenAlex total count for '{}' (y={}-{}): {}", keyword, yearFrom, yearTo, response.getMeta().getCount());
             return response.getMeta().getCount();
         } catch (RestClientException e) {
             log.warn("OpenAlex count lookup failed for '{}': {}", keyword, e.getMessage());
@@ -232,15 +237,20 @@ public class OpenAlexFallbackSearchService {
      * Get yearly publication breakdown for a keyword from OpenAlex group_by.
      * Returns list of [year, count] pairs for years >= startYear, sorted by year ASC.
      */
-    public List<OpenAlexYearlyCount> getKeywordYearlyBreakdown(String keyword, int startYear) {
+    public List<OpenAlexYearlyCount> getKeywordYearlyBreakdown(String keyword, int startYear,
+                                                                Integer yearFrom, Integer yearTo) {
         String normalizedQuery = normalizeOpenAlexSearchQuery(keyword);
         if (normalizedQuery.isBlank()) return List.of();
 
+        List<String> filters = new ArrayList<>();
+        filters.add("fulltext.search:" + quotedFilterValue(normalizedQuery));
+        int effectiveFrom = yearFrom != null ? Math.max(startYear, yearFrom) : startYear;
+        filters.add("from_publication_date:" + effectiveFrom + "-01-01");
+        if (yearTo != null) filters.add("to_publication_date:" + yearTo + "-12-31");
+
         String url = withApiKey(UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
-                .queryParam("filter",
-                        "fulltext.search:" + quotedFilterValue(normalizedQuery)
-                        + ",from_publication_date:" + startYear + "-01-01")
+                .queryParam("filter", String.join(",", filters))
                 .queryParam("group_by", "publication_year")
                 .queryParam("per-page", "50"))
                 .build().toUriString();
@@ -269,13 +279,19 @@ public class OpenAlexFallbackSearchService {
      * Fetches raw OpenAlex works (up to 50), sums up counts_by_year across all papers,
      * and returns sorted yearly citation totals for years >= startYear.
      */
-    public List<OpenAlexYearlyCount> getAggregatedCitationTrend(String keyword, int startYear) {
+    public List<OpenAlexYearlyCount> getAggregatedCitationTrend(String keyword, int startYear,
+                                                                  Integer yearFrom, Integer yearTo) {
         String normalizedQuery = normalizeOpenAlexSearchQuery(keyword);
         if (normalizedQuery.isBlank()) return List.of();
 
+        List<String> filters = new ArrayList<>();
+        filters.add("fulltext.search:" + quotedFilterValue(normalizedQuery));
+        if (yearFrom != null) filters.add("from_publication_date:" + yearFrom + "-01-01");
+        if (yearTo != null) filters.add("to_publication_date:" + yearTo + "-12-31");
+
         String url = withApiKey(UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
-                .queryParam("filter", "fulltext.search:" + quotedFilterValue(normalizedQuery))
+                .queryParam("filter", String.join(",", filters))
                 .queryParam("sort", "cited_by_count:desc")
                 .queryParam("per-page", "50")
                 .queryParam("select", "id,cited_by_count,counts_by_year"))
