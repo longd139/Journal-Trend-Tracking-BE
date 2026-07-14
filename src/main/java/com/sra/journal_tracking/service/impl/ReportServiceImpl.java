@@ -2,6 +2,7 @@ package com.sra.journal_tracking.service.impl;
 
 import com.sra.journal_tracking.dto.author.AuthorQuickStatsResponse;
 import com.sra.journal_tracking.dto.journal.JournalQuickStatsResponse;
+import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.report.AuthorImpactReportResponse;
 import com.sra.journal_tracking.dto.report.JournalQualityReportResponse;
 import com.sra.journal_tracking.dto.report.KeywordTrendHistoryItem;
@@ -53,7 +54,7 @@ public class ReportServiceImpl implements ReportService {
     private static final int KEYWORD_TREND_YEAR_WINDOW = 5;
     private static final int JOURNAL_RECENT_YEAR_WINDOW = 2;
     private static final int AUTHOR_ACTIVITY_YEAR_WINDOW = 3;
-    private static final long NEO4J_MIN_PAPER_THRESHOLD = 100; // below this, Neo4j data is unreliable
+    private static final long LOCAL_DATA_MIN_THRESHOLD = 500; // below this, use OpenAlex for details too
 
     private final GraphService graphService;
     private final AuthorQuickStatsService authorQuickStatsService;
@@ -74,92 +75,107 @@ public class ReportServiceImpl implements ReportService {
     @Override
     @Transactional
     @Cacheable(value = "search:report", cacheManager = "searchCacheManager",
-            key = "'keywordTrend:' + #keyword.trim().toLowerCase()",
+            key = "'keywordTrend:' + #keyword.trim().toLowerCase() + ':' + (#startYear != null ? #startYear : '') + ':' + (#endYear != null ? #endYear : '')",
             unless = "#result == null || #result.summary == null || #result.summary.totalPublications == 0")
-    public KeywordTrendReportResponse getKeywordTrendReport(String keyword) {
+    public KeywordTrendReportResponse getKeywordTrendReport(String keyword,
+                                                              Integer startYear, Integer endYear) {
         String trimmed = keyword.trim();
         if (trimmed.isEmpty()) {
             return buildEmptyKeywordReport(keyword);
         }
 
-        log.info("Generating keyword trend report for: '{}'", trimmed);
+        log.info("Generating keyword trend report for: '{}' (y={}-{})", trimmed, startYear, endYear);
 
-        short thisYear = currentYear();
-        short startYear = (short) (thisYear - KEYWORD_TREND_YEAR_WINDOW + 1);
+        short thisYear = endYear != null ? endYear.shortValue() : currentYear();
+        short trendStartYear = startYear != null ? startYear.shortValue()
+                : (short) 1900; // no user filter → show all years
 
-        // Step 1: Get total count from OpenAlex (primary, comprehensive data source)
-        long openAlexTotalPapers = openAlexSearchService.getKeywordTotalCount(trimmed);
-        log.info("OpenAlex total papers for '{}': {} ", trimmed, openAlexTotalPapers);
-
-        // Step 2: Get yearly publication breakdown from OpenAlex
-        List<OpenAlexFallbackSearchService.OpenAlexYearlyCount> openAlexYearly =
-                openAlexSearchService.getKeywordYearlyBreakdown(trimmed, startYear);
-
-        // Step 3: Try Neo4j for supplementary data (co-occurring keywords, top journals)
-        String normalized = trimmed.toLowerCase();
-        long neo4jTotalPapers = 0;
-        List<UUID> paperIds = List.of();
-        try {
-            neo4jTotalPapers = graphService.countPapersByKeyword(normalized);
-            List<String> paperIdStrings = graphService.getAllPaperIdsByKeyword(normalized);
-            if (!paperIdStrings.isEmpty()) {
-                paperIds = paperIdStrings.stream()
-                        .limit(200)
-                        .map(UUID::fromString)
-                        .toList();
-            }
-        } catch (Exception e) {
-            log.warn("Neo4j lookup failed for '{}': {}", trimmed, e.getMessage());
-        }
-        boolean hasReliableLocalData = neo4jTotalPapers >= NEO4J_MIN_PAPER_THRESHOLD;
-
-        // Step 4: Use OpenAlex as primary source
-        long totalPapers = openAlexTotalPapers > 0 ? openAlexTotalPapers : neo4jTotalPapers;
+        // Step 1: Get total papers count from OpenAlex (always accurate)
+        long totalPapers = openAlexSearchService.getKeywordTotalCount(trimmed, startYear, endYear);
         if (totalPapers == 0) {
-            log.info("No papers found for keyword '{}'", trimmed);
+            log.info("No papers found for '{}'", trimmed);
             return buildEmptyKeywordReport(trimmed);
         }
 
-        // Step 5: Build summary (OpenAlex total + local supplementary)
-        KeywordTrendReportResponse.Summary summary = buildSummaryFromSources(
-                trimmed, paperIds, totalPapers, hasReliableLocalData);
+        // Step 2: Try SQL for paper IDs (via keyword join)
+        List<UUID> paperIds = List.of();
+        try {
+            var sqlPapers = researchPaperRepository.findTopCitedByKeywordExact(
+                    trimmed, PageRequest.of(0, 200));
+            if (!sqlPapers.isEmpty()) {
+                paperIds = sqlPapers.stream()
+                        .map(com.sra.journal_tracking.entity.jpa.ResearchPaper::getPaperId)
+                        .toList();
+            }
+        } catch (Exception e) {
+            log.warn("SQL keyword lookup failed for '{}': {}", trimmed, e.getMessage());
+        }
+        long localPaperCount = paperIds.size();
+        boolean useLocalDetails = localPaperCount >= LOCAL_DATA_MIN_THRESHOLD;
 
-        // Step 6: Build publication trend from OpenAlex (primary) or local (fallback)
-        List<KeywordTrendReportResponse.TrendPoint> publicationTrend = buildPublicationTrendFromSources(
-                openAlexYearly, paperIds, startYear);
+        log.info("Report for '{}': openAlexTotal={}, localPapers={}, useLocalDetails={}",
+                trimmed, totalPapers, localPaperCount, useLocalDetails);
 
-        // Step 7: Citation trend, co-occurring keywords, top journals
-        // Primary: use local data when reliable (>= threshold papers in Neo4j).
-        // Fallback: extract from OpenAlex top papers when local data is too sparse.
+        // Step 3: Build report — OpenAlex for total count, SQL or OpenAlex for details
+        KeywordTrendReportResponse.Summary summary;
+        List<KeywordTrendReportResponse.TrendPoint> publicationTrend;
         List<KeywordTrendReportResponse.TrendPoint> citationTrend;
         List<KeywordTrendReportResponse.CoOccurringKeyword> coOccurringKeywords;
         List<KeywordTrendReportResponse.TopJournal> topJournals;
 
-        if (hasReliableLocalData) {
-            citationTrend = buildCitationTrend(paperIds, startYear);
+        if (useLocalDetails) {
+            // ── SQL has enough data — use it for details ──
             short lastYear = (short) (thisYear - 1);
-            coOccurringKeywords = buildCoOccurringKeywords(trimmed, startYear, thisYear, lastYear);
+            summary = buildSummary(trimmed, paperIds, totalPapers);
+            publicationTrend = buildPublicationTrend(paperIds, trendStartYear);
+            citationTrend = buildCitationTrend(paperIds, trendStartYear);
+            coOccurringKeywords = buildCoOccurringKeywordsFromSql(paperIds);
             topJournals = buildTopJournals(paperIds);
         } else {
-            // Fetch top papers from OpenAlex to derive supplementary data
-            var openAlexPapers = openAlexSearchService.searchTopCited(trimmed, 50, null, null);
-            citationTrend = buildCitationTrendFromOpenAlex(trimmed, startYear);
-            coOccurringKeywords = buildCoOccurringFromOpenAlex(openAlexPapers);
-            topJournals = buildTopJournalsFromOpenAlex(openAlexPapers);
+            // ── Not enough SQL data — use OpenAlex for everything ──
+            var topPapers = openAlexSearchService.searchTopCited(trimmed, 50, startYear, endYear);
+
+            // Publication trend from OpenAlex group_by
+            publicationTrend = openAlexSearchService.getKeywordYearlyBreakdown(
+                    trimmed, trendStartYear, startYear, endYear).stream()
+                    .filter(yc -> yc.year() >= trendStartYear && yc.year() <= thisYear)
+                    .map(yc -> KeywordTrendReportResponse.TrendPoint.builder()
+                            .year(yc.year()).count(yc.count()).build())
+                    .toList();
+
+            // Citation trend from OpenAlex counts_by_year
+            citationTrend = openAlexSearchService.getAggregatedCitationTrend(
+                    trimmed, trendStartYear, startYear, endYear).stream()
+                    .map(yc -> KeywordTrendReportResponse.TrendPoint.builder()
+                            .year(yc.year()).count(yc.count()).build())
+                    .toList();
+
+            // Co-occurring keywords from top papers
+            coOccurringKeywords = extractCoKeywordsFromPapers(topPapers);
+
+            // Top journals from top papers
+            topJournals = extractTopJournalsFromPapers(topPapers);
+
+            // Summary from top paper + OpenAlex total
+            var topPaper = !topPapers.isEmpty() ? topPapers.get(0) : null;
+            summary = KeywordTrendReportResponse.Summary.builder()
+                    .totalPublications(totalPapers)
+                    .totalCitations(topPaper != null && topPaper.getCitationCount() != null
+                            ? topPaper.getCitationCount().longValue() : 0)
+                    .peakYear(topPaper != null && topPaper.getPubYear() != null
+                            ? topPaper.getPubYear().intValue() : null)
+                    .topJournal(topPaper != null && topPaper.getJournalName() != null
+                            ? KeywordTrendReportResponse.TopJournalInfo.builder()
+                                    .name(topPaper.getJournalName()).paperCount(1).build()
+                            : null)
+                    .build();
         }
 
-        // Step 10: Generate insight text using OpenAlex data
         String insight = generateKeywordInsight(trimmed, summary);
-
-        String reportTitle = "Báo cáo xu hướng: " + trimmed;
-
-        log.info("Keyword trend report for '{}': openAlexPapers={}, localPapers={}, summaryCitations={}, peakYear={}",
-                trimmed, openAlexTotalPapers, neo4jTotalPapers,
-                summary.getTotalCitations(), summary.getPeakYear());
 
         KeywordTrendReportResponse report = KeywordTrendReportResponse.builder()
                 .keyword(trimmed)
-                .reportTitle(reportTitle)
+                .reportTitle("Báo cáo xu hướng: " + trimmed)
                 .summary(summary)
                 .publicationTrend(publicationTrend)
                 .citationTrend(citationTrend)
@@ -170,6 +186,66 @@ public class ReportServiceImpl implements ReportService {
 
         saveKeywordTrendToDb(trimmed, report);
         return report;
+    }
+
+    // ── OpenAlex extraction helpers ──
+
+    private List<KeywordTrendReportResponse.CoOccurringKeyword> extractCoKeywordsFromPapers(
+            List<PaperDetailResponseDTO> papers) {
+        if (papers == null || papers.isEmpty()) return List.of();
+        Map<String, Long> kwCounts = new java.util.LinkedHashMap<>();
+        for (var p : papers) {
+            if (p.getKeywords() != null) {
+                for (var kw : p.getKeywords()) {
+                    if (kw.getKeywordText() != null && !kw.getKeywordText().isBlank()) {
+                        kwCounts.merge(kw.getKeywordText().toLowerCase(), 1L, Long::sum);
+                    }
+                }
+            }
+        }
+        return kwCounts.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .limit(8)
+                .map(e -> KeywordTrendReportResponse.CoOccurringKeyword.builder()
+                        .keyword(e.getKey()).count(e.getValue()).build())
+                .toList();
+    }
+
+    private List<KeywordTrendReportResponse.TopJournal> extractTopJournalsFromPapers(
+            List<com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO> papers) {
+        if (papers == null || papers.isEmpty()) return List.of();
+        Map<String, Long> jCounts = new java.util.LinkedHashMap<>();
+        for (var p : papers) {
+            if (p.getJournalName() != null && !p.getJournalName().isBlank()) {
+                jCounts.merge(p.getJournalName(), 1L, Long::sum);
+            }
+        }
+        return jCounts.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .limit(6)
+                .map(e -> KeywordTrendReportResponse.TopJournal.builder()
+                        .name(e.getKey()).count(e.getValue()).build())
+                .toList();
+    }
+
+    // ── SQL-based helpers (no Neo4j dependency) ──
+
+    private List<KeywordTrendReportResponse.CoOccurringKeyword> buildCoOccurringKeywordsFromSql(
+            List<UUID> paperIds) {
+        if (paperIds.isEmpty()) return List.of();
+        try {
+            List<Object[]> rows = researchPaperRepository.findTopKeywordsByPaperIds(
+                    paperIds, PageRequest.of(0, 8));
+            return rows.stream()
+                    .map(row -> KeywordTrendReportResponse.CoOccurringKeyword.builder()
+                            .keyword((String) row[0])
+                            .count(((Number) row[1]).longValue())
+                            .build())
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Failed to get SQL co-occurring keywords: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     // ============================================
@@ -364,88 +440,8 @@ public class ReportServiceImpl implements ReportService {
                 .build();
     }
 
-    /**
-     * Build summary using OpenAlex for total count and local DB for supplementary data.
-     * Falls back to local-only computation when local data is reliable.
-     */
-    private KeywordTrendReportResponse.Summary buildSummaryFromSources(
-            String keyword, List<UUID> paperIds, long totalPapers, boolean hasReliableLocalData) {
-        // Total citations from SQL (only reliable with enough local data)
-        long totalCitations = 0;
-        Integer peakYear = null;
-        KeywordTrendReportResponse.TopJournalInfo topJournal = null;
+    // ── Private helpers — using local Neo4j + SQL data only ──
 
-        if (hasReliableLocalData && !paperIds.isEmpty()) {
-            totalCitations = researchPaperRepository.sumCitationCountByKeyword(keyword);
-            try {
-                List<Short> peakYears = researchPaperRepository.findPeakYearByPaperIds(
-                        paperIds, PageRequest.of(0, 1));
-                if (!peakYears.isEmpty() && peakYears.get(0) != null) {
-                    peakYear = peakYears.get(0).intValue();
-                }
-            } catch (Exception e) {
-                log.warn("Failed to find peak year for keyword '{}': {}", keyword, e.getMessage());
-            }
-            try {
-                List<Object[]> topJournals = researchPaperRepository.findTopJournalsByPaperIds(
-                        paperIds, PageRequest.of(0, 1));
-                if (!topJournals.isEmpty()) {
-                    Object[] row = topJournals.get(0);
-                    topJournal = KeywordTrendReportResponse.TopJournalInfo.builder()
-                            .name((String) row[0])
-                            .paperCount(((Number) row[4]).intValue())
-                            .build();
-                }
-            } catch (Exception e) {
-                log.warn("Failed to find top journal for keyword '{}': {}", keyword, e.getMessage());
-            }
-        }
-
-        return KeywordTrendReportResponse.Summary.builder()
-                .totalPublications(totalPapers)
-                .totalCitations(totalCitations)
-                .peakYear(peakYear)
-                .topJournal(topJournal)
-                .build();
-    }
-
-    /**
-     * Build publication trend using OpenAlex yearly breakdown as primary source.
-     * Falls back to local SQL when OpenAlex data is unavailable.
-     */
-    private List<KeywordTrendReportResponse.TrendPoint> buildPublicationTrendFromSources(
-            List<OpenAlexFallbackSearchService.OpenAlexYearlyCount> openAlexYearly,
-            List<UUID> paperIds, short startYear) {
-        // Use OpenAlex yearly data if available
-        if (!openAlexYearly.isEmpty()) {
-            short thisYear = currentYear();
-            return openAlexYearly.stream()
-                    .filter(yc -> yc.year() >= startYear && yc.year() <= thisYear)
-                    .map(yc -> KeywordTrendReportResponse.TrendPoint.builder()
-                            .year(yc.year())
-                            .count(yc.count())
-                            .build())
-                    .toList();
-        }
-        // Fallback to local SQL query
-        if (!paperIds.isEmpty()) {
-            try {
-                List<Object[]> rows = researchPaperRepository.countPapersByYearForIds(paperIds, startYear);
-                return rows.stream()
-                        .map(row -> KeywordTrendReportResponse.TrendPoint.builder()
-                                .year(((Short) row[0]).intValue())
-                                .count(((Number) row[1]).longValue())
-                                .build())
-                        .toList();
-            } catch (Exception e) {
-                log.warn("Failed to build publication trend: {}", e.getMessage());
-            }
-        }
-        return List.of();
-    }
-
-    // Legacy methods kept for reference — replaced by the *_FromSources variants above
-    @SuppressWarnings("unused")
     private KeywordTrendReportResponse.Summary buildSummary(String keyword, List<UUID> paperIds, long totalPapers) {
         long totalCitations = researchPaperRepository.sumCitationCountByKeyword(keyword);
         Integer peakYear = null;
@@ -480,7 +476,6 @@ public class ReportServiceImpl implements ReportService {
                 .build();
     }
 
-    @SuppressWarnings("unused")
     private List<KeywordTrendReportResponse.TrendPoint> buildPublicationTrend(List<UUID> paperIds, short startYear) {
         try {
             List<Object[]> rows = researchPaperRepository.countPapersByYearForIds(paperIds, startYear);
@@ -509,82 +504,6 @@ public class ReportServiceImpl implements ReportService {
             log.warn("Failed to build citation trend: {}", e.getMessage());
             return List.of();
         }
-    }
-
-    // ── OpenAlex fallback helpers (used when local Neo4j/SQL data is too sparse) ──
-
-    /**
-     * Build citation trend from OpenAlex by aggregating counts_by_year across top papers.
-     * Fetches raw citation-per-year data via OpenAlexFallbackSearchService.
-     */
-    private List<KeywordTrendReportResponse.TrendPoint> buildCitationTrendFromOpenAlex(
-            String keyword, short startYear) {
-        try {
-            var yearlyCitations = openAlexSearchService.getAggregatedCitationTrend(keyword, startYear);
-            return yearlyCitations.stream()
-                    .map(yc -> KeywordTrendReportResponse.TrendPoint.builder()
-                            .year(yc.year())
-                            .count(yc.count())
-                            .build())
-                    .toList();
-        } catch (Exception e) {
-            log.warn("Failed to build citation trend from OpenAlex for '{}': {}", keyword, e.getMessage());
-            return List.of();
-        }
-    }
-
-    /**
-     * Extract co-occurring keywords from top OpenAlex papers.
-     * Aggregates keywords across all fetched papers, returns top 8 by frequency.
-     */
-    private List<KeywordTrendReportResponse.CoOccurringKeyword> buildCoOccurringFromOpenAlex(
-            List<com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO> papers) {
-        if (papers == null || papers.isEmpty()) return List.of();
-
-        Map<String, Long> keywordCounts = new java.util.LinkedHashMap<>();
-        for (var paper : papers) {
-            if (paper.getKeywords() != null) {
-                for (var kw : paper.getKeywords()) {
-                    if (kw.getKeywordText() != null && !kw.getKeywordText().isBlank()) {
-                        keywordCounts.merge(kw.getKeywordText().toLowerCase(), 1L, Long::sum);
-                    }
-                }
-            }
-        }
-
-        return keywordCounts.entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .limit(8)
-                .map(e -> KeywordTrendReportResponse.CoOccurringKeyword.builder()
-                        .keyword(e.getKey())
-                        .count(e.getValue())
-                        .build())
-                .toList();
-    }
-
-    /**
-     * Extract top journals from top OpenAlex papers.
-     * Aggregates journal names across all fetched papers, returns top 6 by frequency.
-     */
-    private List<KeywordTrendReportResponse.TopJournal> buildTopJournalsFromOpenAlex(
-            List<com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO> papers) {
-        if (papers == null || papers.isEmpty()) return List.of();
-
-        Map<String, Long> journalCounts = new java.util.LinkedHashMap<>();
-        for (var paper : papers) {
-            if (paper.getJournalName() != null && !paper.getJournalName().isBlank()) {
-                journalCounts.merge(paper.getJournalName(), 1L, Long::sum);
-            }
-        }
-
-        return journalCounts.entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .limit(6)
-                .map(e -> KeywordTrendReportResponse.TopJournal.builder()
-                        .name(e.getKey())
-                        .count(e.getValue())
-                        .build())
-                .toList();
     }
 
     private List<KeywordTrendReportResponse.CoOccurringKeyword> buildCoOccurringKeywords(
@@ -921,7 +840,7 @@ public class ReportServiceImpl implements ReportService {
 
         // Cache miss or deserialization failure — generate fresh
         log.info("Cache miss for '{}', generating fresh report", keyword);
-        return getKeywordTrendReport(keyword);
+        return getKeywordTrendReport(keyword, null, null);
     }
 
     @Override

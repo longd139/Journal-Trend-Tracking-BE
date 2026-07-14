@@ -38,6 +38,7 @@ public class AuthorSuggestionServiceImpl implements AuthorSuggestionService {
 
     private static final int CANDIDATE_COUNT = 20;
     private static final int SUGGESTED_LIMIT = 12;
+    private static final int MIN_RESULTS = 10;
     private static final int MAX_RETRIES = 3;
 
     public AuthorSuggestionServiceImpl(AuthorRepository authorRepository,
@@ -64,7 +65,7 @@ public class AuthorSuggestionServiceImpl implements AuthorSuggestionService {
 
     @Override
     @Cacheable(value = "search:suggestedAuthors", cacheManager = "searchCacheManager",
-               key = "'batchOpenAlexTop12'", unless = "#result == null || #result.isEmpty()")
+               key = "'batchOpenAlexTop12'", unless = "#result == null || #result.size() < " + MIN_RESULTS)
     public List<SuggestedAuthorResponse> getSuggestedAuthors() {
         log.info("Fetching fresh suggested authors via OpenAlex batch API");
 
@@ -125,6 +126,28 @@ public class AuthorSuggestionServiceImpl implements AuthorSuggestionService {
 
         // ── Step 5: Build response ──
         List<SuggestedAuthorResponse> result = buildSuggestedAuthors(apiResults);
+        log.info("Suggested authors: {} entries from batch call", result.size());
+
+        // ── Step 6: Fallback if too few results ──
+        if (result.size() < MIN_RESULTS) {
+            log.info("Only {} authors from batch, falling back to direct OpenAlex top-cited query", result.size());
+            String fallbackUrl = "https://api.openalex.org/authors?sort=cited_by_count:desc&per-page="
+                    + SUGGESTED_LIMIT + authParam;
+            String fallbackJson = fetchRawWithRetry(fallbackUrl);
+            if (fallbackJson != null) {
+                try {
+                    OpenAlexAuthorResponseDTO fallbackResponse = objectMapper.readValue(fallbackJson,
+                            OpenAlexAuthorResponseDTO.class);
+                    if (fallbackResponse.getResults() != null && !fallbackResponse.getResults().isEmpty()) {
+                        result = buildSuggestedAuthors(fallbackResponse.getResults());
+                        log.info("Fallback returned {} authors", result.size());
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to parse fallback response: {}", e.getMessage());
+                }
+            }
+        }
+
         log.info("Suggested authors: {} entries ready (cached 7 days)", result.size());
         return result;
     }

@@ -2,6 +2,7 @@ package com.sra.journal_tracking.service;
 
 import com.sra.journal_tracking.dto.journal.JournalAuthorResponse;
 import com.sra.journal_tracking.dto.journal.JournalQuickStatsResponse;
+import com.sra.journal_tracking.dto.journal.JournalSuggestionResponse;
 import com.sra.journal_tracking.dto.journal.JournalTimelineResponse;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 
@@ -25,4 +26,7 @@ public interface JournalQuickStatsService {
 
     /** Top 10 most frequent authors in a journal. */
     List<JournalAuthorResponse> getTopAuthors(String journalName);
+
+    /** Autocomplete journal names from OpenAlex sources API. */
+    List<JournalSuggestionResponse> suggestJournals(String query);
 }

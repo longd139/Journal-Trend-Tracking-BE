@@ -3,8 +3,10 @@ package com.sra.journal_tracking.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sra.journal_tracking.dto.journal.JournalAuthorResponse;
 import com.sra.journal_tracking.dto.journal.JournalQuickStatsResponse;
+import com.sra.journal_tracking.dto.journal.JournalSuggestionResponse;
 import com.sra.journal_tracking.dto.journal.JournalTimelineResponse;
 import com.sra.journal_tracking.dto.journal.JournalTimelineResponse.YearlyDataPoint;
+import com.sra.journal_tracking.dto.paper.AuthorDTO;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
 import com.sra.journal_tracking.service.JournalQuickStatsService;
@@ -392,6 +394,28 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
                 .createdAt(java.time.LocalDateTime.now())
                 .build();
 
+        // Map authors from OpenAlex authorships
+        if (work.getAuthorships() != null && !work.getAuthorships().isEmpty()) {
+            List<AuthorDTO> authors = work.getAuthorships().stream()
+                    .map(a -> {
+                        String name = a.getRawAuthorName();
+                        if (name == null && a.getAuthor() != null) {
+                            name = a.getAuthor().getDisplayName();
+                        }
+                        String affiliation = a.getRawAffiliationStrings() != null
+                                && !a.getRawAffiliationStrings().isEmpty()
+                                ? String.join(", ", a.getRawAffiliationStrings())
+                                : (a.getInstitutions() != null && !a.getInstitutions().isEmpty()
+                                        ? a.getInstitutions().get(0).getDisplayName() : null);
+                        return AuthorDTO.builder()
+                                .fullName(name)
+                                .affiliation(affiliation)
+                                .build();
+                    })
+                    .collect(Collectors.toList());
+            dto.setAuthors(authors);
+        }
+
         // Save to paper cache for persistence
         try { paperCacheService.save(dto, work.getId()); } catch (Exception ignored) {}
 
@@ -409,5 +433,48 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
         }
         entries.sort(Map.Entry.comparingByKey());
         return entries.stream().map(Map.Entry::getValue).collect(Collectors.joining(" "));
+    }
+
+    // ── Journal autocomplete from OpenAlex sources API ──
+
+    @Override
+    public List<JournalSuggestionResponse> suggestJournals(String query) {
+        if (query.isBlank()) return List.of();
+
+        String authParam = (openalexApiKey != null && !openalexApiKey.isBlank())
+                ? "&api_key=" + openalexApiKey : "";
+
+        String url = "https://api.openalex.org/sources?search="
+                + java.net.URLEncoder.encode(query, java.nio.charset.StandardCharsets.UTF_8)
+                + "&sort=cited_by_count:desc&per-page=10" + authParam;
+
+        try {
+            String rawJson = restTemplate.getForObject(url, String.class);
+            if (rawJson == null) return List.of();
+
+            @SuppressWarnings("unchecked")
+            var response = objectMapper.readValue(rawJson, java.util.Map.class);
+            var results = (java.util.List<java.util.Map<String, Object>>) response.get("results");
+            if (results == null || results.isEmpty()) return List.of();
+
+            return results.stream()
+                    .map(r -> JournalSuggestionResponse.builder()
+                            .id((String) r.get("id"))
+                            .name((String) r.get("display_name"))
+                            .issn((String) r.get("issn_l"))
+                            .publisher((String) r.get("publisher"))
+                            .totalWorks(toInt(r.get("works_count")))
+                            .totalCitations(toInt(r.get("cited_by_count")))
+                            .build())
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Journal suggestion failed for '{}': {}", query, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private static Integer toInt(Object val) {
+        if (val instanceof Number n) return n.intValue();
+        return null;
     }
 }

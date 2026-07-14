@@ -54,4 +54,17 @@ public interface UserSearchHistoryRepository extends JpaRepository<UserSearchHis
             ORDER BY cnt DESC
             """, nativeQuery = true)
     List<Object[]> countKeywordSearchesMatchingDb(@Param("userId") UUID userId);
+
+    /**
+     * Count keyword searches directly from search history (no JOIN to KEYWORD table).
+     * Falls back to this when the KEYWORD table is empty (new DB, no sync yet).
+     */
+    @Query(value = """
+            SELECT TOP 8 h.SearchText, COUNT(h.SearchHistoryID) AS cnt
+            FROM USER_SEARCH_HISTORY h
+            WHERE h.UserID = :userId AND h.SearchType = 'KEYWORD'
+            GROUP BY h.SearchText
+            ORDER BY cnt DESC
+            """, nativeQuery = true)
+    List<Object[]> countKeywordSearchesRaw(@Param("userId") UUID userId);
 }
