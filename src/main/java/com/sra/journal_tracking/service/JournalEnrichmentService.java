@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -105,6 +106,87 @@ public class JournalEnrichmentService {
     }
 
     /**
+     * Enrich journals from an uploaded SCImago CSV file.
+     * Admin downloads the CSV manually from https://www.scimagojr.com/journalrank.php?out=csv
+     * and uploads it here.
+     */
+    @Transactional
+    public String enrichFromCsv(InputStream csvStream) {
+        log.info("Starting SCImago journal enrichment from uploaded CSV...");
+        long start = System.currentTimeMillis();
+
+        Map<String, ScimagoEntry> byIssn = new HashMap<>();
+        Map<String, ScimagoEntry> byName = new HashMap<>();
+        int csvRows = parseFromStream(csvStream, byIssn, byName);
+
+        if (csvRows == 0) {
+            log.warn("Uploaded CSV returned 0 valid rows — aborting enrichment");
+            return "Failed: CSV empty or invalid";
+        }
+
+        log.info("Parsed {} SCImago entries from uploaded CSV ({} with ISSN, {} name-only)",
+                csvRows, byIssn.size(), byName.size());
+
+        int matched = 0;
+        int updated = 0;
+        int page = 0;
+
+        while (true) {
+            List<Journal> batch = journalRepository.findAllByOrderByJournalNameAsc(
+                    PageRequest.of(page, BATCH_SIZE)).getContent();
+            if (batch.isEmpty()) break;
+
+            for (Journal journal : batch) {
+                ScimagoEntry entry = matchJournal(journal, byIssn, byName);
+                if (entry != null) {
+                    matched++;
+                    boolean changed = applyEnrichment(journal, entry);
+                    if (changed) updated++;
+                }
+            }
+
+            journalRepository.saveAll(batch);
+            page++;
+        }
+
+        long elapsed = System.currentTimeMillis() - start;
+        String summary = String.format(
+                "SCImago enrichment complete: %d journals scanned, %d matched, %d updated in %dms",
+                page * BATCH_SIZE, matched, updated, elapsed);
+        log.info(summary);
+        return summary;
+    }
+
+    private int parseFromStream(InputStream csvStream,
+                                 Map<String, ScimagoEntry> byIssn,
+                                 Map<String, ScimagoEntry> byName) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(csvStream))) {
+            String header = reader.readLine();
+            if (header == null) return 0;
+
+            int count = 0;
+            String line;
+            while ((line = reader.readLine()) != null) {
+                ScimagoEntry entry = parseLine(line);
+                if (entry == null) continue;
+                count++;
+
+                if (entry.issn != null && !entry.issn.isBlank()) {
+                    byIssn.put(entry.issn.trim(), entry);
+                    byName.put(entry.title.trim().toLowerCase(), entry);
+                } else {
+                    byName.put(entry.title.trim().toLowerCase(), entry);
+                }
+            }
+
+            return count;
+        } catch (Exception e) {
+            log.error("Failed to parse uploaded SCImago CSV: {}", e.getMessage(), e);
+            return 0;
+        }
+    }
+
+    /**
      * Scheduled job: 3 AM on the 1st of every month.
      */
     @Scheduled(cron = "${app.scimago.cron:0 0 3 1 * ?}")
@@ -174,30 +256,34 @@ public class JournalEnrichmentService {
     }
 
     /**
-     * Parse one CSV line from SCImago.
-     * CSV format (17 columns):
-     *   Rank, Title, ISSN, SJR, H index, Total Docs (2024), Total Docs (3years),
-     *   Total Refs, Total Cites (3years), Citable Docs (3years), Cites/Doc (2years),
-     *   Ref/Doc, Country, Region, Publisher, Coverage, Categories, Quartile
+     * Parse one CSV line from SCImago (2025 semicolon-delimited format).
+     * CSV format (26 columns):
+     *   Rank; Sourceid; Title; Type; Issn; Publisher; Open Access;
+     *   Open Access Diamond; SJR; SJR Best Quartile; H index; ...
      */
     private ScimagoEntry parseLine(String line) {
-        // SCImago CSV may contain commas inside quoted fields — use a simple state-machine
         List<String> fields = parseCsvLine(line);
-        if (fields.size() < 18) return null;
+        if (fields.size() < 10) return null;
 
         try {
-            String title = fields.get(1).replace("\"", "").trim();
-            String issn = fields.get(2).replace("\"", "").trim();
-            String sjrStr = fields.get(3).replace("\"", "").trim();
-            String quartile = fields.get(17).replace("\"", "").trim();
+            String title = fields.get(2).replace("\"", "").trim();   // col 2
+            String issn = fields.get(4).replace("\"", "").trim();    // col 4
+            String sjrStr = fields.get(8).replace("\"", "").trim();  // col 8
+            String quartile = fields.get(9).replace("\"", "").trim(); // col 9: SJR Best Quartile
+            // Only keep valid quartile values (Q1-Q4)
+            if (!quartile.matches("Q[1-4]")) {
+                quartile = null;
+            }
 
             BigDecimal sjr = null;
             if (!sjrStr.isEmpty()) {
-                sjr = new BigDecimal(sjrStr);
+                // SCImago uses European number format (comma as decimal separator)
+                sjr = new BigDecimal(sjrStr.replace(",", "."));
             }
 
             // ISSN may contain multiple ISSNs separated by comma/space
-            String primaryIssn = issn.split("[,\\s]+")[0].trim();
+            // Normalize: strip hyphens (SCImago has 03029743, DB may have 0302-9743)
+            String primaryIssn = issn.split("[,\\s]+")[0].trim().replace("-", "");
 
             return new ScimagoEntry(title, primaryIssn, sjr, quartile);
         } catch (Exception e) {
@@ -206,7 +292,7 @@ public class JournalEnrichmentService {
         }
     }
 
-    /** Parse CSV line handling quoted fields with embedded commas. */
+    /** Parse CSV line handling quoted fields with embedded delimiters. */
     private List<String> parseCsvLine(String line) {
         List<String> result = new ArrayList<>();
         boolean inQuotes = false;
@@ -215,7 +301,7 @@ public class JournalEnrichmentService {
             char c = line.charAt(i);
             if (c == '"') {
                 inQuotes = !inQuotes;
-            } else if (c == ',' && !inQuotes) {
+            } else if (c == ';' && !inQuotes) {
                 result.add(current.toString());
                 current = new StringBuilder();
             } else {
@@ -231,9 +317,10 @@ public class JournalEnrichmentService {
     private ScimagoEntry matchJournal(Journal journal,
                                       Map<String, ScimagoEntry> byIssn,
                                       Map<String, ScimagoEntry> byName) {
-        // Strategy 1: Match by ISSN
+        // Strategy 1: Match by ISSN (normalize: strip hyphens)
         if (journal.getIssn() != null && !journal.getIssn().isBlank()) {
-            ScimagoEntry entry = byIssn.get(journal.getIssn().trim());
+            String normalizedIssn = journal.getIssn().trim().replace("-", "");
+            ScimagoEntry entry = byIssn.get(normalizedIssn);
             if (entry != null) return entry;
         }
 

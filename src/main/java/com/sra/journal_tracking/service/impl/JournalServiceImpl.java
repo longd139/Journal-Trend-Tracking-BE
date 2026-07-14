@@ -140,6 +140,19 @@ public class JournalServiceImpl implements JournalService {
         return buildCategoryResponse(field, topJournals);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<TopJournalDTO> searchJournals(String query, int size) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        return journalRepository.searchByName(query.trim(),
+                        org.springframework.data.domain.PageRequest.of(0, size))
+                .stream()
+                .map(this::mapToTopJournalDTO)
+                .collect(Collectors.toList());
+    }
+
     private JournalCategoryResponse buildCategoryResponse(ResearchField field, List<Journal> journals) {
         List<TopJournalDTO> topJournalDTOs = journals.stream()
                 .limit(TOP_JOURNALS_LIMIT)

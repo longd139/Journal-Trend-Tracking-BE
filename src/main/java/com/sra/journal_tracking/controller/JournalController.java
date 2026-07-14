@@ -1,6 +1,7 @@
 package com.sra.journal_tracking.controller;
 
 import com.sra.journal_tracking.dto.journal.JournalCategoryResponse;
+import com.sra.journal_tracking.dto.journal.TopJournalDTO;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.service.JournalService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,5 +37,14 @@ public class JournalController {
             @PathVariable UUID fieldId) {
         JournalCategoryResponse category = journalService.getTopJournalsByField(fieldId);
         return ResponseEntity.ok(AppResponse.success("Top journals retrieved successfully", category));
+    }
+
+    @Operation(summary = "Search journals by name", description = "Search journals by name (case-insensitive) and return quartile, impact factor.")
+    @GetMapping("/search")
+    public ResponseEntity<AppResponse<List<TopJournalDTO>>> searchJournals(
+            @RequestParam("q") String query,
+            @RequestParam(defaultValue = "10") int size) {
+        List<TopJournalDTO> results = journalService.searchJournals(query, Math.min(size, 50));
+        return ResponseEntity.ok(AppResponse.success("Journals found", results));
     }
 }

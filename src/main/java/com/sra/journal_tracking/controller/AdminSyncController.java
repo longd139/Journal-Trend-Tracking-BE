@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/admin/sync")
@@ -50,5 +51,21 @@ public class AdminSyncController {
     public ResponseEntity<AppResponse<String>> enrichJournals() {
         String result = journalEnrichmentService.enrichJournals();
         return ResponseEntity.ok(AppResponse.success(result));
+    }
+
+    @PostMapping("/enrich-journals/upload")
+    public ResponseEntity<AppResponse<String>> uploadEnrichCsv(
+            @RequestParam("file") MultipartFile file) {
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(AppResponse.of(400, "File is empty", null));
+        }
+        try {
+            String result = journalEnrichmentService.enrichFromCsv(file.getInputStream());
+            return ResponseEntity.ok(AppResponse.success(result));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(AppResponse.of(500, "Failed to process CSV: " + e.getMessage(), null));
+        }
     }
 }
