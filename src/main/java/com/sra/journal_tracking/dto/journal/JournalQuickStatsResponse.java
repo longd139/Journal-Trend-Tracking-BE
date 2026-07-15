@@ -58,4 +58,10 @@ public class JournalQuickStatsResponse {
 
     /** Top keywords frequently published in this journal (top 5). */
     private List<String> topKeywords;
+
+    /**
+     * Data source: "database" if results came from local DB,
+     * "openalex" if fetched live from OpenAlex API.
+     */
+    private String dataSource;
 }

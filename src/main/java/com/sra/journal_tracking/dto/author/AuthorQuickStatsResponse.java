@@ -74,4 +74,10 @@ public class AuthorQuickStatsResponse {
      * Null if the author could not be resolved/synced to the local database.
      */
     private UUID authorId;
+
+    /**
+     * Data source: "database" if results came from local DB,
+     * "openalex" if fetched live from OpenAlex API.
+     */
+    private String dataSource;
 }

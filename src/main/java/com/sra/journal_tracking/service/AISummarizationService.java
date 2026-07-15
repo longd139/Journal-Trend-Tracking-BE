@@ -6,6 +6,7 @@ import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -15,9 +16,16 @@ import java.util.stream.Collectors;
 
 /**
  * AI-powered summarization, methodology extraction, and batch paper analysis
- * using DeepSeek (via {@link AIClient}). All results are cached in-memory for 1 hour.
- * When the AI provider is unavailable (no API key, quota, timeout, network error),
- * the service gracefully returns null — no exceptions propagate to callers.
+ * using DeepSeek (via {@link AIClient}).
+ * <p>
+ * <b>Persistence strategy:</b>
+ * <ul>
+ *   <li>L1: In-memory cache (1-hour TTL) — fastest path</li>
+ *   <li>L2: RESEARCH_PAPER table (AiSummary, Methodology columns) — survives restarts</li>
+ *   <li>On cache miss → check DB → if present, hydrate cache + return</li>
+ *   <li>On DB miss → call AI → persist to DB → hydrate cache → return</li>
+ * </ul>
+ * When the AI provider is unavailable, the service gracefully returns null.
  */
 @Slf4j
 @Service
@@ -68,6 +76,7 @@ public class AISummarizationService {
 
     /**
      * Generate a 2-3 sentence summary of a paper's abstract.
+     * Checks L1 cache → L2 DB → AI generation → persist to DB.
      *
      * @param paperId the paper to summarize
      * @return AI-generated summary, or null if AI is unavailable or abstract is empty
@@ -75,7 +84,7 @@ public class AISummarizationService {
     public String summarizeAbstract(UUID paperId) {
         String cacheKey = "summary:" + paperId.toString();
 
-        // Cache check
+        // ── L1: In-memory cache ──
         CacheEntry<String> cached = summaryCache.get(cacheKey);
         if (cached != null && !cached.isExpired()) {
             log.info("CACHE HIT: summary for paper {}", paperId);
@@ -85,31 +94,83 @@ public class AISummarizationService {
             summaryCache.remove(cacheKey);
         }
 
+        // ── L2: Check DB ──
         ResearchPaper paper = researchPaperRepository.findById(paperId).orElse(null);
-        if (paper == null || isBlank(paper.getAbstractText())) {
+        if (paper == null) {
+            log.debug("Skipping summarization: paper {} not found in DB", paperId);
+            return null;
+        }
+        if (!isBlank(paper.getAiSummary())) {
+            log.info("DB HIT: summary for paper {}", paperId);
+            summaryCache.put(cacheKey, new CacheEntry<>(paper.getAiSummary()));
+            return paper.getAiSummary();
+        }
+        if (isBlank(paper.getAbstractText())) {
             log.debug("Skipping summarization for paper {}: no abstract", paperId);
             return null;
         }
-        return summarizeAbstract(paperId, paper.getAbstractText());
+
+        // ── L3: Generate with AI + persist ──
+        return summarizeAndPersist(paper, cacheKey);
     }
 
     /**
-     * Summarize using abstract text directly (no DB lookup). Used when paper comes from OpenAlex.
+     * Generate summary using abstract text directly + persist to DB.
      */
+    @Transactional
     public String summarizeAbstract(UUID paperId, String abstractText) {
         String cacheKey = "summary:" + paperId.toString();
         CacheEntry<String> cached = summaryCache.get(cacheKey);
         if (cached != null && !cached.isExpired()) { return cached.data; }
         if (cached != null) { summaryCache.remove(cacheKey); }
 
-        if (isBlank(abstractText)) { log.debug("Skipping summarization: empty abstract"); return null; }
+        // Check DB first
+        ResearchPaper paper = researchPaperRepository.findById(paperId).orElse(null);
+        if (paper != null && !isBlank(paper.getAiSummary())) {
+            summaryCache.put(cacheKey, new CacheEntry<>(paper.getAiSummary()));
+            return paper.getAiSummary();
+        }
 
-        String text = truncateAbstract(abstractText);
+        if (isBlank(abstractText)) { return null; }
+
+        return summarizeAndPersist(paperId, abstractText, cacheKey);
+    }
+
+    /** Generate summary via AI and persist to RESEARCH_PAPER. */
+    private String summarizeAndPersist(ResearchPaper paper, String cacheKey) {
         String result = callAiWithFallback(
-                buildSummarizePrompt(text),
+                buildSummarizePrompt(truncateAbstract(paper.getAbstractText())),
+                SUMMARY_MAX_TOKENS, SUMMARY_TEMPERATURE, cacheKey, summaryCache,
+                "summarization", paper.getPaperId().toString());
+        if (result != null) {
+            persistSummary(paper.getPaperId(), result);
+        }
+        return result;
+    }
+
+    /** Generate summary via AI (no DB entity available) and persist. */
+    private String summarizeAndPersist(UUID paperId, String abstractText, String cacheKey) {
+        String result = callAiWithFallback(
+                buildSummarizePrompt(truncateAbstract(abstractText)),
                 SUMMARY_MAX_TOKENS, SUMMARY_TEMPERATURE, cacheKey, summaryCache,
                 "summarization", paperId.toString());
+        if (result != null) {
+            persistSummary(paperId, result);
+        }
         return result;
+    }
+
+    /** Persist AI summary to RESEARCH_PAPER table. */
+    private void persistSummary(UUID paperId, String summary) {
+        try {
+            researchPaperRepository.findById(paperId).ifPresent(paper -> {
+                paper.setAiSummary(summary);
+                researchPaperRepository.save(paper);
+                log.info("DB PERSIST: summary for paper {}", paperId);
+            });
+        } catch (Exception e) {
+            log.warn("Failed to persist summary for paper {}: {}", paperId, e.getMessage());
+        }
     }
 
     /**
@@ -160,6 +221,7 @@ public class AISummarizationService {
 
     /**
      * Extract the research methodology from a paper's abstract.
+     * Checks L1 cache → L2 DB → AI generation → persist to DB.
      *
      * @param paperId the paper to analyze
      * @return methodology category (e.g. "RCT", "case study"), or null if unavailable
@@ -167,6 +229,7 @@ public class AISummarizationService {
     public String extractMethodology(UUID paperId) {
         String cacheKey = "methodology:" + paperId.toString();
 
+        // ── L1: In-memory cache ──
         CacheEntry<String> cached = methodologyCache.get(cacheKey);
         if (cached != null && !cached.isExpired()) {
             log.info("CACHE HIT: methodology for paper {}", paperId);
@@ -176,24 +239,42 @@ public class AISummarizationService {
             methodologyCache.remove(cacheKey);
         }
 
+        // ── L2: Check DB ──
         ResearchPaper paper = researchPaperRepository.findById(paperId).orElse(null);
-        if (paper == null || isBlank(paper.getAbstractText())) {
-            log.debug("Skipping methodology extraction for paper {}: no abstract", paperId);
+        if (paper == null) {
+            log.debug("Skipping methodology: paper {} not found in DB", paperId);
             return null;
         }
-        return extractMethodology(paperId, paper.getAbstractText());
+        if (!isBlank(paper.getMethodology())) {
+            log.info("DB HIT: methodology for paper {}", paperId);
+            methodologyCache.put(cacheKey, new CacheEntry<>(paper.getMethodology()));
+            return paper.getMethodology();
+        }
+        if (isBlank(paper.getAbstractText())) {
+            log.debug("Skipping methodology for paper {}: no abstract", paperId);
+            return null;
+        }
+        return extractMethodologyAndPersist(paper, cacheKey);
     }
 
     /**
-     * Extract methodology using abstract text directly (no DB lookup).
+     * Extract methodology using abstract text directly + persist to DB.
      */
+    @Transactional
     public String extractMethodology(UUID paperId, String abstractText) {
         String cacheKey = "methodology:" + paperId.toString();
         CacheEntry<String> cached = methodologyCache.get(cacheKey);
         if (cached != null && !cached.isExpired()) { return cached.data; }
         if (cached != null) { methodologyCache.remove(cacheKey); }
 
-        if (isBlank(abstractText)) { log.debug("Skipping methodology: empty abstract"); return null; }
+        // Check DB first
+        ResearchPaper paper = researchPaperRepository.findById(paperId).orElse(null);
+        if (paper != null && !isBlank(paper.getMethodology())) {
+            methodologyCache.put(cacheKey, new CacheEntry<>(paper.getMethodology()));
+            return paper.getMethodology();
+        }
+
+        if (isBlank(abstractText)) { return null; }
 
         String text = truncateAbstract(abstractText);
         String result = callAiWithFallback(
@@ -208,7 +289,44 @@ public class AISummarizationService {
                 result = result.substring(0, 80);
             }
         }
-        return isBlank(result) ? null : result;
+        String cleaned = isBlank(result) ? null : result;
+
+        // Persist to DB
+        if (cleaned != null) {
+            persistMethodology(paperId, cleaned);
+        }
+        return cleaned;
+    }
+
+    /** Generate methodology via AI and persist to DB. */
+    private String extractMethodologyAndPersist(ResearchPaper paper, String cacheKey) {
+        String text = truncateAbstract(paper.getAbstractText());
+        String result = callAiWithFallback(
+                buildMethodologyPrompt(text),
+                METHODOLOGY_MAX_TOKENS, METHODOLOGY_TEMPERATURE, cacheKey, methodologyCache,
+                "methodology", paper.getPaperId().toString());
+        if (result != null) {
+            result = result.trim().replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}\\-() ]", "");
+            if (result.length() > 80) result = result.substring(0, 80);
+        }
+        String cleaned = isBlank(result) ? null : result;
+        if (cleaned != null) {
+            persistMethodology(paper.getPaperId(), cleaned);
+        }
+        return cleaned;
+    }
+
+    /** Persist methodology to RESEARCH_PAPER table. */
+    private void persistMethodology(UUID paperId, String methodology) {
+        try {
+            researchPaperRepository.findById(paperId).ifPresent(paper -> {
+                paper.setMethodology(methodology);
+                researchPaperRepository.save(paper);
+                log.info("DB PERSIST: methodology for paper {}", paperId);
+            });
+        } catch (Exception e) {
+            log.warn("Failed to persist methodology for paper {}: {}", paperId, e.getMessage());
+        }
     }
 
     /**

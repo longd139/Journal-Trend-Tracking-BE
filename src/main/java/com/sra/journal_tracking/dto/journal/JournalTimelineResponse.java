@@ -48,6 +48,12 @@ public class JournalTimelineResponse {
     /** Total citations across all papers. */
     private Long totalCitations;
 
+    /**
+     * Data source: "database" if results came from local DB,
+     * "openalex" if fetched live from OpenAlex API.
+     */
+    private String dataSource;
+
     /** Year-by-year data points for the timeline chart. */
     private List<YearlyDataPoint> timeline;
 

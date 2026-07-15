@@ -26,6 +26,12 @@ public class AuthorResearchFocusResponse {
     /** Total number of topics the author has published in */
     private Integer totalTopics;
 
+    /**
+     * Data source: "database" if results came from local DB,
+     * "openalex" if fetched live from OpenAlex API.
+     */
+    private String dataSource;
+
     /** Top topics with paper counts, sorted by count descending */
     private List<TopicFocus> topics;
 

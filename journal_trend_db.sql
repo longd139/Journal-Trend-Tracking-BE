@@ -1,7 +1,7 @@
 -- ============================================================
 --  Scientific Journal Publication Trend Tracking System
---  SQL Server Setup Script  |  Version 2.1  |  2026
---  28 Entity Tables + 3 System Tables = 31 Tables Total
+--  SQL Server Setup Script  |  Version 2.2  |  2026
+--  29 Entity Tables + 4 System Tables = 33 Tables Total
 -- ============================================================
 --  Chay script nay voi quyen sysadmin hoac dbcreator.
 --  Script co the chay lai nhieu lan (idempotent).
@@ -19,6 +19,7 @@ GO
 -- ============================================================
 --  XOA CAC BANG CU (thu tu nguoc FK dependency)
 -- ============================================================
+DROP TABLE IF EXISTS KEYWORD_TREND_CACHE;
 DROP TABLE IF EXISTS TRENDING_TOPIC;
 DROP TABLE IF EXISTS SEARCH_KEYWORD;
 DROP TABLE IF EXISTS AUTO_SYNC_KEYWORD;
@@ -256,6 +257,9 @@ CREATE TABLE RESEARCH_PAPER (
     CitationCount   INT                 NOT NULL  DEFAULT 0,
     IsOpenAccess    BIT                 NOT NULL  DEFAULT 0,
     PdfUrl          NVARCHAR(500)       NULL,
+    AiSummary       NVARCHAR(MAX)       NULL,
+    AiSummarySections NVARCHAR(MAX)     NULL,   -- JSON: [{"heading":"Context & Problem","content":"..."}]
+    Methodology     NVARCHAR(100)       NULL,   -- "RCT", "case study", "systematic review"...
     CreatedAt       DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
 
     CONSTRAINT PK_RESEARCH_PAPER    PRIMARY KEY (PaperID),
@@ -614,6 +618,22 @@ GO
 --  BANG HE THONG (System Tables)
 -- ============================================================
 
+-- ── KEYWORD_TREND_CACHE ──────────────────────────────────────
+-- Luu tru bao cao xu huong tu khoa da generate duoi dang JSON.
+-- Tranh phai tinh toan lai bao cao ton kem moi lan user xem lich su.
+CREATE TABLE KEYWORD_TREND_CACHE (
+    CacheID             UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    Keyword             NVARCHAR(500)       NOT NULL,
+    NormalizedKeyword   NVARCHAR(500)       NOT NULL,
+    ReportData          NVARCHAR(MAX)       NOT NULL,   -- JSON report
+    CreatedAt           DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+    UpdatedAt           DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+
+    CONSTRAINT PK_KEYWORD_TREND_CACHE          PRIMARY KEY (CacheID),
+    CONSTRAINT UK_KTC_NormalizedKeyword        UNIQUE      (NormalizedKeyword)
+);
+GO
+
 -- ── AUTO_SYNC_KEYWORD ────────────────────────────────────────
 -- Tu khoa duoc cau hinh de tu dong dong bo du lieu dinh ky.
 -- Moi keyword co chu ky sync rieng (IntervalMinutes).
@@ -814,6 +834,10 @@ CREATE INDEX IX_TT_UpdatedAt        ON TRENDING_TOPIC(UpdatedAt DESC);
 -- AUTO_SYNC_KEYWORD
 CREATE INDEX IX_ASK_Enabled         ON AUTO_SYNC_KEYWORD(Enabled);
 CREATE INDEX IX_ASK_LastSyncedAt    ON AUTO_SYNC_KEYWORD(LastSyncedAt);
+
+-- KEYWORD_TREND_CACHE
+CREATE INDEX IX_KTC_NormalizedKeyword ON KEYWORD_TREND_CACHE(NormalizedKeyword);
+CREATE INDEX IX_KTC_UpdatedAt         ON KEYWORD_TREND_CACHE(UpdatedAt DESC);
 
 GO
 

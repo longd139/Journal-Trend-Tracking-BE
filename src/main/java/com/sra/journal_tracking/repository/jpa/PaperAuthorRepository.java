@@ -155,4 +155,16 @@ public interface PaperAuthorRepository extends JpaRepository<PaperAuthor, PaperA
     List<Object[]> findCountryTrend(@Param("keyword") String keyword,
                                     @Param("startYear") Short startYear,
                                     @Param("endYear") Short endYear);
+
+    /** Top authors by paper count in a specific journal. */
+    @Query("SELECT a.fullName, a.affiliation, a.externalAuthorId, "
+         + "COUNT(DISTINCT pa.paper) AS paperCount, "
+         + "COALESCE(SUM(p.citationCount), 0) AS totalCitations "
+         + "FROM PaperAuthor pa "
+         + "JOIN pa.author a "
+         + "JOIN pa.paper p "
+         + "WHERE p.journal.journalName = :journalName "
+         + "GROUP BY a.authorId, a.fullName, a.affiliation, a.externalAuthorId "
+         + "ORDER BY COUNT(DISTINCT pa.paper) DESC")
+    List<Object[]> findTopAuthorsByJournalName(@Param("journalName") String journalName, Pageable pageable);
 }

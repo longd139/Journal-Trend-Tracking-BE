@@ -26,6 +26,12 @@ public class CoAuthorResponse {
     /** Total number of unique co-authors found */
     private int totalCoAuthors;
 
+    /**
+     * Data source: "database" if results came from local DB,
+     * "openalex" if fetched live from OpenAlex API.
+     */
+    private String dataSource;
+
     /** Top co-authors sorted by collaboration count descending */
     private List<CoAuthorEntry> coAuthors;
 

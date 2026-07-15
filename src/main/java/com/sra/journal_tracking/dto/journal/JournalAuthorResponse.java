@@ -30,4 +30,10 @@ public class JournalAuthorResponse {
 
     /** Average citations per paper for this author in this journal. */
     private Double avgCitationsPerPaper;
+
+    /**
+     * Data source: "database" if results came from local DB,
+     * "openalex" if fetched live from OpenAlex API.
+     */
+    private String dataSource;
 }

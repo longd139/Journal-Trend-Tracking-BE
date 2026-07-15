@@ -9,6 +9,9 @@ import com.sra.journal_tracking.dto.journal.JournalTimelineResponse.YearlyDataPo
 import com.sra.journal_tracking.dto.paper.AuthorDTO;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
+import com.sra.journal_tracking.entity.jpa.ResearchPaper;
+import com.sra.journal_tracking.repository.jpa.PaperAuthorRepository;
+import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.service.JournalQuickStatsService;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperCacheService;
@@ -16,10 +19,13 @@ import com.sra.journal_tracking.service.DataSyncService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -32,22 +38,29 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
     private final OpenAlexFallbackSearchService openAlexSearchService;
     private final PaperCacheService paperCacheService;
     private final DataSyncService dataSyncService;
+    private final ResearchPaperRepository researchPaperRepository;
+    private final PaperAuthorRepository paperAuthorRepository;
 
     @Value("${app.openalex-api-key:}")
     private String openalexApiKey;
 
     private static final int MAX_RETRIES = 3;
+    private static final int STALE_DAYS = 7;
 
     public JournalQuickStatsServiceImpl(RestTemplate restTemplate,
                                          ObjectMapper objectMapper,
                                          OpenAlexFallbackSearchService openAlexSearchService,
                                          PaperCacheService paperCacheService,
-                                         DataSyncService dataSyncService) {
+                                         DataSyncService dataSyncService,
+                                         ResearchPaperRepository researchPaperRepository,
+                                         PaperAuthorRepository paperAuthorRepository) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.openAlexSearchService = openAlexSearchService;
         this.paperCacheService = paperCacheService;
         this.dataSyncService = dataSyncService;
+        this.researchPaperRepository = researchPaperRepository;
+        this.paperAuthorRepository = paperAuthorRepository;
     }
 
     // ═══════════════════════════════════════════════════════
@@ -60,11 +73,54 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
     public JournalQuickStatsResponse getStats(String journalName) {
         String trimmed = journalName.trim();
         if (trimmed.isEmpty()) return buildEmptyResponse(journalName);
-        log.info("Journal quick stats via OpenAlex: '{}'", trimmed);
 
-        // Call /sources?search=name
-        var journal = resolveJournal(trimmed);
-        if (journal == null) return buildEmptyResponse(trimmed);
+        // ── 1. Try local DB first (with 7-day staleness check) ──
+        JournalQuickStatsResponse fromDb = fetchJournalStatsFromDb(trimmed);
+        if (fromDb != null) {
+            log.info("JournalQuickStats: found in local DB for '{}'", trimmed);
+            return fromDb;
+        }
+
+        // ── 2. Fallback: OpenAlex API ──
+        return fetchJournalStatsFromOpenAlex(trimmed);
+    }
+
+    private JournalQuickStatsResponse fetchJournalStatsFromDb(String journalName) {
+        try {
+            // 7-day staleness check
+            var latest = researchPaperRepository.findLatestPaperDateByJournalName(journalName);
+            if (latest.isEmpty()
+                    || latest.get().isBefore(LocalDateTime.now().minus(STALE_DAYS, ChronoUnit.DAYS))) {
+                return null;
+            }
+
+            long totalPapers = researchPaperRepository.countByJournal_JournalName(journalName);
+            long totalCitations = researchPaperRepository.sumCitationsByJournalName(journalName);
+            if (totalPapers == 0) return null;
+
+            Double citeScore = totalPapers > 0
+                    ? Math.round((double) totalCitations / totalPapers * 100.0) / 100.0 : null;
+
+            return JournalQuickStatsResponse.builder()
+                    .journalName(journalName)
+                    .totalPapers(totalPapers)
+                    .totalCitations(totalCitations)
+                    .calculatedCiteScore(citeScore)
+                    .avgCitationsPerPaper(totalPapers > 0
+                            ? Math.round((double) totalCitations / totalPapers * 10.0) / 10.0 : null)
+                    .dataSource("database")
+                    .build();
+        } catch (Exception e) {
+            log.warn("JournalQuickStats DB lookup failed for '{}': {}", journalName, e.getMessage());
+            return null;
+        }
+    }
+
+    private JournalQuickStatsResponse fetchJournalStatsFromOpenAlex(String journalName) {
+        log.info("Journal quick stats via OpenAlex: '{}'", journalName);
+
+        var journal = resolveJournal(journalName);
+        if (journal == null) return buildEmptyResponse(journalName);
 
         long worksCount = jsonLong(journal, "works_count");
         long citedByCount = jsonLong(journal, "cited_by_count");
@@ -72,7 +128,6 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
         Double avgCitations = worksCount > 0
                 ? Math.round((double) citedByCount / worksCount * 10.0) / 10.0 : null;
 
-        // Top keywords from OpenAlex works (group by keyword)
         List<String> topKeywords = getTopKeywordsFromOpenAlex(jsonStr(journal, "id"));
 
         return JournalQuickStatsResponse.builder()
@@ -80,13 +135,14 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
                 .journalName(jsonStr(journal, "display_name"))
                 .issn(jsonStr(journal, "issn_l"))
                 .publisher(jsonStr(journal, "host_organization_name"))
-                .impactFactor(null)  // OpenAlex doesn't have IF
+                .impactFactor(null)
                 .calculatedCiteScore(citeScore)
-                .quartile(null)      // OpenAlex doesn't have quartile
+                .quartile(null)
                 .totalPapers(worksCount)
                 .totalCitations(citedByCount)
                 .avgCitationsPerPaper(avgCitations)
                 .topKeywords(topKeywords)
+                .dataSource("openalex")
                 .build();
     }
 
@@ -142,6 +198,7 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
                 .publisher(jsonStr(journal, "host_organization_name"))
                 .impactFactor(null).quartile(null)
                 .totalPapers(totalPapers).totalCitations(totalCitations)
+                .dataSource("openalex")
                 .timeline(timeline).build();
     }
 
@@ -155,9 +212,60 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
     public List<PaperDetailResponseDTO> getTopPapers(String journalName) {
         String trimmed = journalName.trim();
         if (trimmed.isEmpty()) return List.of();
-        log.info("Journal top papers via OpenAlex: '{}'", trimmed);
 
-        var journal = resolveJournal(trimmed);
+        // ── 1. Try local DB first (with 7-day staleness check) ──
+        List<PaperDetailResponseDTO> fromDb = fetchJournalTopPapersFromDb(trimmed);
+        if (!fromDb.isEmpty()) {
+            log.info("JournalTopPapers: found {} papers in local DB for '{}'", fromDb.size(), trimmed);
+            return fromDb;
+        }
+
+        // ── 2. Fallback: OpenAlex API ──
+        return fetchJournalTopPapersFromOpenAlex(trimmed);
+    }
+
+    private List<PaperDetailResponseDTO> fetchJournalTopPapersFromDb(String journalName) {
+        try {
+            var latest = researchPaperRepository.findLatestPaperDateByJournalName(journalName);
+            if (latest.isEmpty()
+                    || latest.get().isBefore(LocalDateTime.now().minus(STALE_DAYS, ChronoUnit.DAYS))) {
+                return List.of();
+            }
+
+            var papers = researchPaperRepository.findTopCitedByJournalName(
+                    journalName, PageRequest.of(0, 5));
+            if (papers == null || papers.isEmpty()) return List.of();
+
+            return papers.stream().map(this::mapEntityToPaper).toList();
+        } catch (Exception e) {
+            log.warn("JournalTopPapers DB lookup failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private PaperDetailResponseDTO mapEntityToPaper(ResearchPaper p) {
+        return PaperDetailResponseDTO.builder()
+                .paperId(p.getPaperId())
+                .title(p.getTitle())
+                .abstractText(p.getAbstractText())
+                .doi(p.getDoi())
+                .pubYear(p.getPubYear())
+                .pubDate(p.getPubDate())
+                .citationCount(p.getCitationCount())
+                .isOpenAccess(p.getIsOpenAccess())
+                .journalName(p.getJournal() != null ? p.getJournal().getJournalName() : null)
+                .journalId(p.getJournal() != null ? p.getJournal().getJournalId() : null)
+                .sourceUrl(p.getDoi() != null ? "https://doi.org/" + p.getDoi() : null)
+                .pdfAvailable(p.getPdfUrl() != null)
+                .pdfUrl(p.getPdfUrl())
+                .createdAt(p.getCreatedAt())
+                .build();
+    }
+
+    private List<PaperDetailResponseDTO> fetchJournalTopPapersFromOpenAlex(String journalName) {
+        log.info("Journal top papers via OpenAlex: '{}'", journalName);
+
+        var journal = resolveJournal(journalName);
         if (journal == null) return List.of();
 
         String sourceId = extractShortId(jsonStr(journal, "id"));
@@ -171,16 +279,18 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
                 .queryParam("api_key", openalexApiKey)
                 .build().toUriString();
 
-        OpenAlexResponseDTO response = fetchOpenAlex(url, trimmed);
+        OpenAlexResponseDTO response = fetchOpenAlex(url, journalName);
         if (response == null || response.getResults() == null) return List.of();
 
         List<OpenAlexResponseDTO.OpenAlexWorkDTO> rawWorks = new ArrayList<>(response.getResults());
 
         // Fire-and-forget: async save to local DB (save-on-search)
-        try {
-            dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
-        } catch (Exception e) {
-            log.debug("Save-on-search dispatch failed for journal '{}': {}", trimmed, e.getMessage());
+        if (!rawWorks.isEmpty()) {
+            try {
+                dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
+            } catch (Exception e) {
+                log.debug("Save-on-search dispatch failed for journal '{}': {}", journalName, e.getMessage());
+            }
         }
 
         return rawWorks.stream()
@@ -198,9 +308,57 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
     public List<JournalAuthorResponse> getTopAuthors(String journalName) {
         String trimmed = journalName.trim();
         if (trimmed.isEmpty()) return List.of();
-        log.info("Journal top authors via OpenAlex: '{}'", trimmed);
 
-        var journal = resolveJournal(trimmed);
+        // ── 1. Try local DB first (with 7-day staleness check) ──
+        List<JournalAuthorResponse> fromDb = fetchJournalTopAuthorsFromDb(trimmed);
+        if (!fromDb.isEmpty()) {
+            log.info("JournalTopAuthors: found {} authors in local DB for '{}'", fromDb.size(), trimmed);
+            return fromDb;
+        }
+
+        // ── 2. Fallback: OpenAlex API ──
+        return fetchJournalTopAuthorsFromOpenAlex(trimmed);
+    }
+
+    private List<JournalAuthorResponse> fetchJournalTopAuthorsFromDb(String journalName) {
+        try {
+            var latest = researchPaperRepository.findLatestPaperDateByJournalName(journalName);
+            if (latest.isEmpty()
+                    || latest.get().isBefore(LocalDateTime.now().minus(STALE_DAYS, ChronoUnit.DAYS))) {
+                return List.of();
+            }
+
+            var rows = paperAuthorRepository.findTopAuthorsByJournalName(
+                    journalName, PageRequest.of(0, 10));
+            if (rows == null || rows.isEmpty()) return List.of();
+
+            return rows.stream()
+                    .map(row -> {
+                        long paperCount = ((Number) row[3]).longValue();
+                        long totalCitations = ((Number) row[4]).longValue();
+                        return JournalAuthorResponse.builder()
+                                .authorName((String) row[0])
+                                .openAlexId(row[2] != null
+                                        ? "https://openalex.org/" + row[2] : null)
+                                .paperCount(paperCount)
+                                .totalCitations(totalCitations)
+                                .avgCitationsPerPaper(paperCount > 0
+                                        ? Math.round((double) totalCitations / paperCount * 10.0) / 10.0
+                                        : null)
+                                .dataSource("database")
+                                .build();
+                    })
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("JournalTopAuthors DB lookup failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private List<JournalAuthorResponse> fetchJournalTopAuthorsFromOpenAlex(String journalName) {
+        log.info("Journal top authors via OpenAlex: '{}'", journalName);
+
+        var journal = resolveJournal(journalName);
         if (journal == null) return List.of();
 
         String sourceId = extractShortId(jsonStr(journal, "id"));
@@ -211,16 +369,15 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
                 .queryParam("api_key", openalexApiKey)
                 .build().toUriString();
 
-        OpenAlexResponseDTO response = fetchOpenAlex(url, trimmed);
+        OpenAlexResponseDTO response = fetchOpenAlex(url, journalName);
         if (response == null || response.getResults() == null) return List.of();
 
-        // Aggregate authors across top works using raw JSON (bypass DTO mapping issues)
+        // Aggregate authors across top works
         Map<String, JournalAuthorAggregate> authorMap = new LinkedHashMap<>();
         for (var work : response.getResults()) {
             if (work.getAuthorships() == null) continue;
             int cit = work.getCitedByCount() != null ? work.getCitedByCount() : 0;
             for (var auth : work.getAuthorships()) {
-                // Try display_name from author object, fallback to raw_author_name
                 String name = null;
                 String oaId = null;
                 if (auth.getAuthor() != null) {
@@ -238,6 +395,15 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
             }
         }
 
+        // Fire-and-forget: async save to local DB
+        if (!response.getResults().isEmpty()) {
+            try {
+                dataSyncService.saveWorksFromOpenAlexAsync(new ArrayList<>(response.getResults()));
+            } catch (Exception e) {
+                log.debug("Save-on-search dispatch failed for journal '{}': {}", journalName, e.getMessage());
+            }
+        }
+
         return authorMap.values().stream()
                 .sorted(Comparator.comparingLong(JournalAuthorAggregate::getPaperCount).reversed())
                 .limit(10)
@@ -248,6 +414,7 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
                         .totalCitations(a.totalCitations)
                         .avgCitationsPerPaper(a.paperCount > 0
                                 ? Math.round((double) a.totalCitations / a.paperCount * 10.0) / 10.0 : null)
+                        .dataSource("openalex")
                         .build())
                 .collect(Collectors.toList());
     }

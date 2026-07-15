@@ -600,4 +600,30 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, UU
 	    ORDER BY p.citationCount DESC
 	    """)
 	List<ResearchPaper> findTopCitedByAuthorName(@Param("fullName") String fullName, Pageable pageable);
+
+	/** Get the most recent paper creation date for an author (staleness check, 7-day rule). */
+	@Query("SELECT MAX(p.createdAt) FROM ResearchPaper p "
+	     + "JOIN p.authors pa JOIN pa.author a "
+	     + "WHERE a.fullName = :fullName")
+	Optional<LocalDateTime> findLatestPaperDateByAuthorName(@Param("fullName") String fullName);
+
+	/** Get the most recent paper creation date for a journal (staleness check, 7-day rule). */
+	@Query("SELECT MAX(p.createdAt) FROM ResearchPaper p "
+	     + "JOIN p.journal j "
+	     + "WHERE j.journalName = :journalName")
+	Optional<LocalDateTime> findLatestPaperDateByJournalName(@Param("journalName") String journalName);
+
+	/** Count papers by journal name. */
+	long countByJournal_JournalName(String journalName);
+
+	/** Sum citations by journal name. */
+	@Query("SELECT COALESCE(SUM(p.citationCount), 0) FROM ResearchPaper p "
+	     + "WHERE p.journal.journalName = :journalName")
+	long sumCitationsByJournalName(@Param("journalName") String journalName);
+
+	/** Top cited papers by journal name. */
+	@Query("SELECT p FROM ResearchPaper p "
+	     + "WHERE p.journal.journalName = :journalName "
+	     + "ORDER BY p.citationCount DESC")
+	List<ResearchPaper> findTopCitedByJournalName(@Param("journalName") String journalName, Pageable pageable);
 }

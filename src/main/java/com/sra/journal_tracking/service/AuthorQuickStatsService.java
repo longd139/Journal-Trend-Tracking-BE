@@ -6,7 +6,6 @@ import com.sra.journal_tracking.dto.author.AuthorResearchFocusResponse;
 import com.sra.journal_tracking.dto.author.AuthorTimelineResponse;
 import com.sra.journal_tracking.dto.author.CoAuthorResponse;
 import com.sra.journal_tracking.dto.author.OpenAlexAuthorResponseDTO;
-import com.sra.journal_tracking.dto.author.OpenAlexWorksResponseDTO;
 import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
 import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
 import com.sra.journal_tracking.entity.jpa.ApiSource;
@@ -15,17 +14,21 @@ import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.repository.jpa.ApiSourceRepository;
 import com.sra.journal_tracking.repository.jpa.AuthorRepository;
+import com.sra.journal_tracking.repository.jpa.PaperAuthorRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -51,6 +54,7 @@ public class AuthorQuickStatsService {
     private final AuthorRepository authorRepository;
     private final ApiSourceRepository apiSourceRepository;
     private final ResearchPaperRepository researchPaperRepository;
+    private final PaperAuthorRepository paperAuthorRepository;
     private final DataSyncService dataSyncService;
 
     @Value("${app.openalex-email:}")
@@ -61,11 +65,13 @@ public class AuthorQuickStatsService {
 
     /**
      * Search for an author by name and return their quick stats.
+     * DB-first: checks local AUTHOR table first with a 7-day staleness window.
+     * Falls back to OpenAlex API if the author isn't in the DB or data is stale.
      *
      * @param keyword author name to search for
-     * @return AuthorQuickStatsResponse with stats
+     * @return AuthorQuickStatsResponse with stats + dataSource indicator
      * @throws AppException(ErrorCode.AUTHOR_NOT_FOUND) if no author matches
-     * @throws AppException(ErrorCode.EXTERNAL_API_ERROR) if OpenAlex API is unreachable
+     * @throws AppException(ErrorCode.EXTERNAL_API_ERROR) if both DB and OpenAlex fail
      */
     @Cacheable(value = "search:authorQuickStats", cacheManager = "searchCacheManager",
                key = "#keyword.trim().toLowerCase()")
@@ -75,20 +81,66 @@ public class AuthorQuickStatsService {
             throw new IllegalArgumentException("Author name cannot be empty");
         }
 
-        String url = buildUrl(trimmedKeyword);
-        log.info("Calling OpenAlex authors API for: '{}'", trimmedKeyword);
-        log.info("OpenAlex URL: {}", url);
+        // ── 1. Try local DB first (with 7-day staleness check) ──
+        AuthorQuickStatsResponse fromDb = fetchQuickStatsFromDb(trimmedKeyword);
+        if (fromDb != null) {
+            log.info("AuthorQuickStats: found in local DB for '{}'", trimmedKeyword);
+            return fromDb;
+        }
 
-        // Single HTTP call — fetch raw JSON, then parse locally (avoids double rate-limit consumption)
-        String rawJson = fetchRawWithRetry(url, trimmedKeyword);
+        // ── 2. Fallback: OpenAlex API ──
+        return fetchQuickStatsFromOpenAlex(trimmedKeyword);
+    }
+
+    /**
+     * Try to build quick stats from the local AUTHOR table.
+     * Returns null if author not found or data is older than 7 days.
+     */
+    private AuthorQuickStatsResponse fetchQuickStatsFromDb(String keyword) {
+        try {
+            var author = authorRepository.findFirstByFullName(keyword).orElse(null);
+            if (author == null) return null;
+
+            // 7-day staleness check — if no recent paper sync, re-fetch from OpenAlex
+            var latestPaperDate = researchPaperRepository.findLatestPaperDateByAuthorName(keyword);
+            if (latestPaperDate.isPresent()
+                    && latestPaperDate.get().isBefore(LocalDateTime.now().minus(7, ChronoUnit.DAYS))) {
+                log.info("AuthorQuickStats DB: data for '{}' is stale (latest paper: {}), re-fetching",
+                        keyword, latestPaperDate.get());
+                return null;
+            }
+
+            return AuthorQuickStatsResponse.builder()
+                    .fullName(author.getFullName())
+                    .currentAffiliation(author.getAffiliation())
+                    .totalPapers(author.getWorksCount())
+                    .totalCitations(author.getTotalCitations())
+                    .hIndex(author.getHIndex())
+                    .i10Index(author.getI10Index())
+                    .openAlexId(author.getExternalAuthorId() != null
+                            ? "https://openalex.org/" + author.getExternalAuthorId() : null)
+                    .authorId(author.getAuthorId())
+                    .dataSource("database")
+                    .build();
+        } catch (Exception e) {
+            log.warn("AuthorQuickStats DB lookup failed for '{}': {}", keyword, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Fetch author stats from OpenAlex and upsert to local DB.
+     */
+    private AuthorQuickStatsResponse fetchQuickStatsFromOpenAlex(String keyword) {
+        String url = buildUrl(keyword);
+        log.info("Calling OpenAlex authors API for: '{}'", keyword);
+
+        String rawJson = fetchRawWithRetry(url, keyword);
         if (rawJson == null) {
             throw new AppException(ErrorCode.EXTERNAL_API_ERROR);
         }
 
         log.info("OpenAlex response: {} chars", rawJson.length());
-        log.debug("OpenAlex raw (first 500): {}", rawJson.length() > 500
-                ? rawJson.substring(0, 500)
-                : rawJson);
 
         // Parse from the already-fetched string instead of making a second HTTP call
         OpenAlexAuthorResponseDTO response;
@@ -100,19 +152,15 @@ public class AuthorQuickStatsService {
         }
 
         if (response == null || response.getResults() == null || response.getResults().isEmpty()) {
-            log.warn("No authors found for: {} (meta.count={}, rawSnippet={})",
-                    trimmedKeyword,
-                    response != null && response.getMeta() != null ? response.getMeta().getCount() : "?",
-                    rawJson.length() > 300 ? rawJson.substring(0, 300) : rawJson);
+            log.warn("No authors found for: {}", keyword);
             throw new AppException(ErrorCode.AUTHOR_NOT_FOUND);
         }
 
-        log.info("OpenAlex returned {} authors for '{}' (total count: {})",
-                response.getResults().size(), trimmedKeyword,
-                response.getMeta() != null ? response.getMeta().getCount() : "?");
+        log.info("OpenAlex returned {} authors for '{}'",
+                response.getResults().size(), keyword);
 
         // Pick the best match — prefer exact display_name match, then by works_count descending
-        OpenAlexAuthorResponseDTO.AuthorResult bestMatch = pickBestMatch(response.getResults(), trimmedKeyword);
+        OpenAlexAuthorResponseDTO.AuthorResult bestMatch = pickBestMatch(response.getResults(), keyword);
         if (bestMatch == null) {
             throw new AppException(ErrorCode.AUTHOR_NOT_FOUND);
         }
@@ -199,6 +247,7 @@ public class AuthorQuickStatsService {
                 .totalPapers(bestMatch.getWorksCount())
                 .totalCitations(bestMatch.getCitedByCount())
                 .hIndex(hIndex)
+                .dataSource("openalex")
                 .timeline(timeline)
                 .build();
     }
@@ -288,21 +337,23 @@ public class AuthorQuickStatsService {
                 .openAlexId(bestMatch.getId())
                 .totalPapers(bestMatch.getWorksCount())
                 .totalTopics(topicList.size())
+                .dataSource("openalex")
                 .topics(topicList)
                 .build();
     }
 
     /**
      * Get an author's top co-authors (collaboration network).
-     * Fetches the author's most-cited works from OpenAlex, aggregates
-     * co-author frequencies from the authorships, and returns the top 10.
+     * DB-first: queries PAPER_AUTHOR + AUTHOR tables for co-author frequencies.
+     * Falls back to OpenAlex API if local DB has no data for this author,
+     * then asynchronously saves fetched works for future DB-first queries.
      * <p>
-     * Results are cached for 1 hour via Caffeine.
+     * Results are cached for 7 days via Caffeine.
      *
      * @param keyword author name to search for
      * @return CoAuthorResponse with top co-authors
      * @throws AppException(ErrorCode.AUTHOR_NOT_FOUND) if no author matches
-     * @throws AppException(ErrorCode.EXTERNAL_API_ERROR) if OpenAlex API is unreachable
+     * @throws AppException(ErrorCode.EXTERNAL_API_ERROR) if both DB and OpenAlex fail
      */
     @Cacheable(value = "search:authorCoAuthors", cacheManager = "searchCacheManager",
                key = "#keyword.trim().toLowerCase()", unless = "#result == null")
@@ -312,11 +363,76 @@ public class AuthorQuickStatsService {
             throw new IllegalArgumentException("Author name cannot be empty");
         }
 
-        // ── 1. Find the author first ──
-        String url = buildUrl(trimmedKeyword);
-        log.info("CoAuthors: finding author '{}'", trimmedKeyword);
+        // ── 1. Try local DB first ──
+        CoAuthorResponse fromDb = fetchCoAuthorsFromDb(trimmedKeyword);
+        if (fromDb != null) {
+            log.info("CoAuthors: found in local DB for '{}' ({} co-authors)",
+                    trimmedKeyword, fromDb.getTotalCoAuthors());
+            return fromDb;
+        }
 
-        String rawJson = fetchRawWithRetry(url, trimmedKeyword);
+        // ── 2. Fallback: OpenAlex API ──
+        return fetchCoAuthorsFromOpenAlex(trimmedKeyword);
+    }
+
+    /**
+     * Try to find co-authors from local DB (PAPER_AUTHOR + AUTHOR tables).
+     * Returns null if the author or their papers aren't in the DB yet.
+     */
+    private CoAuthorResponse fetchCoAuthorsFromDb(String keyword) {
+        try {
+            var author = authorRepository.findFirstByFullName(keyword).orElse(null);
+            if (author == null) {
+                log.debug("CoAuthors DB: author '{}' not found in local DB", keyword);
+                return null;
+            }
+
+            var pageable = PageRequest.of(0, 10);
+            var rows = paperAuthorRepository.findCoAuthorsByAuthorId(author.getAuthorId(), pageable);
+            if (rows == null || rows.isEmpty()) {
+                log.debug("CoAuthors DB: no co-authors found for author '{}' (id={})",
+                        author.getFullName(), author.getAuthorId());
+                return null;
+            }
+
+            long totalCoAuthors = paperAuthorRepository.countCoAuthorsByAuthorId(author.getAuthorId());
+            long totalPapers = paperAuthorRepository.countByAuthor_AuthorId(author.getAuthorId());
+
+            List<CoAuthorResponse.CoAuthorEntry> entries = rows.stream()
+                    .map(row -> CoAuthorResponse.CoAuthorEntry.builder()
+                            .name((String) row[0])
+                            .lastInstitution((String) row[1])
+                            .collaborationCount(((Number) row[2]).intValue())
+                            .build())
+                    .collect(Collectors.toList());
+
+            return CoAuthorResponse.builder()
+                    .fullName(author.getFullName())
+                    .openAlexId(author.getExternalAuthorId() != null
+                            ? "https://openalex.org/" + author.getExternalAuthorId() : null)
+                    .totalPapersAnalyzed((int) totalPapers)
+                    .totalCoAuthors((int) totalCoAuthors)
+                    .dataSource("database")
+                    .coAuthors(entries)
+                    .build();
+        } catch (Exception e) {
+            log.warn("CoAuthors DB lookup failed for '{}': {}", keyword, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Fetch co-authors from OpenAlex API.
+     * On success, asynchronously saves the fetched works to the local DB
+     * so future queries can use the DB-first path.
+     * Only saves if OpenAlex returns non-empty results.
+     */
+    private CoAuthorResponse fetchCoAuthorsFromOpenAlex(String keyword) {
+        // ── 1. Find the author first ──
+        String url = buildUrl(keyword);
+        log.info("CoAuthors: finding author '{}' on OpenAlex", keyword);
+
+        String rawJson = fetchRawWithRetry(url, keyword);
         if (rawJson == null) {
             throw new AppException(ErrorCode.EXTERNAL_API_ERROR);
         }
@@ -333,7 +449,7 @@ public class AuthorQuickStatsService {
             throw new AppException(ErrorCode.AUTHOR_NOT_FOUND);
         }
 
-        OpenAlexAuthorResponseDTO.AuthorResult bestMatch = pickBestMatch(response.getResults(), trimmedKeyword);
+        OpenAlexAuthorResponseDTO.AuthorResult bestMatch = pickBestMatch(response.getResults(), keyword);
         if (bestMatch == null) {
             throw new AppException(ErrorCode.AUTHOR_NOT_FOUND);
         }
@@ -354,14 +470,16 @@ public class AuthorQuickStatsService {
 
         log.info("CoAuthors: fetching works from {}", worksUrl);
 
-        String worksRawJson = fetchRawWithRetry(worksUrl, trimmedKeyword);
+        String worksRawJson = fetchRawWithRetry(worksUrl, keyword);
         if (worksRawJson == null) {
             throw new AppException(ErrorCode.EXTERNAL_API_ERROR);
         }
 
-        OpenAlexWorksResponseDTO worksResponse;
+        // Parse as OpenAlexResponseDTO (full DTO) — used for both co-author
+        // aggregation AND async save to DB (no conversion needed).
+        OpenAlexResponseDTO worksResponse;
         try {
-            worksResponse = objectMapper.readValue(worksRawJson, OpenAlexWorksResponseDTO.class);
+            worksResponse = objectMapper.readValue(worksRawJson, OpenAlexResponseDTO.class);
         } catch (Exception e) {
             log.error("CoAuthors: failed to parse works response: {}", e.getMessage());
             throw new AppException(ErrorCode.EXTERNAL_API_ERROR);
@@ -369,22 +487,27 @@ public class AuthorQuickStatsService {
 
         if (worksResponse == null || worksResponse.getResults() == null) {
             log.warn("CoAuthors: no works found for {}", bestMatch.getDisplayName());
+            // No data → do NOT save to DB (guard against empty/error results)
             return CoAuthorResponse.builder()
                     .fullName(bestMatch.getDisplayName())
                     .openAlexId(authorId)
                     .totalPapersAnalyzed(0)
                     .totalCoAuthors(0)
+                    .dataSource("openalex")
                     .coAuthors(new ArrayList<>())
                     .build();
         }
 
+        List<OpenAlexResponseDTO.OpenAlexWorkDTO> works = worksResponse.getResults();
+        log.info("CoAuthors: fetched {} works for {}", works.size(), bestMatch.getDisplayName());
+
         // ── 3. Aggregate co-author frequencies ──
         Map<String, CoAuthorAggregate> coAuthorMap = new LinkedHashMap<>();
 
-        for (OpenAlexWorksResponseDTO.WorkResult work : worksResponse.getResults()) {
+        for (OpenAlexResponseDTO.OpenAlexWorkDTO work : works) {
             if (work.getAuthorships() == null) continue;
 
-            for (OpenAlexWorksResponseDTO.Authorship authorship : work.getAuthorships()) {
+            for (OpenAlexResponseDTO.Authorship authorship : work.getAuthorships()) {
                 if (authorship.getAuthor() == null) continue;
                 String coId = authorship.getAuthor().getId();
                 if (coId == null || coId.equals(authorId)) continue; // skip self
@@ -422,11 +545,24 @@ public class AuthorQuickStatsService {
         log.info("CoAuthors: found {} unique co-authors for '{}', returning top {}",
                 coAuthorMap.size(), bestMatch.getDisplayName(), entries.size());
 
+        // ── 5. Fire-and-forget: async save works to local DB ──
+        // Only save if OpenAlex returned non-empty results (guard against 0 results)
+        if (!works.isEmpty()) {
+            try {
+                dataSyncService.saveWorksFromOpenAlexAsync(works);
+                log.info("CoAuthors: dispatched async save of {} works for '{}'",
+                        works.size(), bestMatch.getDisplayName());
+            } catch (Exception e) {
+                log.debug("CoAuthors save-on-search dispatch failed for '{}': {}", keyword, e.getMessage());
+            }
+        }
+
         return CoAuthorResponse.builder()
                 .fullName(bestMatch.getDisplayName())
                 .openAlexId(authorId)
-                .totalPapersAnalyzed(worksResponse.getResults().size())
+                .totalPapersAnalyzed(works.size())
                 .totalCoAuthors(coAuthorMap.size())
+                .dataSource("openalex")
                 .coAuthors(entries)
                 .build();
     }
@@ -712,6 +848,7 @@ public class AuthorQuickStatsService {
                 .orcid(normalizeOrcid(result.getOrcid()))
                 .openAlexId(result.getId())
                 .authorId(localAuthorId)
+                .dataSource("openalex")
                 .build();
     }
 

@@ -30,6 +30,12 @@ public class AuthorTimelineResponse {
     /** h-index */
     private Integer hIndex;
 
+    /**
+     * Data source: "database" if results came from local DB,
+     * "openalex" if fetched live from OpenAlex API.
+     */
+    private String dataSource;
+
     /** Year-by-year breakdown: papers published + citations received */
     private List<YearlyPoint> timeline;
 

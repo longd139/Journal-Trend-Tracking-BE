@@ -88,6 +88,15 @@ public class ResearchPaper {
     @Column(name = "PdfUrl", length = 500)
     private String pdfUrl;
 
+    @Column(name = "AiSummary", columnDefinition = "NVARCHAR(MAX)")
+    private String aiSummary;
+
+    @Column(name = "AiSummarySections", columnDefinition = "NVARCHAR(MAX)")
+    private String aiSummarySections; // JSON: [{"heading":"...","content":"..."}]
+
+    @Column(name = "Methodology", length = 100)
+    private String methodology;
+
     @Column(name = "CreatedAt", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
