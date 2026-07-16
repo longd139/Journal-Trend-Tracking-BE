@@ -1,0 +1,77 @@
+# ===============================
+# SCITRACK — Local Dev / Railway Preview
+# docker compose up -d
+# ===============================
+# On Railway: these become 2 separate services in the same project,
+# connected via internal DNS (e.g. sqlserver.railway.internal).
+
+services:
+  # ---- SQL Server Express ----
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-express
+    container_name: scitrack-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${DATABASE_PASSWORD:-YourStrong!Passw0rd}
+      MSSQL_PID: Express
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -C -Q "SELECT 1"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---- Spring Boot App ----
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scitrack-api
+    environment:
+      # SQL Server — connects to the sqlserver service via Docker internal DNS
+      DATABASE_HOST: sqlserver
+      DATABASE_PORT: "1433"
+      DATABASE_NAME: ${DATABASE_NAME:-JournalTrendDB}
+      DATABASE_USERNAME: sa
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-YourStrong!Passw0rd}
+
+      # Neo4j (AuraDB cloud)
+      NEO4J_URI: ${NEO4J_URI}
+      NEO4J_USERNAME: ${NEO4J_USERNAME}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+
+      # Other services (optional)
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      JWT_SECRET: ${JWT_SECRET:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      CORE_API_KEY: ${CORE_API_KEY:-}
+      OPENALEX_API_KEY: ${OPENALEX_API_KEY:-}
+      OPENALEX_EMAIL: ${OPENALEX_EMAIL:-}
+      APP_AUTO_SYNC_ENABLED: ${APP_AUTO_SYNC_ENABLED:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+
+      # JVM tuning
+      JAVA_OPTS: "-XX:MaxRAMPercentage=50.0 -XX:+UseG1GC"
+    ports:
+      - "8080:8080"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  sqlserver-data:
+    driver: local
