@@ -1203,3 +1203,39 @@ GO
 CREATE INDEX [IX_PAPER_EVAL_CACHE_CREATED_AT] ON [dbo].[PAPER_EVALUATION_CACHE]([created_at] ASC);
 GO
 
+-- =============================================
+-- ROLE_UPGRADE_REQUEST
+-- Stores upgrade requests from academic users
+-- who want to become Researchers.
+-- =============================================
+CREATE TABLE [dbo].[ROLE_UPGRADE_REQUEST] (
+    [RequestID] uniqueidentifier CONSTRAINT [DF_ROLE_UPGRADE_REQ_ID] DEFAULT (newid()) NOT NULL,
+    [UserID] uniqueidentifier NOT NULL,
+    [FullName] nvarchar(200) NOT NULL,
+    [Institution] nvarchar(300) NOT NULL,
+    [ResearchField] nvarchar(200) NOT NULL,
+    [Position] nvarchar(100) NOT NULL,
+    [Orcid] nvarchar(50) NULL,
+    [Reason] nvarchar(MAX) NOT NULL,
+    [Status] nvarchar(20) NOT NULL CONSTRAINT [DF_ROLE_UPGRADE_REQ_Status] DEFAULT ('PENDING'),
+    [AdminNote] nvarchar(500) NULL,
+    [ReviewedBy] uniqueidentifier NULL,
+    [ReviewedAt] datetime2(0) NULL,
+    [CreatedAt] datetime2(0) NOT NULL CONSTRAINT [DF_ROLE_UPGRADE_REQ_CreatedAt] DEFAULT (sysdatetime()),
+
+    CONSTRAINT [PK_ROLE_UPGRADE_REQUEST] PRIMARY KEY CLUSTERED ([RequestID] ASC),
+    CONSTRAINT [CK_ROLE_UPGRADE_REQ_Status] CHECK ([Status] IN ('PENDING','APPROVED','REJECTED')),
+    CONSTRAINT [FK_ROLE_UPGRADE_REQ_User] FOREIGN KEY ([UserID]) REFERENCES [dbo].[USER]([UserID]),
+    CONSTRAINT [FK_ROLE_UPGRADE_REQ_Admin] FOREIGN KEY ([ReviewedBy]) REFERENCES [dbo].[USER]([UserID])
+);
+GO
+
+CREATE INDEX [IX_ROLE_UPGRADE_REQ_UserID] ON [dbo].[ROLE_UPGRADE_REQUEST]([UserID] ASC);
+GO
+
+CREATE INDEX [IX_ROLE_UPGRADE_REQ_Status] ON [dbo].[ROLE_UPGRADE_REQUEST]([Status] ASC);
+GO
+
+CREATE INDEX [IX_ROLE_UPGRADE_REQ_CreatedAt] ON [dbo].[ROLE_UPGRADE_REQUEST]([CreatedAt] DESC);
+GO
+

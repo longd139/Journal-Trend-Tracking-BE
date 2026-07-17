@@ -351,3 +351,22 @@ BEGIN
     )
 END
 
+
+-- 15. Seed admin role if missing
+IF NOT EXISTS (SELECT 1 FROM ROLE WHERE RoleName = 'admin')
+BEGIN
+    INSERT INTO ROLE (RoleID, RoleName, Description)
+    VALUES (NEWID(), 'admin', 'System administrator with full access')
+END
+
+IF NOT EXISTS (SELECT 1 FROM ROLE WHERE RoleName = 'researcher')
+BEGIN
+    INSERT INTO ROLE (RoleID, RoleName, Description)
+    VALUES (NEWID(), 'researcher', 'Researcher with 3-day trial')
+END
+
+IF NOT EXISTS (SELECT 1 FROM ROLE WHERE RoleName = 'academic_user')
+BEGIN
+    INSERT INTO ROLE (RoleID, RoleName, Description)
+    VALUES (NEWID(), 'academic_user', 'Standard academic user')
+END
