@@ -15,9 +15,10 @@ services:
       MSSQL_SA_PASSWORD: ${DATABASE_PASSWORD:-YourStrong!Passw0rd}
       MSSQL_PID: Express
     ports:
-      - "1433:1433"
+      - "${SQLSERVER_HOST_PORT:-1433}:1433"
     volumes:
       - sqlserver-data:/var/opt/mssql
+      - ./journal_trend_db.sql:/init.sql:ro
     healthcheck:
       test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -C -Q "SELECT 1"
       interval: 10s
