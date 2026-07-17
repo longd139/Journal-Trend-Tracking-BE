@@ -53,7 +53,14 @@ public enum ErrorCode {
     RECOMMENDATION_NOT_AVAILABLE(HttpStatus.NOT_FOUND, "Not enough data to generate recommendations yet."),
 
     // ---- LỖI HỆ THỐNG (Fallback) ----
-    UNCATEGORIZED_EXCEPTION(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected system error occurred.");
+    UNCATEGORIZED_EXCEPTION(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected system error occurred."),
+
+    // ---- LỖI IDEA ANALYSIS ----
+    IDEA_ANALYSIS_NOT_FOUND(HttpStatus.NOT_FOUND, "Analysis not found."),
+    IDEA_ANALYSIS_UNAUTHORIZED(HttpStatus.FORBIDDEN, "You do not have permission to access this analysis."),
+    IDEA_KEYWORDS_EMPTY(HttpStatus.BAD_REQUEST, "At least one keyword is required."),
+    IDEA_TEXT_EMPTY(HttpStatus.BAD_REQUEST, "Idea text cannot be empty."),
+    IDEA_AI_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "AI analysis is temporarily unavailable. Please try again later.");
 
     private final HttpStatus statusCode;
     private final String message;

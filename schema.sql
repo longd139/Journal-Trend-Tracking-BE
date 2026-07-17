@@ -1147,3 +1147,59 @@ BEGIN
 END;
 GO
 
+-- =============================================
+-- IDEA_ANALYSIS
+-- Stores complete research idea analysis results.
+-- The full JSON response (papers, gap analysis,
+-- literature review) is in result_json.
+-- =============================================
+CREATE TABLE [dbo].[IDEA_ANALYSIS] (
+    [analysis_id] uniqueidentifier CONSTRAINT [DF_IDEA_ANALYSIS_id] DEFAULT (newid()) NOT NULL,
+    [user_id] uniqueidentifier NOT NULL,
+    [idea_text] nvarchar(max) NOT NULL,
+    [idea_hash] varchar(64) NOT NULL,
+    [keywords] nvarchar(max) NULL,
+    [result_json] nvarchar(max) NOT NULL,
+    [paper_count] int CONSTRAINT [DF_IDEA_ANALYSIS_paper_count] DEFAULT ((0)) NULL,
+    [created_at] datetime2(0) CONSTRAINT [DF_IDEA_ANALYSIS_created_at] DEFAULT (sysdatetime()) NOT NULL,
+    [updated_at] datetime2(0) NULL,
+
+    CONSTRAINT [PK_IDEA_ANALYSIS] PRIMARY KEY CLUSTERED ([analysis_id] ASC),
+    CONSTRAINT [FK_IDEA_ANALYSIS_USER] FOREIGN KEY ([user_id]) REFERENCES [dbo].[USER]([UserID])
+);
+GO
+
+CREATE INDEX [IX_IDEA_ANALYSIS_USER_ID] ON [dbo].[IDEA_ANALYSIS]([user_id] ASC);
+GO
+
+CREATE INDEX [IX_IDEA_ANALYSIS_CREATED_AT] ON [dbo].[IDEA_ANALYSIS]([created_at] DESC);
+GO
+
+CREATE INDEX [IX_IDEA_ANALYSIS_IDEA_HASH] ON [dbo].[IDEA_ANALYSIS]([idea_hash] ASC);
+GO
+
+-- =============================================
+-- PAPER_EVALUATION_CACHE
+-- Cross-user cache for AI paper evaluations.
+-- When 2 users analyze the same idea, paper
+-- evaluations are reused via (paper_id, idea_hash).
+-- Cleaned up by scheduled job after 7 days.
+-- =============================================
+CREATE TABLE [dbo].[PAPER_EVALUATION_CACHE] (
+    [cache_id] uniqueidentifier CONSTRAINT [DF_PAPER_EVAL_CACHE_id] DEFAULT (newid()) NOT NULL,
+    [paper_id] uniqueidentifier NOT NULL,
+    [idea_hash] varchar(64) NOT NULL,
+    [criteria_json] nvarchar(max) NOT NULL,
+    [created_at] datetime2(0) CONSTRAINT [DF_PAPER_EVAL_CACHE_created_at] DEFAULT (sysdatetime()) NOT NULL,
+
+    CONSTRAINT [PK_PAPER_EVALUATION_CACHE] PRIMARY KEY CLUSTERED ([cache_id] ASC),
+    CONSTRAINT [UQ_PAPER_IDEA] UNIQUE NONCLUSTERED ([paper_id] ASC, [idea_hash] ASC)
+);
+GO
+
+CREATE INDEX [IX_PAPER_EVAL_CACHE_IDEA_HASH] ON [dbo].[PAPER_EVALUATION_CACHE]([idea_hash] ASC);
+GO
+
+CREATE INDEX [IX_PAPER_EVAL_CACHE_CREATED_AT] ON [dbo].[PAPER_EVALUATION_CACHE]([created_at] ASC);
+GO
+
