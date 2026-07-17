@@ -61,4 +61,20 @@ public class AppConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * RestTemplate for downloading PDFs from external sources.
+     * Short connect timeout (15s) but longer read timeout (60s) for large PDFs.
+     * Sets a browser-like User-Agent to avoid 403 blocks.
+     */
+    @Bean(name = "pdfRestTemplate")
+    public RestTemplate pdfRestTemplate(RestTemplateBuilder builder) {
+        return builder
+                .connectTimeout(Duration.ofSeconds(15))
+                .readTimeout(Duration.ofSeconds(60))
+                .defaultHeader("User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                        "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+                .build();
+    }
 }
