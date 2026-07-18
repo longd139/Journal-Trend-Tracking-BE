@@ -50,11 +50,16 @@ public class UserController {
         return ResponseEntity.ok(AppResponse.success("Password updated successfully"));
     }
 
+    /**
+     * @deprecated Replaced by POST /api/users/me/upgrade-request with admin approval flow.
+     * Returns 410 Gone to inform clients about the new endpoint.
+     */
+    @Deprecated
     @PostMapping("/me/upgrade")
     @PreAuthorize("hasRole('ACADEMIC_USER')")
     public ResponseEntity<AppResponse<Void>> upgradeAccount(Authentication authentication) {
-        userService.upgradeAccount(authentication.getName());
-        return ResponseEntity.ok(AppResponse.success("Account upgraded to RESEARCHER"));
+        return ResponseEntity.status(410)
+                .body(AppResponse.of(410, "This endpoint is no longer supported. Use POST /api/users/me/upgrade-request instead.", null));
     }
 
     // Admin endpoints
