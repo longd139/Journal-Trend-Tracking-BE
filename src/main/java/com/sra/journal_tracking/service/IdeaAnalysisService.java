@@ -23,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -136,32 +135,35 @@ public class IdeaAnalysisService {
 
         String ideaHash = md5(ideaText);
 
-        // ── Fetch papers from OpenAlex API (matching plan: "Searching OpenAlex with keywords") ──
+        // ── Fetch papers from OpenAlex API ──
+        // Strategy: relevance-first, then top-cited for supplementary coverage.
+        // Relevance search finds papers actually about the topic (avoids highly-cited
+        // off-topic papers like ResNet showing up for "deep learning" keyword).
         List<PaperDetailResponseDTO> allPapers = new ArrayList<>();
         Set<UUID> seenPaperIds = new HashSet<>();
 
         int currentYear = Year.now().getValue();
-        int searchStartYear = Math.max(2015, currentYear - 10); // last 10 years, min 2015
+        int searchStartYear = Math.max(2015, currentYear - 10);
 
         for (String kw : keywords) {
             try {
-                // Search top cited — recent 3 years for freshness
-                List<PaperDetailResponseDTO> citedPapers = openAlexSearchService.searchTopCited(
-                        kw, 3, currentYear - 3, currentYear);
-                log.info("OpenAlex keyword '{}' (top-cited, {}–{}) → {} papers",
-                        kw, currentYear - 3, currentYear, citedPapers.size());
-                for (PaperDetailResponseDTO paper : citedPapers) {
+                // Primary: search by relevance — returns papers semantically related to the query
+                List<PaperDetailResponseDTO> relevancePapers = openAlexSearchService.searchByRelevance(
+                        kw, 5, searchStartYear, currentYear);
+                log.info("OpenAlex keyword '{}' (relevance, {}–{}) → {} papers",
+                        kw, searchStartYear, currentYear, relevancePapers.size());
+                for (PaperDetailResponseDTO paper : relevancePapers) {
                     if (seenPaperIds.add(paper.getPaperId())) {
                         allPapers.add(paper);
                     }
                 }
 
-                // Also search all-time by relevance for broader coverage
-                List<PaperDetailResponseDTO> relevancePapers = openAlexSearchService.searchTopCited(
-                        kw, 2, searchStartYear, currentYear);
-                log.info("OpenAlex keyword '{}' (all-time, {}–{}) → {} papers",
-                        kw, searchStartYear, currentYear, relevancePapers.size());
-                for (PaperDetailResponseDTO paper : relevancePapers) {
+                // Supplementary: search top-cited recent papers for high-impact coverage
+                List<PaperDetailResponseDTO> citedPapers = openAlexSearchService.searchTopCited(
+                        kw, 3, currentYear - 3, currentYear);
+                log.info("OpenAlex keyword '{}' (top-cited, {}–{}) → {} papers",
+                        kw, currentYear - 3, currentYear, citedPapers.size());
+                for (PaperDetailResponseDTO paper : citedPapers) {
                     if (seenPaperIds.add(paper.getPaperId())) {
                         allPapers.add(paper);
                     }
@@ -336,24 +338,42 @@ public class IdeaAnalysisService {
     }
 
     private ExtractKeywordsResponse aiExtractKeywords(String ideaText) throws Exception {
-        // Prepend the JSON start character so the model is forced into JSON continuation.
-        // The "assistant" trick: start the response with { so the model thinks JSON already began.
-        String prompt = String.format("""
-                { "extractedKeywords": [%s], "suggestedKeywords": [%s] }
+        // Extract meaningful seed phrases from the idea text to help the AI focus.
+        // These are NOT the final keywords — the AI transforms them into academic search terms.
+        List<String> seedPhrases = extractPhrasesFromText(ideaText, 5);
 
-                Above is a JSON template. Replace the placeholder values with real keywords
-                for this research idea. Return ONLY valid JSON, no other text.
-                Idea: %s""",
-                quoteKeywords(extractKeywordsFromText(ideaText, 3)),
-                quoteKeywords(List.of("machine learning", "deep learning", "data analysis")),
-                esc(ideaText));
+        String prompt = String.format("""
+                You are an academic librarian helping a researcher find papers.
+                Extract 5 precise search keywords and suggest 5 related search terms from this research idea.
+
+                RULES:
+                - extractedKeywords: 5 specific, searchable terms pulled directly from the idea.
+                  Use multi-word phrases when the idea contains them (e.g. "code generation", "systematic review").
+                  Do NOT add generic AI/ML terms (e.g. "machine learning", "deep learning") unless the idea is specifically about them.
+                - suggestedKeywords: 5 related academic terms that would help find more papers on this topic.
+                  Think about: alternative terminology, broader/narrower concepts, specific tools or frameworks mentioned.
+
+                RESEARCH IDEA: %s
+
+                KEY CONCEPTS (for context only — you decide the final keywords): %s
+
+                Respond with ONLY this JSON (no markdown, no extra text):
+                {"extractedKeywords":["kw1","kw2","kw3","kw4","kw5"],"suggestedKeywords":["sk1","sk2","sk3","sk4","sk5"]}""",
+                esc(ideaText),
+                String.join(", ", seedPhrases));
 
         String raw = aiClient.call(prompt, KEYWORD_MAX_TOKENS, 0.0);
         String json = extractJson(raw, "extractKeywords");
 
         if (!"{}".equals(json)) {
             try {
-                return objectMapper.readValue(json, ExtractKeywordsResponse.class);
+                ExtractKeywordsResponse response = objectMapper.readValue(json, ExtractKeywordsResponse.class);
+                // Post-process: filter out obviously bad keywords (single chars, template artifacts)
+                response.setExtractedKeywords(filterValidKeywords(response.getExtractedKeywords()));
+                response.setSuggestedKeywords(filterValidKeywords(response.getSuggestedKeywords()));
+                if (!response.getExtractedKeywords().isEmpty()) {
+                    return response;
+                }
             } catch (Exception e) {
                 log.warn("Failed to parse AI JSON, using fallback. JSON: {}", json);
             }
@@ -364,25 +384,101 @@ public class IdeaAnalysisService {
         return fallbackExtractKeywords(ideaText, raw);
     }
 
-    /** Quick programmatic keyword extraction from idea text (no AI). */
-    private List<String> extractKeywordsFromText(String text, int max) {
+    /** Filter out template artifacts and too-short keywords from AI response. */
+    private List<String> filterValidKeywords(List<String> keywords) {
+        if (keywords == null) return List.of();
+        return keywords.stream()
+                .filter(k -> k != null && k.length() >= 3)
+                .filter(k -> !k.equalsIgnoreCase("suggestedkeywords")
+                        && !k.equalsIgnoreCase("extractedkeywords")
+                        && !k.equalsIgnoreCase("string"))
+                .distinct()
+                .limit(5)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Extract meaningful multi-word phrases from idea text.
+     * Uses bigram/trigram detection to catch phrases like "code generation",
+     * "systematic review", "agile development".
+     */
+    private List<String> extractPhrasesFromText(String text, int max) {
         if (text == null || text.isBlank()) return List.of("research");
         List<String> result = new ArrayList<>();
-        // Split on non-alpha, keep words >= 2 chars (catches AI, ML, NLP etc.)
-        String[] words = text.replaceAll("[^a-zA-Z\\s]", " ")
-                .trim().toLowerCase().split("\\s+");
-        for (String w : words) {
-            if (w.length() >= 2 && !isStopWord(w) && !result.contains(w)) {
-                result.add(w);
-                if (result.size() >= max) break;
+
+        // Normalize: lowercase, strip special chars except hyphens
+        String clean = text.toLowerCase().replaceAll("[^a-z0-9\\s-]", " ");
+        String[] words = clean.trim().split("\\s+");
+
+        // Collect bigrams (2-word phrases)
+        for (int i = 0; i < words.length - 1 && result.size() < max; i++) {
+            if (isValidWord(words[i]) && isValidWord(words[i + 1])) {
+                String bigram = words[i] + " " + words[i + 1];
+                if (!isStopPhrase(bigram) && !result.contains(bigram)) {
+                    result.add(bigram);
+                }
             }
         }
+
+        // Collect trigrams (3-word phrases)
+        for (int i = 0; i < words.length - 2 && result.size() < max; i++) {
+            if (isValidWord(words[i]) && isValidWord(words[i + 1]) && isValidWord(words[i + 2])) {
+                String trigram = words[i] + " " + words[i + 1] + " " + words[i + 2];
+                if (!isStopPhrase(trigram) && !result.contains(trigram)) {
+                    result.add(trigram);
+                }
+            }
+        }
+
+        // Fallback: single significant words (≥5 chars, not stop word)
+        for (String w : words) {
+            if (result.size() >= max) break;
+            if (w.length() >= 5 && !isStopWord(w) && isValidSignificantWord(w)
+                    && !result.contains(w)) {
+                result.add(w);
+            }
+        }
+
         if (result.isEmpty()) result.add("research");
         return result;
     }
 
-    private String quoteKeywords(List<String> kws) {
-        return kws.stream().map(k -> "\"" + k + "\"").collect(Collectors.joining(", "));
+    private boolean isValidWord(String w) {
+        return w.length() >= 2 && !isStopWord(w) && !w.matches("\\d+");
+    }
+
+    private boolean isValidSignificantWord(String w) {
+        // Exclude common academic filler words that make poor search keywords
+        return !Set.of("based", "using", "paper", "study", "approach", "method",
+                "proposed", "novel", "improved", "efficient", "effective",
+                "present", "discuss", "focus", "propose", "develop",
+                "compare", "investigate", "examine", "evaluation",
+                "introduction", "conclusion", "experiment", "abstract",
+                "purpose", "background", "related", "work", "result",
+                "show", "demonstrate", "system", "model", "review",
+                "survey", "analysis", "data", "research", "literature",
+                "findings", "limitation", "future", "direction",
+                "implication", "contribution", "framework", "design",
+                "implementation", "assessment", "toward", "towards",
+                "through", "within", "across", "among", "including",
+                "various", "different", "several", "many", "much",
+                "however", "therefore", "thus", "although", "because",
+                "since", "while", "where", "when", "how", "what")
+                .contains(w);
+    }
+
+    private boolean isStopPhrase(String phrase) {
+        // Reject phrases that are entirely stop words or common filler
+        String[] words = phrase.split(" ");
+        if (words.length == 2) {
+            return (isStopWord(words[0]) && isStopWord(words[1]));
+        }
+        if (words.length == 3) {
+            int stopCount = 0;
+            for (String w : words) if (isStopWord(w)) stopCount++;
+            return stopCount >= 2;
+        }
+        return false;
     }
 
     private boolean isStopWord(String w) {
@@ -414,7 +510,8 @@ public class IdeaAnalysisService {
 
     /**
      * Fallback: when AI returns text instead of JSON, extract keywords programmatically.
-     * Merges suggested keywords into extracted so the user always has useful search terms.
+     * Uses phrase detection on the idea text + quoted strings from AI raw response.
+     * No longer injects generic AI/ML terms — only uses terms from the actual idea.
      */
     private ExtractKeywordsResponse fallbackExtractKeywords(String ideaText, String rawResponse) {
         List<String> extracted = new ArrayList<>();
@@ -423,11 +520,13 @@ public class IdeaAnalysisService {
         // 1. Try to find quoted strings in the AI response
         if (rawResponse != null && !rawResponse.isBlank()) {
             java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("\"([^\"]{2,80})\"")
+                    .compile("\"([^\"]{3,80})\"")
                     .matcher(rawResponse);
             while (m.find()) {
                 String kw = m.group(1).trim().toLowerCase();
-                if (kw.length() >= 2 && !kw.matches(".*[{}:\\[\\]].*")
+                if (kw.length() >= 3 && !kw.matches(".*[{}:\\[\\]].*")
+                        && !kw.equals("suggestedkeywords")
+                        && !kw.equals("extractedkeywords")
                         && !isStopWord(kw) && !extracted.contains(kw)) {
                     if (extracted.size() < 5) extracted.add(kw);
                     else if (suggested.size() < 5) suggested.add(kw);
@@ -435,42 +534,35 @@ public class IdeaAnalysisService {
             }
         }
 
-        // 2. Extract meaningful words (>= 3 chars for better search quality)
+        // 2. Use phrase extraction from idea text as primary source
         if (extracted.isEmpty()) {
-            extracted = extractKeywordsFromText(ideaText, 5);
+            extracted = extractPhrasesFromText(ideaText, 5);
         }
 
-        // 3. Add generic fallback keywords (good for academic search)
-        List<String> genericSuggested = new ArrayList<>(List.of(
-                "machine learning", "deep learning", "neural networks",
-                "data analysis", "artificial intelligence", "natural language processing",
-                "computer vision", "reinforcement learning", "large language models",
-                "transformer models"));
-        // Remove any that are already in extracted
-        genericSuggested.removeAll(extracted);
-        // Add unique ones to suggested
-        for (String gs : genericSuggested) {
-            if (suggested.size() >= 5) break;
-            if (!suggested.contains(gs)) suggested.add(gs);
-        }
-
-        // 4. If extracted is still weak (< 3 chars per keyword on average),
-        //    move some suggested into extracted so search works better
-        if (extracted.isEmpty() ||
-                extracted.stream().mapToInt(String::length).average().orElse(0) < 3.0) {
-            // Move up to 3 suggested keywords into extracted
-            List<String> boosted = new ArrayList<>(extracted);
-            for (String s : suggested) {
-                if (boosted.size() >= 5) break;
-                if (!boosted.contains(s)) boosted.add(s);
-            }
-            extracted = boosted;
-            // Remove moved items from suggested
-            suggested.removeAll(extracted);
-            // Refill suggested
-            for (String gs : genericSuggested) {
+        // 3. If suggested is still empty, derive related terms from extracted keywords
+        //    by adding common academic qualifiers (NOT generic AI/ML terms)
+        if (suggested.isEmpty() && !extracted.isEmpty()) {
+            for (String kw : extracted) {
                 if (suggested.size() >= 5) break;
-                if (!extracted.contains(gs) && !suggested.contains(gs)) suggested.add(gs);
+                // Suggest variations: add "systematic" prefix or "tools" suffix for relevant keywords
+                if (kw.contains("code") || kw.contains("software") || kw.contains("development")) {
+                    if (!extracted.contains("software engineering") && !suggested.contains("software engineering"))
+                        suggested.add("software engineering");
+                    if (!extracted.contains("developer productivity") && !suggested.contains("developer productivity"))
+                        suggested.add("developer productivity");
+                }
+                if (kw.contains("review") || kw.contains("survey")) {
+                    if (!extracted.contains("literature review") && !suggested.contains("literature review"))
+                        suggested.add("literature review");
+                    if (!extracted.contains("evidence synthesis") && !suggested.contains("evidence synthesis"))
+                        suggested.add("evidence synthesis");
+                }
+                if (kw.contains("agile") || kw.contains("scrum")) {
+                    if (!extracted.contains("scrum") && !suggested.contains("scrum"))
+                        suggested.add("scrum");
+                    if (!extracted.contains("sprint") && !suggested.contains("sprint"))
+                        suggested.add("sprint planning");
+                }
             }
         }
 
@@ -565,24 +657,71 @@ public class IdeaAnalysisService {
     private LiteratureReviewDTO aiLiteratureReview(String ideaText,
                                                     List<PaperAnalysisDTO> papers,
                                                     GapAnalysisDTO gapAnalysis) throws Exception {
-        String papersJson = objectMapper.writeValueAsString(papers);
+        // Build paper context with relevance flags so the AI knows which papers to cite
+        List<Map<String, Object>> paperContexts = new ArrayList<>();
+        for (int i = 0; i < papers.size(); i++) {
+            PaperAnalysisDTO p = papers.get(i);
+            boolean topicMatch = p.getCriteria() != null && p.getCriteria().stream()
+                    .anyMatch(c -> "TOPIC_MATCH".equals(c.getCriterionName()) && Boolean.TRUE.equals(c.getValue()));
+            boolean anyRelevant = p.getCriteria() != null && p.getCriteria().stream()
+                    .anyMatch(c -> Boolean.TRUE.equals(c.getValue()));
+            Map<String, Object> ctx = new LinkedHashMap<>();
+            ctx.put("index", i + 1);
+            ctx.put("title", p.getTitle());
+            ctx.put("abstract", p.getAbstractText() != null ? p.getAbstractText().substring(0,
+                    Math.min(300, p.getAbstractText().length())) : "");
+            ctx.put("isTopicallyRelevant", topicMatch);
+            ctx.put("isAtAllRelevant", anyRelevant);
+            paperContexts.add(ctx);
+        }
+
+        long relevantCount = paperContexts.stream().filter(c -> Boolean.TRUE.equals(c.get("isTopicallyRelevant"))).count();
+        long anyRelevantCount = paperContexts.stream().filter(c -> Boolean.TRUE.equals(c.get("isAtAllRelevant"))).count();
+        String papersJson = objectMapper.writeValueAsString(paperContexts);
+
+        String relevanceInstruction;
+        if (anyRelevantCount == 0) {
+            relevanceInstruction = """
+                    CRITICAL: NONE of the papers are topically relevant to this research idea.
+                    Do NOT cite any paper as "foundational work" or "recent work in this area."
+                    Instead, write a literature review that honestly states:
+                    - The idea addresses a niche/novel area not yet covered by the search results
+                    - What the broader field context is (based on your knowledge, not these papers)
+                    - Why a systematic search using specialized databases would be needed
+                    Do NOT fabricate paper titles or claim these irrelevant papers support the idea.
+                    """;
+        } else if (relevantCount <= 1) {
+            relevanceInstruction = """
+                    Only cite papers marked as topically relevant. Papers with isAtAllRelevant=false
+                    should NOT appear in the literature review. If only one paper is relevant,
+                    acknowledge that the field is underexplored.
+                    """;
+        } else {
+            relevanceInstruction = """
+                    Focus on papers marked as topically relevant. You may briefly mention partially
+                    relevant papers (isAtAllRelevant=true but isTopicallyRelevant=false) for
+                    methodological context only.
+                    """;
+        }
 
         String prompt = String.format("""
                 CRITICAL: Respond with ONLY a valid JSON object. No other text. ONLY the JSON.
 
                 Write a "Related Work" section (3-5 paragraphs, ~300-500 words) for this research idea.
-                Use formal academic English with in-text citations [1],[2] etc. matching paper numbers.
-                Include a REFERENCES list with full citation details.
+                Use formal academic English with in-text citations [1],[2] etc. matching paper index numbers.
+
+                %s
 
                 IDEA: "%s"
 
-                PAPERS: %s
+                PAPERS (with relevance flags — check isTopicallyRelevant before citing):
+                %s
 
                 GAPS: %s
 
                 RESPOND WITH EXACTLY THIS JSON:
                 {"text":"full literature review with [1][2] citations...","references":[{"number":1,"paperTitle":"...","authors":"Smith et al.","year":2024,"journal":"Journal","doi":"10.xxx"}]}
-                """, esc(ideaText), esc(papersJson),
+                """, relevanceInstruction, esc(ideaText), esc(papersJson),
                 esc(gapAnalysis != null ? objectMapper.writeValueAsString(gapAnalysis) : "{}"));
 
         String raw = aiClient.call(prompt, LIT_REVIEW_MAX_TOKENS, MEDIUM_TEMP);
@@ -674,27 +813,43 @@ public class IdeaAnalysisService {
     private LiteratureReviewDTO buildFallbackLitReview(String ideaText,
                                                         List<PaperAnalysisDTO> papers,
                                                         GapAnalysisDTO gapAnalysis) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("The research landscape surrounding this topic has been shaped by several key contributions. ");
+        // Filter: only cite papers that are at least partially relevant
+        List<PaperAnalysisDTO> relevantPapers = papers.stream()
+                .filter(p -> p.getCriteria() != null && p.getCriteria().stream()
+                        .anyMatch(c -> Boolean.TRUE.equals(c.getValue())))
+                .collect(Collectors.toList());
 
-        if (papers.isEmpty()) {
-            sb.append("While no directly matching papers were identified in the current search, "
-                    + "the broader field contains relevant work that can inform this research direction. "
-                    + "A more extensive literature search with refined keywords is recommended to "
-                    + "fully map the existing contributions in this area.");
+        boolean noRelevantPapers = relevantPapers.isEmpty();
+
+        StringBuilder sb = new StringBuilder();
+
+        if (noRelevantPapers) {
+            // No relevant papers found — don't cite them as foundations
+            sb.append("A targeted literature search was conducted to identify prior work "
+                    + "directly related to this research topic. ");
+            sb.append("The initial search did not return papers with strong topical alignment, "
+                    + "suggesting that this research direction occupies a relatively novel or "
+                    + "underexplored niche within the broader field. ");
+            if (gapAnalysis != null && gapAnalysis.getResearchGaps() != null
+                    && !gapAnalysis.getResearchGaps().isEmpty()) {
+                sb.append("Specifically, ");
+                sb.append(gapAnalysis.getResearchGaps().get(0).getGap()).append(". ");
+            }
+            sb.append("A more comprehensive search across specialized databases and venues "
+                    + "(e.g., IEEE Xplore, ACM Digital Library, SpringerLink) is recommended "
+                    + "to fully map the existing literature landscape. ");
+            sb.append("This work aims to establish foundational knowledge in an area where "
+                    + "consolidated academic literature is currently sparse.");
         } else {
+            // We have relevant papers — cite them normally
+            sb.append("The research landscape surrounding this topic has been shaped by several key contributions. ");
             sb.append("Recent work in this area includes ");
-            for (int i = 0; i < papers.size(); i++) {
-                PaperAnalysisDTO p = papers.get(i);
-                if (i > 0 && i == papers.size() - 1) sb.append("and ");
+            for (int i = 0; i < relevantPapers.size(); i++) {
+                PaperAnalysisDTO p = relevantPapers.get(i);
+                if (i > 0 && i == relevantPapers.size() - 1) sb.append("and ");
                 sb.append(p.getTitle());
-                if (p.getCriteria() != null && p.getCriteria().stream().anyMatch(
-                        c -> "CITE_WORTHY".equals(c.getCriterionName()) && Boolean.TRUE.equals(c.getValue()))) {
-                    sb.append(" [").append(i + 1).append("], which provides valuable insights");
-                } else {
-                    sb.append(" [").append(i + 1).append("]");
-                }
-                if (i < papers.size() - 1) sb.append(", ");
+                sb.append(" [").append(i + 1).append("]");
+                if (i < relevantPapers.size() - 1) sb.append(", ");
             }
             sb.append(". ");
 
@@ -708,10 +863,10 @@ public class IdeaAnalysisService {
                     + "foundations while introducing novel approaches to the problem.");
         }
 
-        // Build references from papers
+        // Build references ONLY from relevant papers (or empty if none)
         List<LiteratureReviewDTO.Reference> refs = new ArrayList<>();
-        for (int i = 0; i < papers.size(); i++) {
-            PaperAnalysisDTO p = papers.get(i);
+        for (int i = 0; i < relevantPapers.size(); i++) {
+            PaperAnalysisDTO p = relevantPapers.get(i);
             refs.add(LiteratureReviewDTO.Reference.builder()
                     .number(i + 1)
                     .paperTitle(p.getTitle())

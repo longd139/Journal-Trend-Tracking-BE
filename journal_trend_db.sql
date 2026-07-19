@@ -1252,3 +1252,28 @@ END
 ELSE
     PRINT '→ Table PAPER_EVALUATION_CACHE already exists — skipped';
 GO
+
+
+CREATE TABLE ROLE_UPGRADE_REQUEST (
+    RequestID       UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    UserID          UNIQUEIDENTIFIER    NOT NULL,
+    FullName        NVARCHAR(200)       NOT NULL,
+    Institution     NVARCHAR(300)       NOT NULL,
+    ResearchField   NVARCHAR(200)       NOT NULL,
+    [Position]      NVARCHAR(100)       NOT NULL,
+    Orcid           NVARCHAR(50)        NULL,
+    Reason          NVARCHAR(MAX)       NOT NULL,
+    Status          NVARCHAR(20)        NOT NULL  DEFAULT 'PENDING'
+                        CHECK (Status IN ('PENDING','APPROVED','REJECTED')),
+    AdminNote       NVARCHAR(500)       NULL,
+    ReviewedBy      UNIQUEIDENTIFIER    NULL,
+    ReviewedAt      DATETIME2(0)        NULL,
+    CreatedAt       DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+
+    CONSTRAINT PK_ROLE_UPGRADE_REQUEST PRIMARY KEY (RequestID),
+    CONSTRAINT FK_UPGRADE_REQ_User     FOREIGN KEY (UserID)     REFERENCES [USER](UserID),
+    CONSTRAINT FK_UPGRADE_REQ_Admin    FOREIGN KEY (ReviewedBy) REFERENCES [USER](UserID)
+);
+CREATE INDEX IX_UPGRADE_REQ_UserID   ON ROLE_UPGRADE_REQUEST(UserID);
+CREATE INDEX IX_UPGRADE_REQ_Status   ON ROLE_UPGRADE_REQUEST(Status);
+CREATE INDEX IX_UPGRADE_REQ_CreatedAt ON ROLE_UPGRADE_REQUEST(CreatedAt DESC);

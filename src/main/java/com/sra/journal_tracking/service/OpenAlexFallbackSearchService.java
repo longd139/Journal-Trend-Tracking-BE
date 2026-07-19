@@ -154,25 +154,26 @@ public class OpenAlexFallbackSearchService {
         String normalizedQuery = normalizeOpenAlexSearchQuery(query);
         if (normalizedQuery.isBlank()) return List.of();
 
-        // Build OpenAlex filters — use fulltext.search filter with quotes for exact matching.
-        // IMPORTANT: use build().toUriString() (no .encode()) because .encode() would turn
-        // " and : inside the filter value into %22 and %3A, which OpenAlex cannot parse.
-        List<String> filters = new ArrayList<>();
-        filters.add("fulltext.search:" + quotedFilterValue(normalizedQuery));
-        if (yearFrom != null) filters.add("from_publication_date:" + yearFrom + "-01-01");
-        if (yearTo != null) filters.add("to_publication_date:" + yearTo + "-12-31");
-
+        // Use the `search` parameter (searches title+abstract+fulltext) instead of
+        // `filter=fulltext.search:` which requires complex quoting that breaks URI encoding.
         var builder = UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
-                .queryParam("filter", String.join(",", filters))
+                .queryParam("search", normalizedQuery)
                 .queryParam("sort", "cited_by_count:desc")
                 .queryParam("per-page", size)
                 .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,"
                         + "cited_by_count,counts_by_year,abstract_inverted_index,open_access,"
                         + "primary_location,best_oa_location,topics,keywords,authorships");
 
-        // No .encode() — the filter syntax (fulltext.search:"...") must pass through as-is
-        String url = withApiKey(builder).build().toUriString();
+        // Date filters use simple key:value syntax — safe for standard URI encoding
+        if (yearFrom != null || yearTo != null) {
+            List<String> dateFilters = new ArrayList<>();
+            if (yearFrom != null) dateFilters.add("from_publication_date:" + yearFrom + "-01-01");
+            if (yearTo != null) dateFilters.add("to_publication_date:" + yearTo + "-12-31");
+            builder.queryParam("filter", String.join(",", dateFilters));
+        }
+
+        String url = withApiKey(builder).build().encode().toUriString();
 
         try {
             OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
@@ -200,6 +201,61 @@ public class OpenAlexFallbackSearchService {
     }
 
     /**
+     * Search papers by relevance score with optional year filter.
+     * Relevance search returns papers most semantically related to the query,
+     * which is better than top-cited for finding papers on niche or specific topics.
+     *
+     * @param yearFrom optional: filter papers published from this year (inclusive)
+     * @param yearTo   optional: filter papers published to this year (inclusive)
+     */
+    public List<PaperDetailResponseDTO> searchByRelevance(String query, int size, Integer yearFrom, Integer yearTo) {
+        String normalizedQuery = normalizeOpenAlexSearchQuery(query);
+        if (normalizedQuery.isBlank()) return List.of();
+
+        var builder = UriComponentsBuilder
+                .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
+                .queryParam("search", normalizedQuery)
+                .queryParam("sort", "relevance_score:desc")
+                .queryParam("per-page", size)
+                .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,"
+                        + "cited_by_count,counts_by_year,abstract_inverted_index,open_access,"
+                        + "primary_location,best_oa_location,topics,keywords,authorships");
+
+        if (yearFrom != null || yearTo != null) {
+            List<String> dateFilters = new ArrayList<>();
+            if (yearFrom != null) dateFilters.add("from_publication_date:" + yearFrom + "-01-01");
+            if (yearTo != null) dateFilters.add("to_publication_date:" + yearTo + "-12-31");
+            builder.queryParam("filter", String.join(",", dateFilters));
+        }
+
+        String url = withApiKey(builder).build().encode().toUriString();
+
+        try {
+            OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
+            if (response == null || response.getResults() == null) return List.of();
+
+            List<OpenAlexResponseDTO.OpenAlexWorkDTO> rawWorks = response.getResults().stream()
+                    .limit(size)
+                    .collect(Collectors.toList());
+
+            // Fire-and-forget: async save to local DB
+            try {
+                dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
+            } catch (Exception e) {
+                log.debug("Save-on-search dispatch failed: {}", e.getMessage());
+            }
+
+            return rawWorks.stream()
+                    .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
+                    .map(w -> mapToPaper(w.work(), w.abstractText()))
+                    .collect(Collectors.toList());
+        } catch (RestClientException e) {
+            log.warn("OpenAlex relevance search failed for '{}': {}", query, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
      * Get total works count for a keyword from OpenAlex meta.
      * Uses fulltext.search filter for consistency with searchTopCited.
      * Returns 0 on failure or if the keyword returns no results.
@@ -208,17 +264,20 @@ public class OpenAlexFallbackSearchService {
         String normalizedQuery = normalizeOpenAlexSearchQuery(keyword);
         if (normalizedQuery.isBlank()) return 0;
 
-        List<String> filters = new ArrayList<>();
-        filters.add("fulltext.search:" + quotedFilterValue(normalizedQuery));
-        if (yearFrom != null) filters.add("from_publication_date:" + yearFrom + "-01-01");
-        if (yearTo != null) filters.add("to_publication_date:" + yearTo + "-12-31");
-
-        String url = withApiKey(UriComponentsBuilder
+        var builder = UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
-                .queryParam("filter", String.join(",", filters))
+                .queryParam("search", normalizedQuery)
                 .queryParam("per-page", "1")
-                .queryParam("select", "id"))
-                .build().toUriString();
+                .queryParam("select", "id");
+
+        if (yearFrom != null || yearTo != null) {
+            List<String> dateFilters = new ArrayList<>();
+            if (yearFrom != null) dateFilters.add("from_publication_date:" + yearFrom + "-01-01");
+            if (yearTo != null) dateFilters.add("to_publication_date:" + yearTo + "-12-31");
+            builder.queryParam("filter", String.join(",", dateFilters));
+        }
+
+        String url = withApiKey(builder).build().encode().toUriString();
 
         try {
             OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
@@ -242,18 +301,18 @@ public class OpenAlexFallbackSearchService {
         String normalizedQuery = normalizeOpenAlexSearchQuery(keyword);
         if (normalizedQuery.isBlank()) return List.of();
 
-        List<String> filters = new ArrayList<>();
-        filters.add("fulltext.search:" + quotedFilterValue(normalizedQuery));
+        List<String> dateFilters = new ArrayList<>();
         int effectiveFrom = yearFrom != null ? Math.max(startYear, yearFrom) : startYear;
-        filters.add("from_publication_date:" + effectiveFrom + "-01-01");
-        if (yearTo != null) filters.add("to_publication_date:" + yearTo + "-12-31");
+        dateFilters.add("from_publication_date:" + effectiveFrom + "-01-01");
+        if (yearTo != null) dateFilters.add("to_publication_date:" + yearTo + "-12-31");
 
         String url = withApiKey(UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
-                .queryParam("filter", String.join(",", filters))
+                .queryParam("search", normalizedQuery)
+                .queryParam("filter", String.join(",", dateFilters))
                 .queryParam("group_by", "publication_year")
                 .queryParam("per-page", "50"))
-                .build().toUriString();
+                .build().encode().toUriString();
 
         try {
             OpenAlexGroupByResponse response = restTemplate.getForObject(url, OpenAlexGroupByResponse.class);
@@ -284,18 +343,18 @@ public class OpenAlexFallbackSearchService {
         String normalizedQuery = normalizeOpenAlexSearchQuery(keyword);
         if (normalizedQuery.isBlank()) return List.of();
 
-        List<String> filters = new ArrayList<>();
-        filters.add("fulltext.search:" + quotedFilterValue(normalizedQuery));
-        if (yearFrom != null) filters.add("from_publication_date:" + yearFrom + "-01-01");
-        if (yearTo != null) filters.add("to_publication_date:" + yearTo + "-12-31");
+        List<String> dateFilters = new ArrayList<>();
+        if (yearFrom != null) dateFilters.add("from_publication_date:" + yearFrom + "-01-01");
+        if (yearTo != null) dateFilters.add("to_publication_date:" + yearTo + "-12-31");
 
         String url = withApiKey(UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
-                .queryParam("filter", String.join(",", filters))
+                .queryParam("search", normalizedQuery)
+                .queryParam("filter", String.join(",", dateFilters))
                 .queryParam("sort", "cited_by_count:desc")
                 .queryParam("per-page", "50")
                 .queryParam("select", "id,cited_by_count,counts_by_year"))
-                .build().toUriString();
+                .build().encode().toUriString();
 
         try {
             OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
@@ -590,16 +649,6 @@ public class OpenAlexFallbackSearchService {
     private String normalizeOpenAlexSearchQuery(String query) {
         if (query == null) return "";
         return query.replace("&", " ").replace("/", " ").replace("\\", " ").trim().replaceAll("\\s+", " ");
-    }
-
-    /**
-     * Wraps a filter value in double quotes so OpenAlex treats it as a single value.
-     * Required for multi-word queries in comma-separated filter parameters.
-     * Escapes any embedded double quotes.
-     */
-    private String quotedFilterValue(String value) {
-        if (value == null || value.isBlank()) return "\"\"";
-        return "\"" + value.replace("\"", "\\\"") + "\"";
     }
 
     private String normalizeDoi(String doi) {

@@ -103,4 +103,62 @@ public class UserSearchHistoryService {
 
         return List.copyOf(deduped.values());
     }
+
+    /**
+     * Get recent gap explorer idea history for a user (searchType = GAP_IDEA).
+     */
+    public List<RecentSearchResponse> getGapIdeaHistory(String userEmail, int limit) {
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userEmail));
+
+        List<UserSearchHistory> raw = userSearchHistoryRepository
+                .findByUser_UserIdOrderBySearchedAtDesc(user.getUserId(), PageRequest.of(0, limit * 2));
+
+        // Deduplicate by searchText, keep most recent
+        LinkedHashMap<String, RecentSearchResponse> deduped = new LinkedHashMap<>();
+        for (UserSearchHistory h : raw) {
+            if (!"GAP_IDEA".equals(h.getSearchType())) continue;
+            String key = h.getSearchText().toLowerCase().trim();
+            deduped.putIfAbsent(key, RecentSearchResponse.builder()
+                    .searchText(h.getSearchText())
+                    .searchType(h.getSearchType())
+                    .searchedAt(h.getSearchedAt())
+                    .build());
+            if (deduped.size() >= limit) break;
+        }
+        return List.copyOf(deduped.values());
+    }
+
+    /**
+     * Delete a specific gap idea history entry by its text for a user.
+     */
+    @Transactional
+    public void deleteGapIdea(String userEmail, String searchText) {
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userEmail));
+        List<UserSearchHistory> all = userSearchHistoryRepository
+                .findByUser_UserIdOrderBySearchedAtDesc(user.getUserId(), PageRequest.of(0, 200));
+        for (UserSearchHistory h : all) {
+            if ("GAP_IDEA".equals(h.getSearchType())
+                    && h.getSearchText().equalsIgnoreCase(searchText.trim())) {
+                userSearchHistoryRepository.delete(h);
+            }
+        }
+    }
+
+    /**
+     * Delete all gap idea history for a user.
+     */
+    @Transactional
+    public void clearGapIdeas(String userEmail) {
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userEmail));
+        List<UserSearchHistory> all = userSearchHistoryRepository
+                .findByUser_UserIdOrderBySearchedAtDesc(user.getUserId(), PageRequest.of(0, 200));
+        for (UserSearchHistory h : all) {
+            if ("GAP_IDEA".equals(h.getSearchType())) {
+                userSearchHistoryRepository.delete(h);
+            }
+        }
+    }
 }

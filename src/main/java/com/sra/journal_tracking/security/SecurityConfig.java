@@ -2,13 +2,14 @@ package com.sra.journal_tracking.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sra.journal_tracking.dto.response.ErrorResponse;
+import com.sra.journal_tracking.repository.jpa.UserSessionRepository;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -16,6 +17,8 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.builders.WebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -37,7 +40,8 @@ public class SecurityConfig {
 
     private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationEntryPoint unauthorizedHandler;
-    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final JwtTokenProvider jwtTokenProvider;
+    private final UserSessionRepository userSessionRepository;
 
     @Bean
     public DaoAuthenticationProvider authenticationProvider() {
@@ -55,6 +59,42 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    /**
+     * Explicitly define JwtAuthenticationFilter as a Spring bean (no @Component).
+     * This prevents Spring Boot from auto-registering it as a generic servlet filter,
+     * which was the root cause of AuthorizationDeniedException for public paths.
+     */
+    @Bean
+    public JwtAuthenticationFilter jwtAuthenticationFilter() {
+        return new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService, userSessionRepository);
+    }
+
+    /**
+     * Safety net: explicitly disable auto-registration of JwtAuthenticationFilter
+     * as a generic servlet filter. The filter is ONLY registered inside the
+     * Spring Security filter chain via {@link #filterChain}.
+     */
+    @Bean
+    public FilterRegistrationBean<JwtAuthenticationFilter> disableJwtAutoRegistration(
+            JwtAuthenticationFilter filter) {
+        FilterRegistrationBean<JwtAuthenticationFilter> bean = new FilterRegistrationBean<>(filter);
+        bean.setEnabled(false);
+        return bean;
+    }
+
+    /**
+     * Bypass Spring Security filter chain entirely for truly public paths.
+     * Requests to these paths will NOT go through any security filters
+     * (no JWT filter, no AuthorizationFilter, no CSRF check).
+     */
+    @Bean
+    public WebSecurityCustomizer webSecurityCustomizer() {
+        return (web) -> web.ignoring()
+                .requestMatchers("/api/v1/gap/**")
+                .requestMatchers("/api/graphs/**")
+                .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**");
     }
 
     @Bean
@@ -85,9 +125,13 @@ public class SecurityConfig {
                         .authenticationEntryPoint(unauthorizedHandler)
                         .accessDeniedHandler(accessDeniedHandler()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth.requestMatchers("/api/auth/**").permitAll()
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/test/**").permitAll()
                         .requestMatchers("/api/public/**").permitAll()
+                        // Các path dưới đã được webSecurityCustomizer bypass,
+                        // nhưng giữ permitAll() ở đây làm fallback:
+                        .requestMatchers("/api/v1/gap/**").permitAll()
                         .requestMatchers("/api/graphs/**").permitAll()
                         .requestMatchers("/api/v1/papers").permitAll()
                         .requestMatchers("/api/v1/journals/**").permitAll()
@@ -99,7 +143,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated());
 
         http.authenticationProvider(authenticationProvider());
-        http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -107,7 +151,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("*")); // Allows all origins. Adjust for production.
+        configuration.setAllowedOrigins(List.of("*"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
 

@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.time.YearMonth;
@@ -50,6 +51,26 @@ public class PaperSearchOrchestrator {
         boolean isExpired() { return System.currentTimeMillis() > expiryTime; }
     }
     private final ConcurrentHashMap<String, CacheEntry<PaperSearchResultDTO>> searchResultCache = new ConcurrentHashMap<>();
+
+    /** Clear all cached search results. */
+    public Map<String, Object> clearCache() {
+        int size = searchResultCache.size();
+        searchResultCache.clear();
+        log.info("Search cache cleared: {} entries removed", size);
+        return Map.of("cleared", size, "message", "Search cache cleared successfully");
+    }
+
+    /** Get current cache stats. */
+    public Map<String, Object> getCacheStats() {
+        long active = searchResultCache.values().stream().filter(e -> !e.isExpired()).count();
+        long expired = searchResultCache.size() - active;
+        return Map.of(
+                "totalEntries", searchResultCache.size(),
+                "activeEntries", active,
+                "expiredEntries", expired,
+                "ttlHours", CACHE_TTL_MS / (60 * 60 * 1000)
+        );
+    }
 
     private final GraphService graphService;
     private final DataSyncService dataSyncService;

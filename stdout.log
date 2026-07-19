@@ -1,0 +1,722 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ----------------------< com.sra:journal-tracking >----------------------
+[INFO] Building journal-tracking 0.0.1-SNAPSHOT
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] >>> spring-boot-maven-plugin:3.5.14:run (default-cli) > test-compile @ journal-tracking >>>
+[INFO] 
+[INFO] --- maven-resources-plugin:3.3.1:resources (default-resources) @ journal-tracking ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- maven-compiler-plugin:3.14.1:compile (default-compile) @ journal-tracking ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- maven-resources-plugin:3.3.1:testResources (default-testResources) @ journal-tracking ---
+[INFO] skip non existing resourceDirectory D:\FPT\KI_5\SWP\SRC\Journal-Trend-Tracking-BE\src\test\resources
+[INFO] 
+[INFO] --- maven-compiler-plugin:3.14.1:testCompile (default-testCompile) @ journal-tracking ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] <<< spring-boot-maven-plugin:3.5.14:run (default-cli) < test-compile @ journal-tracking <<<
+[INFO] 
+[INFO] 
+[INFO] --- spring-boot-maven-plugin:3.5.14:run (default-cli) @ journal-tracking ---
+[INFO] Attaching agents: []
+15:20:18.666 [main] INFO org.springframework.boot.devtools.restart.RestartApplicationListener -- Restart disabled due to System property 'spring.devtools.restart.enabled' being set to false
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::               (v3.5.14)
+
+2026-07-19T15:20:19.085+07:00  INFO 7312 --- [           main] c.s.j.JournalTrackingApplication         : Starting JournalTrackingApplication using Java 21.0.11 with PID 7312 (D:\FPT\KI_5\SWP\SRC\Journal-Trend-Tracking-BE\target\classes started by ADMIN in D:\FPT\KI_5\SWP\SRC\Journal-Trend-Tracking-BE)
+2026-07-19T15:20:19.086+07:00  INFO 7312 --- [           main] c.s.j.JournalTrackingApplication         : No active profile set, falling back to 1 default profile: "default"
+2026-07-19T15:20:19.131+07:00  INFO 7312 --- [           main] .e.DevToolsPropertyDefaultsPostProcessor : For additional web related logging consider setting the 'logging.level.web' property to 'DEBUG'
+2026-07-19T15:20:20.404+07:00  INFO 7312 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-07-19T15:20:20.405+07:00  INFO 7312 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-07-19T15:20:20.684+07:00  INFO 7312 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 272 ms. Found 37 JPA repository interfaces.
+2026-07-19T15:20:20.686+07:00  INFO 7312 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-07-19T15:20:20.687+07:00  INFO 7312 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Neo4j repositories in DEFAULT mode.
+2026-07-19T15:20:20.692+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.neo4j.AuthorRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.Neo4jRepository
+2026-07-19T15:20:20.693+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.neo4j.JournalRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.Neo4jRepository
+2026-07-19T15:20:20.695+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.neo4j.KeywordRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.Neo4jRepository
+2026-07-19T15:20:20.695+07:00  INFO 7312 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 6 ms. Found 0 Neo4j repository interfaces.
+2026-07-19T15:20:21.195+07:00  INFO 7312 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-07-19T15:20:21.196+07:00  INFO 7312 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Neo4j repositories in DEFAULT mode.
+2026-07-19T15:20:21.246+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.ApiSourceRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.248+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.AuditLogRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.248+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.AuthorRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.248+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.AutoSyncKeywordRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.250+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.BookmarkCollectionRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.250+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.BookmarkRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.251+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.DashboardWidgetRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.252+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.FollowRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.252+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.IdeaAnalysisRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.252+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.JournalRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.253+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.KeywordRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.254+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.KeywordTrendCacheRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.254+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.NotificationRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.254+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.PaperAuthorRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.255+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.PaperCacheRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.256+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.PaperEvalCacheRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.256+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.PaperKeywordRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.257+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.PaperRatingRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.257+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.PdfRequestRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.258+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.PublicationTrendRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.258+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.ReadingHistoryRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.259+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.ReportRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.259+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.ResearchFieldRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.260+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.ResearchPaperRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.262+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.ResearchTopicRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.262+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.RoleRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.262+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.RoleUpgradeRequestRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.263+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.SearchKeywordRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.263+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.SyncLogRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.264+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.SystemConfigRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.264+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.TopicKeywordRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.265+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.TrendingTopicRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.265+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.UserRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.266+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.UserSearchHistoryRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.266+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.UserSessionRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.266+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.UserUsageRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.267+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.jpa.VerificationTokenRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.267+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.neo4j.AuthorRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.268+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.neo4j.JournalRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.268+07:00  INFO 7312 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data Neo4j - Could not safely identify store assignment for repository candidate interface com.sra.journal_tracking.repository.neo4j.KeywordRepository; If you want this repository to be a Neo4j repository, consider annotating your entities with one of these annotations: org.springframework.data.neo4j.core.schema.Node, org.springframework.data.neo4j.core.schema.RelationshipProperties (preferred), or consider extending one of the following types with your repository: org.springframework.data.neo4j.repository.ReactiveNeo4jRepository
+2026-07-19T15:20:21.268+07:00  INFO 7312 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 70 ms. Found 0 Neo4j repository interfaces.
+2026-07-19T15:20:22.088+07:00  INFO 7312 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-07-19T15:20:22.108+07:00  INFO 7312 --- [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-07-19T15:20:22.108+07:00  INFO 7312 --- [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.54]
+2026-07-19T15:20:22.174+07:00  INFO 7312 --- [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-07-19T15:20:22.176+07:00  INFO 7312 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3043 ms
+2026-07-19T15:20:22.318+07:00  INFO 7312 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-07-19T15:20:22.715+07:00  INFO 7312 --- [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection ConnectionID:1 ClientConnectionId: 60f7d62a-cc6f-4565-b2f2-87b680cedf07
+2026-07-19T15:20:22.717+07:00  INFO 7312 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-07-19T15:20:24.136+07:00  INFO 7312 --- [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-07-19T15:20:24.215+07:00  INFO 7312 --- [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.6.49.Final
+2026-07-19T15:20:24.266+07:00  INFO 7312 --- [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-07-19T15:20:24.647+07:00  INFO 7312 --- [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-07-19T15:20:24.856+07:00  WARN 7312 --- [           main] org.hibernate.orm.deprecation            : HHH90000025: SQLServerDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-07-19T15:20:24.880+07:00  INFO 7312 --- [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 16.0
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2026-07-19T15:20:26.452+07:00  INFO 7312 --- [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-07-19T15:20:26.454+07:00  INFO 7312 --- [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-07-19T15:20:26.736+07:00  INFO 7312 --- [           main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-07-19T15:20:27.992+07:00  INFO 7312 --- [           main] o.s.boot.web.servlet.RegistrationBean    : Filter disableJwtAutoRegistration was not registered (disabled)
+2026-07-19T15:20:28.066+07:00  INFO 7312 --- [           main] c.s.j.config.DatabaseInitializer         : DB init: USER_SEARCH_HISTORY ensured
+2026-07-19T15:20:28.069+07:00  INFO 7312 --- [           main] c.s.j.config.DatabaseInitializer         : DB init: TRENDING_TOPIC ensured
+2026-07-19T15:20:28.148+07:00  INFO 7312 --- [           main] c.s.j.config.DatabaseInitializer         : DB init: USER.RoleExpiryAt column ensured
+2026-07-19T15:20:28.205+07:00  INFO 7312 --- [           main] c.s.j.config.DatabaseInitializer         : DB init: USER.BackgroundUrl column ensured
+2026-07-19T15:20:28.215+07:00  INFO 7312 --- [           main] c.s.j.config.DatabaseInitializer         : DB init: PDF_REQUEST table ensured
+2026-07-19T15:20:29.805+07:00  INFO 7312 --- [           main] o.neo4j.driver.internal.DriverFactory    : Direct driver instance 117080108 created for server address localhost:7687
+2026-07-19T15:20:30.597+07:00  INFO 7312 --- [           main] org.springframework.data.neo4j.cypher    : Neo.ClientNotification.Schema.IndexOrConstraintAlreadyExists: `CREATE RANGE INDEX keyword_norm_text IF NOT EXISTS FOR (e:Keyword) ON (e.normalizedText)` has no effect.
+	CREATE INDEX keyword_norm_text IF NOT EXISTS FOR (k:Keyword) ON (k.normalizedText)
+`RANGE INDEX keyword_norm_text FOR (e:Keyword) ON (e.normalizedText)` already exists.
+2026-07-19T15:20:30.606+07:00  INFO 7312 --- [           main] c.s.j.service.GraphService               : Neo4j index on Keyword.normalizedText ensured
+2026-07-19T15:20:31.257+07:00  INFO 7312 --- [           main] eAuthenticationProviderManagerConfigurer : Global AuthenticationManager configured with AuthenticationProvider bean with name authenticationProvider
+2026-07-19T15:20:31.258+07:00  WARN 7312 --- [           main] r$InitializeUserDetailsManagerConfigurer : Global AuthenticationManager configured with an AuthenticationProvider bean. UserDetailsService beans will not be used by Spring Security for automatically configuring username/password login. Consider removing the AuthenticationProvider bean. Alternatively, consider using the UserDetailsService in a manually instantiated DaoAuthenticationProvider. If the current configuration is intentional, to turn off this warning, increase the logging level of 'org.springframework.security.config.annotation.authentication.configuration.InitializeUserDetailsBeanManagerConfigurer' to ERROR
+2026-07-19T15:20:32.742+07:00  INFO 7312 --- [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 1 endpoint beneath base path '/actuator'
+2026-07-19T15:20:32.925+07:00  WARN 7312 --- [           main] o.s.s.c.a.web.builders.WebSecurity       : You are asking Spring Security to ignore Deferred [Mvc [pattern='/api/v1/gap/**'], Ant [pattern='/api/v1/gap/**']]. This is not recommended -- please use permitAll via HttpSecurity#authorizeHttpRequests instead.
+2026-07-19T15:20:32.925+07:00  WARN 7312 --- [           main] o.s.s.c.a.web.builders.WebSecurity       : You are asking Spring Security to ignore Deferred [Mvc [pattern='/api/graphs/**'], Ant [pattern='/api/graphs/**']]. This is not recommended -- please use permitAll via HttpSecurity#authorizeHttpRequests instead.
+2026-07-19T15:20:32.926+07:00  WARN 7312 --- [           main] o.s.s.c.a.web.builders.WebSecurity       : You are asking Spring Security to ignore Deferred [Mvc [pattern='/swagger-ui/**'], Ant [pattern='/swagger-ui/**']]. This is not recommended -- please use permitAll via HttpSecurity#authorizeHttpRequests instead.
+2026-07-19T15:20:32.926+07:00  WARN 7312 --- [           main] o.s.s.c.a.web.builders.WebSecurity       : You are asking Spring Security to ignore Deferred [Mvc [pattern='/swagger-ui.html'], Ant [pattern='/swagger-ui.html']]. This is not recommended -- please use permitAll via HttpSecurity#authorizeHttpRequests instead.
+2026-07-19T15:20:32.926+07:00  WARN 7312 --- [           main] o.s.s.c.a.web.builders.WebSecurity       : You are asking Spring Security to ignore Deferred [Mvc [pattern='/v3/api-docs/**'], Ant [pattern='/v3/api-docs/**']]. This is not recommended -- please use permitAll via HttpSecurity#authorizeHttpRequests instead.
+2026-07-19T15:20:33.606+07:00  INFO 7312 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8080 (http) with context path '/'
+2026-07-19T15:20:33.619+07:00  INFO 7312 --- [           main] c.s.j.JournalTrackingApplication         : Started JournalTrackingApplication in 14.966 seconds (process running for 15.527)
+2026-07-19T15:20:33.950+07:00  INFO 7312 --- [   async-user-1] c.s.j.s.impl.WeeklyBreakoutServiceImpl   : Pre-warming weekly breakout cache (fast SQL path)...
+2026-07-19T15:20:33.950+07:00  INFO 7312 --- [   async-sync-3] c.s.j.service.ScheduledDataSyncService   : STARTUP SYNC: Auto-sync is DISABLED. Skipping startup bulk sync.
+2026-07-19T15:20:33.950+07:00  INFO 7312 --- [   async-sync-3] c.s.j.service.TrendingTopicSyncService   : === TRENDING TOPICS: Startup sync triggered ===
+2026-07-19T15:20:33.950+07:00  INFO 7312 --- [   async-user-1] c.s.j.s.impl.WeeklyBreakoutServiceImpl   : Computing weekly breakout topics (fast path — SQL only)...
+2026-07-19T15:20:33.951+07:00  INFO 7312 --- [   async-sync-3] c.s.j.service.TrendingTopicSyncService   : === TRENDING TOPICS SYNC: startup refresh ===
+2026-07-19T15:20:33.951+07:00  INFO 7312 --- [   async-sync-3] c.s.j.service.TrendingTopicSyncService   : Trending sync: Fetching from OpenAlex — https://api.openalex.org/works?filter=from_publication_date:2026-06-19,to_publication_date:2026-07-19,is_paratext:false&sort=cited_by_count:desc&per_page=50&select=title,concepts,keywords&mailto=longdk139@gmail.com&api_key=a1GlK1tumgrxZ13MA5dztY
+2026-07-19T15:20:34.146+07:00  INFO 7312 --- [   async-user-1] c.s.j.s.impl.WeeklyBreakoutServiceImpl   : Weekly breakout: 5 topics from TRENDING_TOPIC
+2026-07-19T15:20:34.147+07:00  INFO 7312 --- [   async-user-1] c.s.j.s.impl.WeeklyBreakoutServiceImpl   : Weekly breakout cache pre-warmed with 5 topics
+2026-07-19T15:20:34.296+07:00  WARN 7312 --- [   async-user-1] c.s.j.service.GraphService               : Category keywords query failed: duplicate element: using
+2026-07-19T15:20:36.240+07:00  INFO 7312 --- [   async-sync-3] c.s.j.service.TrendingTopicSyncService   : === TRENDING TOPICS SYNC DONE (startup): 10 topics in 2s ===
+2026-07-19T15:20:36.949+07:00  INFO 7312 --- [   async-sync-1] c.s.j.s.i.AuthorSuggestionServiceImpl    : Pre-warming suggested authors cache...
+2026-07-19T15:20:36.951+07:00  INFO 7312 --- [   async-sync-1] c.s.j.s.i.AuthorSuggestionServiceImpl    : Fetching fresh suggested authors via OpenAlex batch API
+2026-07-19T15:20:36.964+07:00  INFO 7312 --- [   async-sync-2] c.s.j.service.impl.JournalServiceImpl    : Pre-warming journal categories cache...
+2026-07-19T15:20:36.970+07:00  INFO 7312 --- [   async-sync-2] c.s.j.service.impl.JournalServiceImpl    : Fetching fresh journal categories for 2026-07-19
+2026-07-19T15:20:37.062+07:00  INFO 7312 --- [   async-sync-2] c.s.j.service.impl.JournalServiceImpl    : Found 28 clean top-level fields (filtered from 28 raw)
+2026-07-19T15:20:37.074+07:00  INFO 7312 --- [   async-sync-1] c.s.j.s.i.AuthorSuggestionServiceImpl    : Selected 2 candidates from DB (top by paper count)
+2026-07-19T15:20:37.083+07:00  INFO 7312 --- [   async-sync-1] c.s.j.s.i.AuthorSuggestionServiceImpl    : OpenAlex batch author call: 2 candidates → A5100376569|A5068353058 IDs
+2026-07-19T15:20:37.208+07:00  INFO 7312 --- [   async-sync-2] c.s.j.service.impl.JournalServiceImpl    : Journal categories cache warmed up
+2026-07-19T15:20:38.595+07:00  INFO 7312 --- [   async-sync-1] c.s.j.s.i.AuthorSuggestionServiceImpl    : OpenAlex returned 2 authors
+2026-07-19T15:20:38.596+07:00  INFO 7312 --- [   async-sync-1] c.s.j.s.i.AuthorSuggestionServiceImpl    : Suggested authors: 2 entries from batch call
+2026-07-19T15:20:38.597+07:00  INFO 7312 --- [   async-sync-1] c.s.j.s.i.AuthorSuggestionServiceImpl    : Only 2 authors from batch, falling back to direct OpenAlex top-cited query
+2026-07-19T15:20:39.827+07:00  INFO 7312 --- [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-07-19T15:20:39.828+07:00  INFO 7312 --- [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-07-19T15:20:39.839+07:00  INFO 7312 --- [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 10 ms
+2026-07-19T15:20:40.956+07:00  INFO 7312 --- [   async-sync-1] c.s.j.s.i.AuthorSuggestionServiceImpl    : Fallback returned 12 authors
+2026-07-19T15:20:40.957+07:00  INFO 7312 --- [   async-sync-1] c.s.j.s.i.AuthorSuggestionServiceImpl    : Suggested authors: 12 entries ready (cached 7 days)
+2026-07-19T15:20:40.957+07:00  INFO 7312 --- [   async-sync-1] c.s.j.s.i.AuthorSuggestionServiceImpl    : Suggested authors cache warmed up
+2026-07-19T15:20:41.786+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GapDataCrawlService        : Fetching OpenAlex: https://api.openalex.org/works?search=deep+learning&filter=publication_year:2024|2025|2026&per_page=50&sort=cited_by_count:desc&api_key=***&mailto=longdk139@gmail.com
+2026-07-19T15:20:45.056+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GapDataCrawlService        : Fetched 50 papers for keyword 'deep learning'
+2026-07-19T15:20:45.064+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.QualityScoreFilter         : Quality Score Summary: 0 influential (>=70), 48 solid (40-69), 2 low (<40) — keeping 48 papers (score >= 40)
+2026-07-19T15:20:46.640+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'e33e5324-6b6a-4904-b7f3-cafadeb45bb2' with 6 keywords (batched UNWIND)
+2026-07-19T15:20:52.066+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper e33e5324-6b6a-4904-b7f3-cafadeb45bb2 — 0 metrics, 3 datasets, 2 methods
+2026-07-19T15:20:53.164+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper e33e5324-6b6a-4904-b7f3-cafadeb45bb2: 3 datasets, 0 metrics, 2 methods
+2026-07-19T15:20:53.207+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '401fd196-27f6-464c-9ae1-2ca96ca51016' with 9 keywords (batched UNWIND)
+2026-07-19T15:20:56.413+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 401fd196-27f6-464c-9ae1-2ca96ca51016 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:20:56.469+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '40cf5668-5981-4753-b31f-6c991ae7970b' with 10 keywords (batched UNWIND)
+2026-07-19T15:21:03.207+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 40cf5668-5981-4753-b31f-6c991ae7970b — 2 metrics, 1 datasets, 1 methods
+2026-07-19T15:21:04.363+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 40cf5668-5981-4753-b31f-6c991ae7970b: 1 datasets, 2 metrics, 1 methods
+2026-07-19T15:21:04.421+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '08632e35-037a-4e3f-903c-9c3919de2bf1' with 6 keywords (batched UNWIND)
+2026-07-19T15:21:19.632+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 08632e35-037a-4e3f-903c-9c3919de2bf1 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:21:19.692+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '953da7d5-f90e-44a9-a23b-073e7fd76871' with 10 keywords (batched UNWIND)
+2026-07-19T15:21:28.461+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 953da7d5-f90e-44a9-a23b-073e7fd76871 — 2 metrics, 1 datasets, 7 methods
+2026-07-19T15:21:28.555+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 953da7d5-f90e-44a9-a23b-073e7fd76871: 1 datasets, 2 metrics, 7 methods
+2026-07-19T15:21:28.598+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '46737048-cd1c-4568-9423-7e41d51e7675' with 8 keywords (batched UNWIND)
+2026-07-19T15:21:42.656+07:00  WARN 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : Failed to parse AI enrichment response: Unrecognized token 'We': was expecting (JSON String, Number, Array, Object or token 'null', 'true' or 'false')
+ at [Source: REDACTED (`StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION` disabled); line: 1, column: 1]
+2026-07-19T15:21:42.656+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 46737048-cd1c-4568-9423-7e41d51e7675 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:21:42.722+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '30151384-60ef-4924-b38a-4e5b4e737ed1' with 9 keywords (batched UNWIND)
+2026-07-19T15:21:45.000+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 30151384-60ef-4924-b38a-4e5b4e737ed1 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:21:45.052+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '52fa4536-079c-4530-92be-ae0c620b0649' with 4 keywords (batched UNWIND)
+2026-07-19T15:21:53.073+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 52fa4536-079c-4530-92be-ae0c620b0649 — 1 metrics, 0 datasets, 1 methods
+2026-07-19T15:21:53.529+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 52fa4536-079c-4530-92be-ae0c620b0649: 0 datasets, 1 metrics, 1 methods
+2026-07-19T15:21:53.579+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '38207375-9339-4e67-9c5c-91f7dfe233e5' with 10 keywords (batched UNWIND)
+2026-07-19T15:21:56.109+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 38207375-9339-4e67-9c5c-91f7dfe233e5 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:21:56.143+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'af06d86a-60f1-478b-9a86-659c42b0ddb2' with 5 keywords (batched UNWIND)
+2026-07-19T15:21:57.678+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper af06d86a-60f1-478b-9a86-659c42b0ddb2 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:21:57.720+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '9f3c241a-242b-4a00-b341-b43d2e9df7a7' with 4 keywords (batched UNWIND)
+2026-07-19T15:21:59.690+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 9f3c241a-242b-4a00-b341-b43d2e9df7a7 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:21:59.728+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '123c87f7-3469-48f9-b5cb-3674029c8007' with 4 keywords (batched UNWIND)
+2026-07-19T15:22:06.826+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 123c87f7-3469-48f9-b5cb-3674029c8007 — 0 metrics, 1 datasets, 0 methods
+2026-07-19T15:22:06.860+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 123c87f7-3469-48f9-b5cb-3674029c8007: 1 datasets, 0 metrics, 0 methods
+2026-07-19T15:22:06.922+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'f40e491e-4351-4af7-a037-aa3f39bfab3c' with 4 keywords (batched UNWIND)
+2026-07-19T15:22:21.253+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper f40e491e-4351-4af7-a037-aa3f39bfab3c — 0 metrics, 6 datasets, 0 methods
+2026-07-19T15:22:21.296+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper f40e491e-4351-4af7-a037-aa3f39bfab3c: 6 datasets, 0 metrics, 0 methods
+2026-07-19T15:22:21.349+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'a0525612-b4e2-4f47-b722-cc22068583d3' with 8 keywords (batched UNWIND)
+2026-07-19T15:22:30.051+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper a0525612-b4e2-4f47-b722-cc22068583d3 — 0 metrics, 0 datasets, 2 methods
+2026-07-19T15:22:30.117+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper a0525612-b4e2-4f47-b722-cc22068583d3: 0 datasets, 0 metrics, 2 methods
+2026-07-19T15:22:30.868+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'def998ee-f657-4dee-baa0-87ddec7d67a1' with 4 keywords (batched UNWIND)
+2026-07-19T15:22:33.399+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper def998ee-f657-4dee-baa0-87ddec7d67a1 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:22:33.451+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'fbc73a4a-63f2-4af7-ad9c-6a6d70ccdd36' with 2 keywords (batched UNWIND)
+2026-07-19T15:22:35.521+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper fbc73a4a-63f2-4af7-ad9c-6a6d70ccdd36 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:22:35.564+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '50851f8a-a325-4a39-aaaf-4faa7180f21d' with 3 keywords (batched UNWIND)
+2026-07-19T15:22:37.751+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 50851f8a-a325-4a39-aaaf-4faa7180f21d — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:22:37.801+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '04279600-bca7-4d3c-b78f-102b5b652a8d' with 5 keywords (batched UNWIND)
+2026-07-19T15:22:47.609+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 04279600-bca7-4d3c-b78f-102b5b652a8d — 0 metrics, 1 datasets, 0 methods
+2026-07-19T15:22:47.830+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 04279600-bca7-4d3c-b78f-102b5b652a8d: 1 datasets, 0 metrics, 0 methods
+2026-07-19T15:22:47.861+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '8a3bc3eb-fc9c-4382-b64b-5864c88c95ee' with 8 keywords (batched UNWIND)
+2026-07-19T15:22:50.974+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 8a3bc3eb-fc9c-4382-b64b-5864c88c95ee — 0 metrics, 0 datasets, 2 methods
+2026-07-19T15:22:51.029+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 8a3bc3eb-fc9c-4382-b64b-5864c88c95ee: 0 datasets, 0 metrics, 2 methods
+2026-07-19T15:22:51.117+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '6c7d3be4-297e-4113-b087-e90a388bf6bf' with 4 keywords (batched UNWIND)
+2026-07-19T15:22:54.616+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 6c7d3be4-297e-4113-b087-e90a388bf6bf — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:22:54.660+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '280b9d45-6aae-43c5-a035-8e8c54726e00' with 6 keywords (batched UNWIND)
+2026-07-19T15:22:56.843+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 280b9d45-6aae-43c5-a035-8e8c54726e00 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:22:56.878+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '9d7a90dd-e898-411c-a2fd-b4a6daf64317' with 2 keywords (batched UNWIND)
+2026-07-19T15:23:01.228+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 9d7a90dd-e898-411c-a2fd-b4a6daf64317 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:23:01.275+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'faf1b4b5-cf44-4470-a6fe-17a2ee122bb7' with 6 keywords (batched UNWIND)
+2026-07-19T15:23:06.446+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper faf1b4b5-cf44-4470-a6fe-17a2ee122bb7 — 0 metrics, 0 datasets, 1 methods
+2026-07-19T15:23:06.731+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper faf1b4b5-cf44-4470-a6fe-17a2ee122bb7: 0 datasets, 0 metrics, 1 methods
+2026-07-19T15:23:06.773+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '2989b8ef-1338-4814-bbb9-f20093bf876e' with 5 keywords (batched UNWIND)
+2026-07-19T15:23:22.453+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 2989b8ef-1338-4814-bbb9-f20093bf876e — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:23:22.517+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'c8c91519-cbbc-4984-92bc-887491930446' with 6 keywords (batched UNWIND)
+2026-07-19T15:23:27.801+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper c8c91519-cbbc-4984-92bc-887491930446 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:23:28.040+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '70e64a1d-c28f-451a-926c-31b942721826' with 10 keywords (batched UNWIND)
+2026-07-19T15:23:31.447+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 70e64a1d-c28f-451a-926c-31b942721826 — 0 metrics, 0 datasets, 1 methods
+2026-07-19T15:23:31.468+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 70e64a1d-c28f-451a-926c-31b942721826: 0 datasets, 0 metrics, 1 methods
+2026-07-19T15:23:31.505+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '4ad6239f-cbfc-4f04-8b85-b291ced45db3' with 4 keywords (batched UNWIND)
+2026-07-19T15:23:39.536+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 4ad6239f-cbfc-4f04-8b85-b291ced45db3 — 0 metrics, 1 datasets, 4 methods
+2026-07-19T15:23:39.588+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 4ad6239f-cbfc-4f04-8b85-b291ced45db3: 1 datasets, 0 metrics, 4 methods
+2026-07-19T15:23:39.617+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'b4e44378-b51c-4b12-a05e-b507a4f43958' with 7 keywords (batched UNWIND)
+2026-07-19T15:23:43.324+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper b4e44378-b51c-4b12-a05e-b507a4f43958 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:23:43.385+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '6ae3b7c9-26d4-4c36-bb0e-114c509614b1' with 10 keywords (batched UNWIND)
+2026-07-19T15:23:48.926+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 6ae3b7c9-26d4-4c36-bb0e-114c509614b1 — 0 metrics, 0 datasets, 6 methods
+2026-07-19T15:23:48.970+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 6ae3b7c9-26d4-4c36-bb0e-114c509614b1: 0 datasets, 0 metrics, 6 methods
+2026-07-19T15:23:49.013+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'ef31d6f2-f9a4-42cd-ac7b-8a440ac330fa' with 5 keywords (batched UNWIND)
+2026-07-19T15:23:54.113+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper ef31d6f2-f9a4-42cd-ac7b-8a440ac330fa — 0 metrics, 0 datasets, 1 methods
+2026-07-19T15:23:54.129+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper ef31d6f2-f9a4-42cd-ac7b-8a440ac330fa: 0 datasets, 0 metrics, 1 methods
+2026-07-19T15:23:54.164+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '77eca247-d7bd-4068-a792-6c993c0b1cd8' with 8 keywords (batched UNWIND)
+2026-07-19T15:24:02.324+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 77eca247-d7bd-4068-a792-6c993c0b1cd8 — 1 metrics, 0 datasets, 1 methods
+2026-07-19T15:24:02.367+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 77eca247-d7bd-4068-a792-6c993c0b1cd8: 0 datasets, 1 metrics, 1 methods
+2026-07-19T15:24:02.393+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'ae57fe7d-6bdc-4966-8e45-6dfa3727d269' with 5 keywords (batched UNWIND)
+2026-07-19T15:24:10.296+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper ae57fe7d-6bdc-4966-8e45-6dfa3727d269 — 0 metrics, 5 datasets, 2 methods
+2026-07-19T15:24:10.347+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper ae57fe7d-6bdc-4966-8e45-6dfa3727d269: 5 datasets, 0 metrics, 2 methods
+2026-07-19T15:24:10.392+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '81a5534d-33ee-4848-9f71-208d92a4c330' with 9 keywords (batched UNWIND)
+2026-07-19T15:24:25.121+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 81a5534d-33ee-4848-9f71-208d92a4c330 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:24:25.192+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'f30ac70a-bd8a-4600-bbfd-49cd7bc963cc' with 7 keywords (batched UNWIND)
+2026-07-19T15:24:27.822+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper f30ac70a-bd8a-4600-bbfd-49cd7bc963cc — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:24:27.879+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '941a11e5-b844-4c18-a416-9cc38f015ad9' with 5 keywords (batched UNWIND)
+2026-07-19T15:24:42.562+07:00  WARN 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : Failed to parse AI enrichment response: Unrecognized token 'We': was expecting (JSON String, Number, Array, Object or token 'null', 'true' or 'false')
+ at [Source: REDACTED (`StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION` disabled); line: 1, column: 1]
+2026-07-19T15:24:42.563+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 941a11e5-b844-4c18-a416-9cc38f015ad9 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:24:42.612+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '3558df40-bce7-4680-9f7c-0a55d1643dc6' with 6 keywords (batched UNWIND)
+2026-07-19T15:24:49.003+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 3558df40-bce7-4680-9f7c-0a55d1643dc6 — 0 metrics, 0 datasets, 2 methods
+2026-07-19T15:24:49.048+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 3558df40-bce7-4680-9f7c-0a55d1643dc6: 0 datasets, 0 metrics, 2 methods
+2026-07-19T15:24:49.085+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '8b82d040-8f35-4790-b0d0-9b5fea869a70' with 7 keywords (batched UNWIND)
+2026-07-19T15:24:51.969+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 8b82d040-8f35-4790-b0d0-9b5fea869a70 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:24:52.030+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '2a0c7f5d-eaab-4001-968d-4bb97c02faec' with 4 keywords (batched UNWIND)
+2026-07-19T15:24:59.089+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 2a0c7f5d-eaab-4001-968d-4bb97c02faec — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:24:59.137+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '26af3916-bb37-4f06-b0b8-00a70c98d099' with 10 keywords (batched UNWIND)
+2026-07-19T15:25:03.620+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 26af3916-bb37-4f06-b0b8-00a70c98d099 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:25:03.692+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '1c73fd44-4276-4515-a58b-0e59a9d58097' with 6 keywords (batched UNWIND)
+2026-07-19T15:25:06.295+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 1c73fd44-4276-4515-a58b-0e59a9d58097 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:25:06.343+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '6000c15a-5065-4d21-ac38-a512163c0c2a' with 10 keywords (batched UNWIND)
+2026-07-19T15:25:16.729+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 6000c15a-5065-4d21-ac38-a512163c0c2a — 1 metrics, 0 datasets, 9 methods
+2026-07-19T15:25:17.132+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper 6000c15a-5065-4d21-ac38-a512163c0c2a: 0 datasets, 1 metrics, 9 methods
+2026-07-19T15:25:17.165+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '4111047c-951d-4ba2-8fda-9460f21b27ee' with 6 keywords (batched UNWIND)
+2026-07-19T15:25:18.947+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 4111047c-951d-4ba2-8fda-9460f21b27ee — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:25:18.996+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '994c3e1c-1de5-4b1b-b67a-c7e2b155631c' with 5 keywords (batched UNWIND)
+2026-07-19T15:25:22.639+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 994c3e1c-1de5-4b1b-b67a-c7e2b155631c — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:25:22.730+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'c0a41905-dc5a-4ecb-9857-1a868e047ca0' with 9 keywords (batched UNWIND)
+2026-07-19T15:25:28.675+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper c0a41905-dc5a-4ecb-9857-1a868e047ca0 — 1 metrics, 0 datasets, 6 methods
+2026-07-19T15:25:28.769+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper c0a41905-dc5a-4ecb-9857-1a868e047ca0: 0 datasets, 1 metrics, 6 methods
+2026-07-19T15:25:28.838+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '62466a50-d7a8-4b47-89ba-466e3a47c531' with 8 keywords (batched UNWIND)
+2026-07-19T15:25:42.824+07:00  WARN 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : Failed to parse AI enrichment response: Unrecognized token 'We': was expecting (JSON String, Number, Array, Object or token 'null', 'true' or 'false')
+ at [Source: REDACTED (`StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION` disabled); line: 1, column: 1]
+2026-07-19T15:25:42.824+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 62466a50-d7a8-4b47-89ba-466e3a47c531 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:25:42.874+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'bc083af3-e30c-4554-8cf1-714440572b46' with 8 keywords (batched UNWIND)
+2026-07-19T15:25:50.999+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper bc083af3-e30c-4554-8cf1-714440572b46 — 0 metrics, 0 datasets, 5 methods
+2026-07-19T15:25:51.235+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper bc083af3-e30c-4554-8cf1-714440572b46: 0 datasets, 0 metrics, 5 methods
+2026-07-19T15:25:51.272+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper '6114c001-ed28-4928-bb8f-1cd2c719cf60' with 4 keywords (batched UNWIND)
+2026-07-19T15:25:53.776+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper 6114c001-ed28-4928-bb8f-1cd2c719cf60 — 0 metrics, 0 datasets, 0 methods
+2026-07-19T15:25:53.816+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphService               : Neo4j: saved paper 'ef6dac51-83b1-430c-bcbc-22a796fe2137' with 5 keywords (batched UNWIND)
+2026-07-19T15:25:59.671+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.PaperEnrichmentService     : CACHE STORE: enrichment for paper ef6dac51-83b1-430c-bcbc-22a796fe2137 — 0 metrics, 0 datasets, 8 methods
+2026-07-19T15:25:59.697+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GraphEnrichmentService     : Neo4j enrichment saved for paper ef6dac51-83b1-430c-bcbc-22a796fe2137: 0 datasets, 0 metrics, 8 methods
+2026-07-19T15:25:59.699+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GapDataCrawlService        : Running hierarchy migration...
+2026-07-19T15:26:00.309+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GapDataCrawlService        : Year nodes + PUBLISHED_IN created
+2026-07-19T15:26:00.597+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GapDataCrawlService        : 35 ResearchField nodes created
+2026-07-19T15:26:00.759+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GapDataCrawlService        : No topics in SQL — skipping Topic node migration
+2026-07-19T15:26:00.760+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GapDataCrawlService        : Hierarchy migration complete
+2026-07-19T15:26:00.760+07:00  INFO 7312 --- [nio-8080-exec-5] c.s.j.service.GapDataCrawlService        : Crawl complete: 48 papers saved, 21 enriched
+2026-07-19T15:29:25.169+07:00  WARN 7312 --- [nio-8080-exec-6] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownRelationshipTypeWarning: The provided relationship type is not in the database.
+	MATCH (y:Year) WHERE y.year IN $years
+	MATCH (p:Paper)-[:PUBLISHED_IN]->(y)
+	OPTIONAL MATCH (p)-[:BELONGS_TO_FIELD]->(f:ResearchField)
+	                     ^
+	RETURN y.year AS year, p.paperId AS paperId, p.title AS title,
+	       f.fieldId AS fieldId, f.fieldName AS fieldName
+	LIMIT 500
+One of the relationship types in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing relationship type is: BELONGS_TO_FIELD)
+2026-07-19T15:29:25.354+07:00  WARN 7312 --- [nio-8080-exec-6] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (t:Topic)
+	OPTIONAL MATCH (t)-[:BELONGS_TO]->(f:ResearchField)
+	OPTIONAL MATCH (t)-[c:COVERS]->(k:Keyword)
+	RETURN t.topicId AS topicId, t.topicName AS topicName,
+	         ^
+	       t.trendScore AS trendScore, t.isTrending AS isTrending,
+	       f.fieldId AS fieldId, k.keywordId AS keywordId,
+	       c.weight AS weight
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: topicId)
+2026-07-19T15:29:25.355+07:00  WARN 7312 --- [nio-8080-exec-6] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (t:Topic)
+	OPTIONAL MATCH (t)-[:BELONGS_TO]->(f:ResearchField)
+	OPTIONAL MATCH (t)-[c:COVERS]->(k:Keyword)
+	RETURN t.topicId AS topicId, t.topicName AS topicName,
+	                               ^
+	       t.trendScore AS trendScore, t.isTrending AS isTrending,
+	       f.fieldId AS fieldId, k.keywordId AS keywordId,
+	       c.weight AS weight
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: topicName)
+2026-07-19T15:29:25.356+07:00  WARN 7312 --- [nio-8080-exec-6] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (t:Topic)
+	OPTIONAL MATCH (t)-[:BELONGS_TO]->(f:ResearchField)
+	OPTIONAL MATCH (t)-[c:COVERS]->(k:Keyword)
+	RETURN t.topicId AS topicId, t.topicName AS topicName,
+	       t.trendScore AS trendScore, t.isTrending AS isTrending,
+	         ^
+	       f.fieldId AS fieldId, k.keywordId AS keywordId,
+	       c.weight AS weight
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: trendScore)
+2026-07-19T15:29:25.357+07:00  WARN 7312 --- [nio-8080-exec-6] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownRelationshipTypeWarning: The provided relationship type is not in the database.
+	MATCH (t:Topic)
+	OPTIONAL MATCH (t)-[:BELONGS_TO]->(f:ResearchField)
+	                     ^
+	OPTIONAL MATCH (t)-[c:COVERS]->(k:Keyword)
+	RETURN t.topicId AS topicId, t.topicName AS topicName,
+	       t.trendScore AS trendScore, t.isTrending AS isTrending,
+	       f.fieldId AS fieldId, k.keywordId AS keywordId,
+	       c.weight AS weight
+One of the relationship types in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing relationship type is: BELONGS_TO)
+2026-07-19T15:29:25.358+07:00  WARN 7312 --- [nio-8080-exec-6] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownRelationshipTypeWarning: The provided relationship type is not in the database.
+	MATCH (t:Topic)
+	OPTIONAL MATCH (t)-[:BELONGS_TO]->(f:ResearchField)
+	OPTIONAL MATCH (t)-[c:COVERS]->(k:Keyword)
+	                      ^
+	RETURN t.topicId AS topicId, t.topicName AS topicName,
+	       t.trendScore AS trendScore, t.isTrending AS isTrending,
+	       f.fieldId AS fieldId, k.keywordId AS keywordId,
+	       c.weight AS weight
+One of the relationship types in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing relationship type is: COVERS)
+2026-07-19T15:29:25.359+07:00  WARN 7312 --- [nio-8080-exec-6] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownLabelWarning: The provided label is not in the database.
+	MATCH (t:Topic)
+	         ^
+	OPTIONAL MATCH (t)-[:BELONGS_TO]->(f:ResearchField)
+	OPTIONAL MATCH (t)-[c:COVERS]->(k:Keyword)
+	RETURN t.topicId AS topicId, t.topicName AS topicName,
+	       t.trendScore AS trendScore, t.isTrending AS isTrending,
+	       f.fieldId AS fieldId, k.keywordId AS keywordId,
+	       c.weight AS weight
+One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Topic)
+2026-07-19T15:29:25.360+07:00  WARN 7312 --- [nio-8080-exec-6] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (t:Topic)
+	OPTIONAL MATCH (t)-[:BELONGS_TO]->(f:ResearchField)
+	OPTIONAL MATCH (t)-[c:COVERS]->(k:Keyword)
+	RETURN t.topicId AS topicId, t.topicName AS topicName,
+	       t.trendScore AS trendScore, t.isTrending AS isTrending,
+	       f.fieldId AS fieldId, k.keywordId AS keywordId,
+	       c.weight AS weight
+	         ^
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: weight)
+2026-07-19T15:29:25.362+07:00  WARN 7312 --- [nio-8080-exec-6] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (t:Topic)
+	OPTIONAL MATCH (t)-[:BELONGS_TO]->(f:ResearchField)
+	OPTIONAL MATCH (t)-[c:COVERS]->(k:Keyword)
+	RETURN t.topicId AS topicId, t.topicName AS topicName,
+	       t.trendScore AS trendScore, t.isTrending AS isTrending,
+	                                     ^
+	       f.fieldId AS fieldId, k.keywordId AS keywordId,
+	       c.weight AS weight
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: isTrending)
+2026-07-19T15:29:26.171+07:00  INFO 7312 --- [nio-8080-exec-6] c.s.j.service.GraphExplorerService       : Hierarchy graph: 366 nodes, 375 links
+2026-07-19T15:31:46.656+07:00  INFO 7312 --- [nio-8080-exec-7] c.s.j.controller.GapExplorerController   : MCP Chatbot: processing idea 'AI in healthcare'...
+2026-07-19T15:33:15.686+07:00  INFO 7312 --- [nio-8080-exec-7] c.s.j.controller.GapExplorerController   : MCP Chatbot: 3 suggestions
+2026-07-19T15:33:31.846+07:00  WARN 7312 --- [nio-8080-exec-9] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownRelationshipTypeWarning: The provided relationship type is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	                   ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the relationship types in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing relationship type is: AUTHORED)
+2026-07-19T15:33:31.848+07:00  WARN 7312 --- [nio-8080-exec-9] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	         ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: fullName)
+2026-07-19T15:33:31.848+07:00  WARN 7312 --- [nio-8080-exec-9] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                             ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: hIndex)
+2026-07-19T15:33:31.849+07:00  WARN 7312 --- [nio-8080-exec-9] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                                                 ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: country)
+2026-07-19T15:33:31.849+07:00  WARN 7312 --- [nio-8080-exec-9] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownLabelWarning: The provided label is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	         ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Author)
+2026-07-19T15:33:40.161+07:00  INFO 7312 --- [nio-8080-exec-1] c.s.j.service.impl.AuthServiceImpl       : User logged in: email=researcher@tester.com, role=researcher, roleExpiryAt=null
+2026-07-19T15:33:45.574+07:00  INFO 7312 --- [nio-8080-exec-9] c.s.j.s.impl.WeeklyBreakoutServiceImpl   : CACHE HIT: weekly breakout → 5 topics (from cache)
+2026-07-19T15:35:20.728+07:00  WARN 7312 --- [nio-8080-exec-7] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownRelationshipTypeWarning: The provided relationship type is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	                   ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the relationship types in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing relationship type is: AUTHORED)
+2026-07-19T15:35:20.732+07:00  WARN 7312 --- [nio-8080-exec-7] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	         ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: fullName)
+2026-07-19T15:35:20.732+07:00  WARN 7312 --- [nio-8080-exec-7] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                             ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: hIndex)
+2026-07-19T15:35:20.732+07:00  WARN 7312 --- [nio-8080-exec-7] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                                                 ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: country)
+2026-07-19T15:35:20.733+07:00  WARN 7312 --- [nio-8080-exec-7] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownLabelWarning: The provided label is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	         ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Author)
+2026-07-19T15:35:42.134+07:00  WARN 7312 --- [io-8080-exec-10] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownRelationshipTypeWarning: The provided relationship type is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	                   ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the relationship types in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing relationship type is: AUTHORED)
+2026-07-19T15:35:42.135+07:00  WARN 7312 --- [io-8080-exec-10] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	         ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: fullName)
+2026-07-19T15:35:42.135+07:00  WARN 7312 --- [io-8080-exec-10] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                             ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: hIndex)
+2026-07-19T15:35:42.135+07:00  WARN 7312 --- [io-8080-exec-10] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                                                 ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: country)
+2026-07-19T15:35:42.136+07:00  WARN 7312 --- [io-8080-exec-10] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownLabelWarning: The provided label is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	         ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Author)
+2026-07-19T15:35:42.481+07:00  WARN 7312 --- [nio-8080-exec-2] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownRelationshipTypeWarning: The provided relationship type is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	                   ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the relationship types in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing relationship type is: AUTHORED)
+2026-07-19T15:35:42.482+07:00  WARN 7312 --- [nio-8080-exec-2] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	         ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: fullName)
+2026-07-19T15:35:42.482+07:00  WARN 7312 --- [nio-8080-exec-2] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                             ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: hIndex)
+2026-07-19T15:35:42.482+07:00  WARN 7312 --- [nio-8080-exec-2] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                                                 ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: country)
+2026-07-19T15:35:42.483+07:00  WARN 7312 --- [nio-8080-exec-2] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownLabelWarning: The provided label is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	         ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Author)
+2026-07-19T15:35:43.352+07:00  WARN 7312 --- [nio-8080-exec-5] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownRelationshipTypeWarning: The provided relationship type is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	                   ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the relationship types in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing relationship type is: AUTHORED)
+2026-07-19T15:35:43.352+07:00  WARN 7312 --- [nio-8080-exec-5] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	         ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: fullName)
+2026-07-19T15:35:43.352+07:00  WARN 7312 --- [nio-8080-exec-5] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                             ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: hIndex)
+2026-07-19T15:35:43.353+07:00  WARN 7312 --- [nio-8080-exec-5] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                                                 ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: country)
+2026-07-19T15:35:43.353+07:00  WARN 7312 --- [nio-8080-exec-5] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownLabelWarning: The provided label is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	         ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Author)
+2026-07-19T15:36:42.219+07:00  INFO 7312 --- [nio-8080-exec-7] c.s.j.controller.GapExplorerController   : MCP Chatbot: processing idea 'I want to explore deep neural networks for image c...'...
+2026-07-19T15:37:54.668+07:00  INFO 7312 --- [nio-8080-exec-7] c.s.j.controller.GapExplorerController   : MCP Chatbot: 3 suggestions
+2026-07-19T15:38:23.758+07:00  WARN 7312 --- [nio-8080-exec-3] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownRelationshipTypeWarning: The provided relationship type is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	                   ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the relationship types in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing relationship type is: AUTHORED)
+2026-07-19T15:38:23.759+07:00  WARN 7312 --- [nio-8080-exec-3] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	         ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: fullName)
+2026-07-19T15:38:23.760+07:00  WARN 7312 --- [nio-8080-exec-3] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                             ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: hIndex)
+2026-07-19T15:38:23.760+07:00  WARN 7312 --- [nio-8080-exec-3] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownPropertyKeyWarning: The provided property key is not in the database
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	                                                 ^
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the property names in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing property name is: country)
+2026-07-19T15:38:23.760+07:00  WARN 7312 --- [nio-8080-exec-3] o.s.data.neo4j.cypher.unrecognized       : Neo.ClientNotification.Statement.UnknownLabelWarning: The provided label is not in the database.
+	MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:PUBLISHED_IN]->(y:Year)
+	         ^
+	WHERE y.year IN $years AND (
+	  EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw1}) }
+	  OR EXISTS { MATCH (p)-[:HAS_KEYWORD]->(:Keyword {normalizedText: $kw2}) }
+	)
+	RETURN a.fullName AS name, a.hIndex AS hIndex, a.country AS country,
+	       COUNT(DISTINCT p) AS paperCount
+	ORDER BY paperCount DESC LIMIT $limit
+One of the labels in your query is not available in the database, make sure you didn't misspell it or that the label is available when you run this statement in your application (the missing label name is: Author)

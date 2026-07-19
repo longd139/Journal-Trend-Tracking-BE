@@ -35,4 +35,10 @@ public interface ResearchTopicRepository extends JpaRepository<ResearchTopic, UU
      * Topics within a specific research field, ordered by trend score descending.
      */
     List<ResearchTopic> findByField_FieldIdOrderByTrendScoreDesc(UUID fieldId, Pageable pageable);
+    /**
+     * Eagerly fetch all topic data with field ID to avoid LazyInitializationException.
+     * Returns: [topicId (UUID), topicName (String), trendScore (BigDecimal), isTrending (Boolean), fieldId (UUID)]
+     */
+    @Query("SELECT t.topicId, t.topicName, t.trendScore, t.isTrending, f.fieldId FROM ResearchTopic t LEFT JOIN t.field f")
+    List<Object[]> findAllTopicData();
 }

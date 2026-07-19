@@ -19,4 +19,6 @@ public class Neo4jPaper {
     private String doi; // DOI để deduplicate khi sync
 
     private Integer pubYear; // Năm xuất bản
+
+    private String fieldId; // FK → ResearchField.fieldId (dùng để filter theo lĩnh vực)
 }

@@ -214,9 +214,24 @@ public class GraphService {
      */
     public void savePaperWithKeywords(String paperId,
                                        Integer pubYear, List<String> keywords) {
+        savePaperWithKeywords(paperId, pubYear, null, null, null, keywords);
+    }
+
+    /**
+     * Save paper with full metadata + keywords.
+     * @param title  paper title (can be null for backwards compatibility)
+     * @param doi    paper DOI (can be null)
+     * @param fieldId research field UUID (can be null)
+     */
+    public void savePaperWithKeywords(String paperId,
+                                       Integer pubYear,
+                                       String title,
+                                       String doi,
+                                       String fieldId,
+                                       List<String> keywords) {
         if (keywords == null || keywords.isEmpty()) {
             // Vẫn lưu paper node dù không có keyword
-            mergePaperOnly(paperId, pubYear);
+            mergePaperOnly(paperId, pubYear, title, doi, fieldId);
             return;
         }
 
@@ -243,18 +258,18 @@ public class GraphService {
         }
 
         if (uniqueKws.isEmpty()) {
-            mergePaperOnly(paperId, pubYear);
+            mergePaperOnly(paperId, pubYear, title, doi, fieldId);
             return;
         }
 
         List<Map<String, String>> kwList = new ArrayList<>(uniqueKws.values());
 
         // Single Cypher query with UNWIND — batches all keywords for one paper
-        // Paper node: only paperId + pubYear (title/doi in SQL, saves Neo4j storage)
+        // Paper node: stores paperId + pubYear + title + doi + fieldId for graph display
         String cypherQuery = """
                 MERGE (p:Paper {paperId: $paperId})
-                ON CREATE SET p.pubYear = $pubYear
-                ON MATCH SET p.pubYear = $pubYear
+                ON CREATE SET p.pubYear = $pubYear, p.title = $title, p.doi = $doi, p.fieldId = $fieldId
+                ON MATCH SET p.pubYear = $pubYear, p.title = $title, p.doi = $doi, p.fieldId = $fieldId
                 WITH p
                 UNWIND $keywords AS kw
                 MERGE (k:Keyword {keywordId: kw.keywordId})
@@ -267,6 +282,9 @@ public class GraphService {
             neo4jClient.query(cypherQuery)
                     .bind(paperId).to("paperId")
                     .bind(pubYear != null ? pubYear : 0).to("pubYear")
+                    .bind(title != null ? title : "").to("title")
+                    .bind(doi != null ? doi : "").to("doi")
+                    .bind(fieldId != null ? fieldId : "").to("fieldId")
                     .bind(kwList).to("keywords")
                     .run();
 
@@ -787,17 +805,21 @@ public class GraphService {
     //  PRIVATE HELPERS
     // ============================================
 
-    private void mergePaperOnly(String paperId, Integer pubYear) {
+    private void mergePaperOnly(String paperId, Integer pubYear,
+                                  String title, String doi, String fieldId) {
         String cypherQuery = """
                 MERGE (p:Paper {paperId: $paperId})
-                ON CREATE SET p.pubYear = $pubYear
-                ON MATCH SET p.pubYear = $pubYear
+                ON CREATE SET p.pubYear = $pubYear, p.title = $title, p.doi = $doi, p.fieldId = $fieldId
+                ON MATCH SET p.pubYear = $pubYear, p.title = $title, p.doi = $doi, p.fieldId = $fieldId
                 """;
 
         try {
             neo4jClient.query(cypherQuery)
                     .bind(paperId).to("paperId")
                     .bind(pubYear != null ? pubYear : 0).to("pubYear")
+                    .bind(title != null ? title : "").to("title")
+                    .bind(doi != null ? doi : "").to("doi")
+                    .bind(fieldId != null ? fieldId : "").to("fieldId")
                     .run();
         } catch (Exception e) {
             log.error("Neo4j merge paper failed for {}: {}", paperId, e.getMessage());

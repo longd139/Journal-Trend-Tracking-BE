@@ -1,12 +1,12 @@
 package com.sra.journal_tracking.security;
 
 import java.io.IOException;
+import java.util.Set;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
-import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -18,13 +18,33 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
-@Component
+/**
+ * JWT authentication filter — extracts and validates JWT from request.
+ * <p>
+ * IMPORTANT: This class does NOT have @Component — it must only be registered
+ * via {@code http.addFilterBefore()} in {@link SecurityConfig}. Spring Boot
+ * auto-registering it as a generic servlet filter (via @Component) causes
+ * double-registration, which breaks {@code web.ignoring()} and causes
+ * {@code AuthorizationDeniedException} for public paths like /api/v1/gap/**.
+ */
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Set<String> PUBLIC_PATHS = Set.of(
+            "/api/auth/", "/api/test/", "/api/public/",
+            "/api/graphs/", "/api/v1/gap/", "/api/v1/gap",
+            "/swagger-ui/", "/v3/api-docs/"
+    );
 
     private final JwtTokenProvider tokenProvider;
     private final CustomUserDetailsService customUserDetailsService;
     private final UserSessionRepository userSessionRepository;
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return PUBLIC_PATHS.stream().anyMatch(path::startsWith);
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
