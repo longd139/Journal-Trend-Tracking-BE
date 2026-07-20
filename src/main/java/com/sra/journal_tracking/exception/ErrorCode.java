@@ -60,7 +60,14 @@ public enum ErrorCode {
     IDEA_ANALYSIS_UNAUTHORIZED(HttpStatus.FORBIDDEN, "You do not have permission to access this analysis."),
     IDEA_KEYWORDS_EMPTY(HttpStatus.BAD_REQUEST, "At least one keyword is required."),
     IDEA_TEXT_EMPTY(HttpStatus.BAD_REQUEST, "Idea text cannot be empty."),
-    IDEA_AI_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "AI analysis is temporarily unavailable. Please try again later.");
+    IDEA_AI_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "AI analysis is temporarily unavailable. Please try again later."),
+
+    // ---- LỖI PAPER REPORT ----
+    REPORT_IMAGE_INVALID(HttpStatus.BAD_REQUEST, "Only image files are allowed."),
+    REPORT_IMAGE_TOO_LARGE(HttpStatus.BAD_REQUEST, "Each image must be under 5MB."),
+    REPORT_IMAGE_LIMIT(HttpStatus.BAD_REQUEST, "Maximum 5 images allowed per report."),
+    REPORT_IMAGE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to upload report image."),
+    REPORT_ALREADY_EXISTS(HttpStatus.CONFLICT, "You have already reported this paper.");
 
     private final HttpStatus statusCode;
     private final String message;

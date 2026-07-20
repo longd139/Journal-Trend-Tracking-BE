@@ -81,7 +81,9 @@ public class PdfRequestServiceImpl implements PdfRequestService {
                             .status(PdfRequestStatus.PENDING)
                             .userMessage(clean(request != null ? request.getMessage() : null))
                             .build();
-                    return mapToResponse(pdfRequestRepository.save(pdfRequest));
+                    PdfRequest saved = pdfRequestRepository.save(pdfRequest);
+                    notifyAdminsNewRequest(saved);
+                    return mapToResponse(saved);
                 });
     }
 
@@ -165,7 +167,9 @@ public class PdfRequestServiceImpl implements PdfRequestService {
                 "PDF is now available",
                 "The requested PDF for \"" + paper.getTitle() + "\" is now available.");
 
-        return mapToResponse(pdfRequestRepository.save(pdfRequest));
+        PdfRequest saved = pdfRequestRepository.save(pdfRequest);
+                    notifyAdminsNewRequest(saved);
+                    return mapToResponse(saved);
     }
 
     @Override
@@ -189,7 +193,9 @@ public class PdfRequestServiceImpl implements PdfRequestService {
                 "PDF request could not be completed",
                 "We could not find a suitable public PDF for \"" + pdfRequest.getPaper().getTitle() + "\".");
 
-        return mapToResponse(pdfRequestRepository.save(pdfRequest));
+        PdfRequest saved = pdfRequestRepository.save(pdfRequest);
+                    notifyAdminsNewRequest(saved);
+                    return mapToResponse(saved);
     }
 
     private List<PdfCandidateResponse> findOpenAlexCandidatesByDoi(String doi) {
@@ -287,6 +293,29 @@ public class PdfRequestServiceImpl implements PdfRequestService {
             }
         }
         return new ArrayList<>(unique.values());
+    }
+
+    private void notifyAdminsNewRequest(PdfRequest request) {
+        List<User> admins = userRepository.findByRole_RoleName("admin");
+        if (admins.isEmpty()) return;
+        User requester = request.getUser();
+        String paperTitle = request.getPaper().getTitle();
+        String title = "New PDF Request";
+        String message = "User " + requester.getFullName() + " requested PDF for \"" + paperTitle + "\"";
+        for (User admin : admins) {
+            Notification notification = notificationRepository.save(Notification.builder()
+                    .user(admin)
+                    .type(NotificationType.SYSTEM)
+                    .title(title)
+                    .message(message)
+                    .relatedPaper(request.getPaper())
+                    .relatedJournal(request.getPaper().getJournal())
+                    .isRead(false)
+                    .build());
+            try {
+                eventPublisher.publish(admin.getUserId(), notification);
+            } catch (Exception ignored) { /* best-effort */ }
+        }
     }
 
     private void notifyRequester(PdfRequest request, String title, String message) {
