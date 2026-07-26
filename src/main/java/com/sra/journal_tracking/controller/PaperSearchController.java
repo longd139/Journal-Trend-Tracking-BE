@@ -12,6 +12,7 @@ import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.service.CitationService;
+import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperSearchOrchestrator;
 import com.sra.journal_tracking.service.PaperSearchService;
 import com.sra.journal_tracking.service.RatingCalculator;
@@ -46,6 +47,7 @@ public class PaperSearchController {
     private final PaperSearchOrchestrator paperSearchOrchestrator;
     private final ResearchPaperRepository researchPaperRepository;
     private final CitationService citationService;
+    private final OpenAlexFallbackSearchService openAlexFallbackSearchService;
 
     @Operation(summary = "Browse all papers", description = "Get all papers in database with pagination. No search required.")
     @GetMapping
@@ -171,7 +173,6 @@ public class PaperSearchController {
             @ModelAttribute @Valid PaperSearchRequestDTO request,
             Authentication authentication) {
         // Route to Neo4j graph search only for simple keyword queries with default "relevance" sort
-        // When user requests a specific sort (citations/title/date), use SQL search with Pageable Sort
         if (isSimpleKeywordSearch(request) && "relevance".equalsIgnoreCase(
                 request.getSortBy() != null ? request.getSortBy() : "relevance")) {
             String keyword = request.getQuery().trim();
@@ -179,10 +180,62 @@ public class PaperSearchController {
                 keyword = keyword.substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
             }
             PaperSearchResultDTO result = paperSearchOrchestrator.searchByKeyword(keyword, authentication.getName());
+            // Fallback to SQL/OpenAlex search when Neo4j graph returns empty (e.g. fresh DB)
+            if (result.getPapers() == null || result.getPapers().isEmpty()) {
+                return ResponseEntity.ok(AppResponse.success("Search completed (OpenAlex fallback)",
+                        paperSearchService.searchPapers(request, authentication.getName())));
+            }
             return ResponseEntity.ok(AppResponse.success("Search completed via graph", result));
         }
-        // SQL search (supports user-controlled sorting via Pageable)
+        // For all other cases (citations sort, date sort, author/journal filter):
+        // Use OpenAlex directly for full pagination with real total counts
+        if (isSimpleKeywordSearch(request)) {
+            String keyword = request.getQuery().trim();
+            var oaResult = openAlexFallbackSearchService.searchWithPagination(keyword, request.getPage(), request.getSize());
+            PaperSearchResultDTO dto = PaperSearchResultDTO.builder()
+                    .papers(oaResult.papers())
+                    .totalElements(oaResult.totalCount())
+                    .totalPages(oaResult.totalCount() > 0 ? (int) Math.ceil((double) oaResult.totalCount() / Math.max(1, request.getSize())) : 0)
+                    .currentPage(request.getPage())
+                    .pageSize(request.getSize())
+                    .hasNext((long) (request.getPage() + 1) * request.getSize() < oaResult.totalCount())
+                    .hasPrev(request.getPage() > 0)
+                    .build();
+            return ResponseEntity.ok(AppResponse.success("Search completed via OpenAlex", dto));
+        }
+        // SQL search for complex queries (author + journal filters)
         return ResponseEntity.ok(AppResponse.success("Search completed", paperSearchService.searchPapers(request, authentication.getName())));
+    }
+
+    /**
+     * Search papers directly from OpenAlex with full pagination.
+     * Returns the REAL total count from OpenAlex (not limited to local DB).
+     * Used by the PaperListSidebar to show ALL matching papers across all pages.
+     */
+    @GetMapping("/search/openalex")
+    public ResponseEntity<AppResponse<PaperSearchResultDTO>> searchOpenAlex(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            Authentication authentication) {
+
+        if (query == null || query.isBlank()) {
+            throw new IllegalArgumentException("Keyword cannot be empty");
+        }
+
+        var result = openAlexFallbackSearchService.searchWithPagination(query.trim(), page, size);
+
+        PaperSearchResultDTO dto = PaperSearchResultDTO.builder()
+                .papers(result.papers())
+                .totalElements(result.totalCount())
+                .totalPages(result.totalCount() > 0 ? (int) Math.ceil((double) result.totalCount() / Math.max(1, size)) : 0)
+                .currentPage(page)
+                .pageSize(size)
+                .hasNext((long) (page + 1) * size < result.totalCount())
+                .hasPrev(page > 0)
+                .build();
+
+        return ResponseEntity.ok(AppResponse.success("Search completed via OpenAlex", dto));
     }
 
     /** True if the request is a plain keyword search without author/journal filters. */

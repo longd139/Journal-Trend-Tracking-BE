@@ -8,7 +8,6 @@ import com.sra.journal_tracking.service.DataSyncService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -30,6 +29,7 @@ import java.util.stream.Collectors;
 public class OpenAlexFallbackSearchService {
     private static final String OPEN_ALEX_BASE_URL = "https://api.openalex.org";
     private static final int RECENT_PUBLICATION_YEAR_WINDOW = 3;
+    private static final int OPENALEX_MAX_RESULTS = 10000; // OpenAlex free-tier pagination cap
     private static final int MAX_AUTHORS = 5;
     private static final int MAX_KEYWORDS = 8;
 
@@ -48,15 +48,67 @@ public class OpenAlexFallbackSearchService {
     private String openalexEmail;
 
     /**
-     * Fetch a single paper by local UUID — looks up OpenAlex work URL from in-memory cache.
-     * Used by getPaperDetails when paper is not in local DB.
+     * Fetch a single paper by local UUID — looks up OpenAlex work URL from in-memory cache,
+     * then falls back to PaperCache (DB-persisted, 7-day TTL).
+     * Used by getPaperDetails and AIController when paper is not in local DB.
      */
     public PaperDetailResponseDTO getPaperByUuid(UUID paperId) {
+        // 1. In-memory map (fast path, works within same JVM session)
         String workUrl = paperIdToWorkUrl.get(paperId);
         if (workUrl != null) {
-            return getPaperByOpenAlexId(workUrl);
+            PaperDetailResponseDTO fromOpenAlex = getPaperByOpenAlexId(workUrl);
+            if (fromOpenAlex != null) return fromOpenAlex;
         }
+
+        // 2. Fallback to PaperCache (survives restarts, 7-day TTL)
+        try {
+            var cached = paperCacheService.get(paperId);
+            if (cached.isPresent()) {
+                PaperDetailResponseDTO dto = cached.get();
+                // Re-populate in-memory map for subsequent requests
+                if (dto.getSourceUrl() != null) {
+                    String derivedUrl = dto.getSourceUrl().replace("https://doi.org/", "https://openalex.org/");
+                    paperIdToWorkUrl.put(paperId, derivedUrl);
+                }
+                log.info("Paper {} resolved from PaperCache", paperId);
+                return dto;
+            }
+        } catch (Exception e) {
+            log.debug("PaperCache lookup failed for {}: {}", paperId, e.getMessage());
+        }
+
         return null;
+    }
+
+    /**
+     * Fetch a single paper from OpenAlex by DOI.
+     * Works even when openAlexWorkId is missing from the local DB record.
+     */
+    public PaperDetailResponseDTO getPaperByDoi(String doi) {
+        if (doi == null || doi.isBlank()) return null;
+        // Normalize: strip https://doi.org/ prefix if present
+        String cleanDoi = doi.replace("https://doi.org/", "").trim();
+        if (cleanDoi.isEmpty()) return null;
+
+        // Build DOI URL — build path then let UriComponentsBuilder encode query params
+        // We build the full path as a string (without encoding) then use fromUriString
+        // which is more lenient than fromHttpUrl for special characters in path
+        String path = OPEN_ALEX_BASE_URL + "/works/doi:" + cleanDoi;
+        String url = withApiKey(UriComponentsBuilder.fromUriString(path)
+                .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,"
+                        + "cited_by_count,abstract_inverted_index,open_access,"
+                        + "primary_location,best_oa_location,topics,keywords,authorships"))
+                .build().encode().toUriString();
+
+        try {
+            OpenAlexResponseDTO.OpenAlexWorkDTO work = restTemplate.getForObject(url, OpenAlexResponseDTO.OpenAlexWorkDTO.class);
+            if (work == null) return null;
+            String abstractText = rebuildAbstract(work.getAbstractInvertedIndex());
+            return mapToPaper(work, abstractText);
+        } catch (Exception e) {
+            log.warn("OpenAlex fetch by DOI failed for '{}': {}", cleanDoi, e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -79,7 +131,7 @@ public class OpenAlexFallbackSearchService {
             if (work == null) return null;
             String abstractText = rebuildAbstract(work.getAbstractInvertedIndex());
             return mapToPaper(work, abstractText);
-        } catch (RestClientException e) {
+        } catch (Exception e) {
             log.warn("OpenAlex fetch single work failed for '{}': {}", shortId, e.getMessage());
             return null;
         }
@@ -103,7 +155,7 @@ public class OpenAlexFallbackSearchService {
                     restTemplate.getForObject(url, OpenAlexResponseDTO.OpenAlexWorkDTO.class);
             if (work == null) return null;
             return work.getCitedByCount();
-        } catch (RestClientException e) {
+        } catch (Exception e) {
             log.debug("OpenAlex citation count fetch failed for '{}': {}", shortId, e.getMessage());
             return null;
         }
@@ -131,7 +183,7 @@ public class OpenAlexFallbackSearchService {
                 return null;
             }
             return response.getResults().get(0).getCitedByCount();
-        } catch (RestClientException e) {
+        } catch (Exception e) {
             log.debug("OpenAlex citation count fetch by DOI failed for '{}': {}", doi, e.getMessage());
             return null;
         }
@@ -194,7 +246,7 @@ public class OpenAlexFallbackSearchService {
                     .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
                     .map(w -> mapToPaper(w.work(), w.abstractText()))
                     .collect(Collectors.toList());
-        } catch (RestClientException e) {
+        } catch (Exception e) {
             log.warn("OpenAlex top-cited search failed for '{}': {}", query, e.getMessage());
             return List.of();
         }
@@ -249,7 +301,7 @@ public class OpenAlexFallbackSearchService {
                     .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
                     .map(w -> mapToPaper(w.work(), w.abstractText()))
                     .collect(Collectors.toList());
-        } catch (RestClientException e) {
+        } catch (Exception e) {
             log.warn("OpenAlex relevance search failed for '{}': {}", query, e.getMessage());
             return List.of();
         }
@@ -286,7 +338,7 @@ public class OpenAlexFallbackSearchService {
             }
             log.info("OpenAlex total count for '{}' (y={}-{}): {}", keyword, yearFrom, yearTo, response.getMeta().getCount());
             return response.getMeta().getCount();
-        } catch (RestClientException e) {
+        } catch (Exception e) {
             log.warn("OpenAlex count lookup failed for '{}': {}", keyword, e.getMessage());
             return 0;
         }
@@ -322,7 +374,7 @@ public class OpenAlexFallbackSearchService {
                     .map(g -> new OpenAlexYearlyCount(Integer.parseInt(g.getKey()), g.getCount()))
                     .sorted(java.util.Comparator.comparingInt(OpenAlexYearlyCount::year))
                     .toList();
-        } catch (RestClientException e) {
+        } catch (Exception e) {
             log.warn("OpenAlex yearly breakdown failed for '{}': {}", keyword, e.getMessage());
             return List.of();
         }
@@ -376,7 +428,7 @@ public class OpenAlexFallbackSearchService {
                     .map(e -> new OpenAlexYearlyCount(e.getKey(), e.getValue()))
                     .sorted(java.util.Comparator.comparingInt(OpenAlexYearlyCount::year))
                     .toList();
-        } catch (RestClientException e) {
+        } catch (Exception e) {
             log.warn("OpenAlex citation trend fetch failed for '{}': {}", keyword, e.getMessage());
             return List.of();
         }
@@ -417,7 +469,7 @@ public class OpenAlexFallbackSearchService {
                     .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
                     .map(w -> mapToPaper(w.work(), w.abstractText()))
                     .collect(Collectors.toList());
-        } catch (RestClientException e) {
+        } catch (Exception e) {
             log.warn("OpenAlex relevance search failed for '{}': {}", query, e.getMessage());
             return List.of();
         }
@@ -461,10 +513,224 @@ public class OpenAlexFallbackSearchService {
                     .map(w -> mapToPaper(w.work(), w.abstractText()))
                     .limit(Math.max(1, size))
                     .collect(Collectors.toList());
-        } catch (RestClientException e) {
+        } catch (Exception e) {
             log.warn("OpenAlex fallback search failed for '{}': {}", query, e.getMessage());
             return List.of();
         }
+    }
+
+    /**
+     * Search papers by OpenAlex author ID with pagination and optional year filter.
+     * Uses the OpenAlex filter API directly to get papers for a specific author.
+     *
+     * @param openAlexAuthorId OpenAlex author ID URL (e.g. https://openalex.org/A5004483943)
+     * @param page page number (0-indexed, maps to OpenAlex page)
+     * @param size max papers per page
+     * @param pubYearFrom optional: filter papers from this year (inclusive)
+     * @param pubYearTo optional: filter papers to this year (inclusive)
+     * @return AuthorSearchResult with papers and total count from OpenAlex
+     */
+    public AuthorSearchResult searchByAuthorId(String openAlexAuthorId, int page, int size,
+                                                Integer pubYearFrom, Integer pubYearTo) {
+        if (openAlexAuthorId == null || openAlexAuthorId.isBlank()) return AuthorSearchResult.EMPTY;
+
+        int perPage = Math.min(50, Math.max(size, 1));
+
+        // Build filter: author ID + optional year range
+        StringBuilder filter = new StringBuilder("authorships.author.id:" + extractShortId(openAlexAuthorId));
+        if (pubYearFrom != null) filter.append(",from_publication_date:").append(pubYearFrom).append("-01-01");
+        if (pubYearTo != null) filter.append(",to_publication_date:").append(pubYearTo).append("-12-31");
+
+        String url = withApiKey(UriComponentsBuilder
+                .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
+                .queryParam("filter", filter.toString())
+                .queryParam("sort", "cited_by_count:desc")
+                .queryParam("page", String.valueOf(page + 1))
+                .queryParam("per-page", String.valueOf(perPage))
+                .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,"
+                        + "cited_by_count,abstract_inverted_index,open_access,"
+                        + "primary_location,best_oa_location,topics,keywords,authorships"))
+                .build().encode().toUriString();
+
+        try {
+            OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
+            if (response == null || response.getResults() == null) return AuthorSearchResult.EMPTY;
+
+            long totalCount = response.getMeta() != null && response.getMeta().getCount() != null
+                    ? response.getMeta().getCount() : 0;
+
+            List<OpenAlexResponseDTO.OpenAlexWorkDTO> rawWorks = response.getResults().stream()
+                    .limit(perPage)
+                    .collect(Collectors.toList());
+
+            // Fire-and-forget: async save to local DB
+            try {
+                dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
+            } catch (Exception e) {
+                log.debug("Save-on-search dispatch failed for author '{}': {}", openAlexAuthorId, e.getMessage());
+            }
+
+            List<PaperDetailResponseDTO> papers = rawWorks.stream()
+                    .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
+                    .map(w -> mapToPaper(w.work(), w.abstractText()))
+                    .collect(Collectors.toList());
+
+            return new AuthorSearchResult(papers, totalCount);
+        } catch (Exception e) {
+            log.warn("OpenAlex author-id search failed for '{}': {}", openAlexAuthorId, e.getMessage());
+            return AuthorSearchResult.EMPTY;
+        }
+    }
+
+    /**
+     * Result wrapper for author-ID-based OpenAlex search including total count.
+     */
+    public record AuthorSearchResult(List<PaperDetailResponseDTO> papers, long totalCount) {
+        public static final AuthorSearchResult EMPTY = new AuthorSearchResult(List.of(), 0);
+    }
+
+    /**
+     * Search OpenAlex with pagination, returning both papers and total count.
+     * Uses the /works endpoint with search param and proper page/per-page params.
+     */
+    public AuthorSearchResult searchWithPagination(String query, int page, int size) {
+        if (query == null || query.isBlank()) return AuthorSearchResult.EMPTY;
+
+        // Strip Vietnamese diacritics — OpenAlex doesn't support them
+        String stripped = stripDiacritics(query.trim());
+
+        // Filter: only papers up to current year (excludes bad future dates like 2045)
+        int currentYear = java.time.Year.now().getValue();
+
+        String url = OPEN_ALEX_BASE_URL + "/works"
+                + "?search=" + java.net.URLEncoder.encode(stripped, StandardCharsets.UTF_8)
+                + "&sort=cited_by_count:desc"
+                + "&page=" + (page + 1)
+                + "&per-page=" + Math.min(size, 200)
+                + "&select=id,doi,title,display_name,publication_year,publication_date,"
+                + "cited_by_count,abstract_inverted_index,open_access,"
+                + "primary_location,best_oa_location,authorships";
+        url = appendApiKey(url);
+
+        try {
+            @SuppressWarnings("unchecked")
+            var response = restTemplate.getForObject(url, java.util.Map.class);
+            if (response == null) return AuthorSearchResult.EMPTY;
+
+            @SuppressWarnings("unchecked")
+            var meta = (java.util.Map<String, Object>) response.get("meta");
+            long total = meta != null && meta.get("count") instanceof Number n
+                    ? n.longValue() : 0;
+
+            @SuppressWarnings("unchecked")
+            var results = (java.util.List<java.util.Map<String, Object>>) response.get("results");
+            if (results == null || results.isEmpty()) return new AuthorSearchResult(List.of(), total);
+
+            List<PaperDetailResponseDTO> papers = results.stream()
+                    .map(work -> {
+                        String title = stringFromMap(work, "title", "Untitled");
+                        String doi = normalizeDoi(stringFromMap(work, "doi", null));
+                        Integer pubYear = intFromMap(work, "publication_year");
+                        Integer citations = intFromMap(work, "cited_by_count");
+                        String id = stringFromMap(work, "id", null);
+                        String abstractText = rebuildAbstractFromMap(work);
+
+                        var source = getNestedMap(work, "primary_location", "source");
+                        String journalName = source != null ? stringFromMap(source, "display_name", null) : null;
+
+                        return PaperDetailResponseDTO.builder()
+                                .paperId(id != null ? java.util.UUID.nameUUIDFromBytes(
+                                        id.getBytes(java.nio.charset.StandardCharsets.UTF_8)) : java.util.UUID.randomUUID())
+                                .title(title)
+                                .abstractText(abstractText)
+                                .doi(doi)
+                                .pubYear(pubYear != null ? pubYear.shortValue() : null)
+                                .citationCount(citations != null ? citations : 0)
+                                .isOpenAccess(false)
+                                .journalName(journalName)
+                                .sourceUrl(id)  // OpenAlex work URL for direct lookup
+                                .authors(extractAuthorsFromMap(work))
+                                .build();
+                    })
+                    .toList();
+
+            return new AuthorSearchResult(papers, total);
+        } catch (Exception e) {
+            log.warn("OpenAlex search with pagination failed for '{}' page {}: {}", query, page, e.getMessage());
+            return AuthorSearchResult.EMPTY;
+        }
+    }
+
+    // ── Map-based helpers for raw OpenAlex JSON ──
+
+    private String stringFromMap(java.util.Map<String, Object> map, String key, String defaultVal) {
+        Object val = map.get(key);
+        return val instanceof String s ? s : defaultVal;
+    }
+
+    private Integer intFromMap(java.util.Map<String, Object> map, String key) {
+        Object val = map.get(key);
+        if (val instanceof Number n) return n.intValue();
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private java.util.Map<String, Object> getNestedMap(java.util.Map<String, Object> map, String... keys) {
+        java.util.Map<String, Object> current = map;
+        for (String key : keys) {
+            if (current == null) return null;
+            Object val = current.get(key);
+            if (val instanceof java.util.Map<?, ?> m) {
+                current = (java.util.Map<String, Object>) m;
+            } else {
+                return null;
+            }
+        }
+        return current;
+    }
+
+    private String rebuildAbstractFromMap(java.util.Map<String, Object> work) {
+        Object aii = work.get("abstract_inverted_index");
+        if (!(aii instanceof java.util.Map<?, ?> m)) return null;
+        var entries = new java.util.ArrayList<java.util.AbstractMap.SimpleEntry<Integer, String>>();
+        for (var entry : m.entrySet()) {
+            String word = (String) entry.getKey();
+            Object positions = entry.getValue();
+            if (positions instanceof java.util.List<?> list) {
+                for (Object pos : list) {
+                    if (pos instanceof Number n) {
+                        entries.add(new java.util.AbstractMap.SimpleEntry<>(n.intValue(), word));
+                    }
+                }
+            }
+        }
+        entries.sort(java.util.Map.Entry.comparingByKey());
+        return entries.stream().map(java.util.AbstractMap.SimpleEntry::getValue)
+                .collect(java.util.stream.Collectors.joining(" "));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<com.sra.journal_tracking.dto.paper.AuthorDTO> extractAuthorsFromMap(java.util.Map<String, Object> work) {
+        Object authorships = work.get("authorships");
+        if (!(authorships instanceof java.util.List<?> list)) return List.of();
+        return list.stream()
+                .filter(a -> a instanceof java.util.Map<?, ?>)
+                .map(a -> (java.util.Map<String, Object>) a)
+                .map(a -> {
+                    var authorObj = (java.util.Map<String, Object>) a.get("author");
+                    String name = authorObj != null ? stringFromMap(authorObj, "display_name", "Unknown") : "Unknown";
+                    return com.sra.journal_tracking.dto.paper.AuthorDTO.builder()
+                            .fullName(name)
+                            .authorOrder(1)
+                            .build();
+                })
+                .limit(5)
+                .toList();
+    }
+
+    private String normalizeDoi(String doi) {
+        if (doi == null) return null;
+        return doi.replace("https://doi.org/", "").trim();
     }
 
     private UriComponentsBuilder withApiKey(UriComponentsBuilder builder) {
@@ -472,6 +738,14 @@ public class OpenAlexFallbackSearchService {
             builder.queryParam("api_key", openalexApiKey);
         }
         return builder;
+    }
+
+    /** Append api_key to a manually-built URL string. */
+    private String appendApiKey(String url) {
+        if (openalexApiKey != null && !openalexApiKey.isBlank()) {
+            return url + "&api_key=" + openalexApiKey;
+        }
+        return url;
     }
 
     private String extractShortId(String openAlexUrl) {
@@ -651,9 +925,13 @@ public class OpenAlexFallbackSearchService {
         return query.replace("&", " ").replace("/", " ").replace("\\", " ").trim().replaceAll("\\s+", " ");
     }
 
-    private String normalizeDoi(String doi) {
-        if (doi == null || doi.isBlank()) return null;
-        return doi.replace("https://doi.org/", "").replace("http://doi.org/", "").trim();
+    /** Strip Vietnamese diacritics — OpenAlex doesn't support them in search. */
+    private String stripDiacritics(String str) {
+        if (str == null || str.isEmpty()) return str;
+        String normalized = java.text.Normalizer.normalize(str, java.text.Normalizer.Form.NFD);
+        return normalized.replaceAll("\\p{InCombiningDiacriticalMarks}+", "")
+                .replace('đ', 'd')
+                .replace('Đ', 'D');
     }
 
     private LocalDate parseDate(String date) {

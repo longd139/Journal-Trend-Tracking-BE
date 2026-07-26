@@ -74,7 +74,8 @@ public class AIController {
             // If DB paper has no abstract, try fetching from cache or OpenAlex
             if (isBlank(dto.getAbstractText())) {
                 log.info("Paper {} found in DB but has no abstract, trying fallback sources", paperId);
-                String enrichedAbstract = fetchAbstractFromFallback(paperId, paper.getOpenAlexWorkId());
+                String enrichedAbstract = fetchAbstractFromFallback(
+                        paperId, paper.getOpenAlexWorkId(), paper.getDoi());
                 if (enrichedAbstract != null) {
                     dto.setAbstractText(enrichedAbstract);
                 }
@@ -96,6 +97,16 @@ public class AIController {
         dto.setMethodology(abstractText != null && !abstractText.isBlank()
                 ? aiSummarizationService.extractMethodology(paperId, abstractText)
                 : null);
+
+        // Cache the enriched abstract in PaperCache so subsequent calls are fast
+        if (abstractText != null && !abstractText.isBlank() && dto.getPaperId() != null) {
+            try {
+                paperCacheService.save(dto, paper != null ? paper.getOpenAlexWorkId() : null);
+                log.debug("Cached abstract for paper {} in PaperCache", paperId);
+            } catch (Exception e) {
+                log.debug("Failed to cache abstract for {}: {}", paperId, e.getMessage());
+            }
+        }
 
         return ResponseEntity.ok(AppResponse.success("Paper details with AI summary", dto));
     }
@@ -194,9 +205,10 @@ public class AIController {
      * Try to fetch the abstract for a paper from fallback sources
      * when the local DB record has no abstract.
      * 1. PaperCache (7-day TTL, populated during OpenAlex searches)
-     * 2. OpenAlex API (if the paper has an openAlexWorkId)
+     * 2. OpenAlex API by work ID
+     * 3. OpenAlex API by DOI (works even without openAlexWorkId)
      */
-    private String fetchAbstractFromFallback(UUID paperId, String openAlexWorkId) {
+    private String fetchAbstractFromFallback(UUID paperId, String openAlexWorkId, String doi) {
         // 1. Try PaperCache first (fast, local)
         try {
             var cached = paperCacheService.get(paperId);
@@ -208,17 +220,31 @@ public class AIController {
             log.debug("PaperCache lookup failed for {}: {}", paperId, e.getMessage());
         }
 
-        // 2. Try OpenAlex API if we have a work ID
+        // 2. Try OpenAlex API by work ID
         if (openAlexWorkId != null && !openAlexWorkId.isBlank()) {
             try {
                 PaperDetailResponseDTO fromOpenAlex =
                         openAlexFallbackSearchService.getPaperByOpenAlexId(openAlexWorkId);
                 if (fromOpenAlex != null && !isBlank(fromOpenAlex.getAbstractText())) {
-                    log.info("Abstract fetched from OpenAlex for paper {}", paperId);
+                    log.info("Abstract fetched from OpenAlex (workId) for paper {}", paperId);
                     return fromOpenAlex.getAbstractText();
                 }
             } catch (Exception e) {
-                log.debug("OpenAlex fallback failed for {}: {}", paperId, e.getMessage());
+                log.debug("OpenAlex workId fallback failed for {}: {}", paperId, e.getMessage());
+            }
+        }
+
+        // 3. Try OpenAlex API by DOI (works even without openAlexWorkId)
+        if (doi != null && !doi.isBlank()) {
+            try {
+                PaperDetailResponseDTO fromOpenAlex =
+                        openAlexFallbackSearchService.getPaperByDoi(doi);
+                if (fromOpenAlex != null && !isBlank(fromOpenAlex.getAbstractText())) {
+                    log.info("Abstract fetched from OpenAlex (DOI) for paper {}", paperId);
+                    return fromOpenAlex.getAbstractText();
+                }
+            } catch (Exception e) {
+                log.debug("OpenAlex DOI fallback failed for {}: {}", paperId, e.getMessage());
             }
         }
 

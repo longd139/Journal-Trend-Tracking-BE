@@ -923,6 +923,15 @@ INSERT INTO [USER] (UserID, RoleID, Email, PasswordHash, FullName, IsActive) VAL
      '$2b$12$REPLACE_WITH_REAL_BCRYPT_HASH',
      N'System Administrator',
      1);
+
+-- ── Tai khoan Admin: admin@tester.com / 123 ──────────────────
+INSERT INTO [USER] (UserID, RoleID, Email, PasswordHash, FullName, IsActive) VALUES
+    ('BBCFFE65-C57E-43CD-8A8B-A072B11C6E9B',
+     'A0000001-0000-0000-0000-000000000001',
+     'admin@tester.com',
+     '$2b$12$gMs9na4ZqloS73Nl2gotPeQL0wb0kOhUb15LuNwSLdyKAuF8N9sJq',
+     N'Admin Tester',
+     1);
 GO
 
 -- ============================================================

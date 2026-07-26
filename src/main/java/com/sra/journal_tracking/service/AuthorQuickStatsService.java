@@ -760,13 +760,16 @@ public class AuthorQuickStatsService {
     // ── URL builder ──
 
     private String buildUrl(String keyword) {
+        // Strip Vietnamese diacritics — OpenAlex doesn't support them
+        String stripped = stripDiacritics(keyword);
+
         // Use the simple 'search' query param — OpenAlex translates internally
         // to text.search filter (as of 2026). The old display_name.search filter
         // is no longer accepted by the API edge.
 
         UriComponentsBuilder builder = UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_AUTHORS_URL)
-                .queryParam("search", keyword)
+                .queryParam("search", stripped)
                 .queryParam("per-page", MAX_RESULTS);
 
         // api_key required since Feb 2026 (replaces deprecated mailto pool)
@@ -1000,6 +1003,20 @@ public class AuthorQuickStatsService {
         return value.toLowerCase().trim().replaceAll("\\s+", " ");
     }
 
+    /**
+     * Strip Vietnamese diacritics so OpenAlex can return results.
+     * OpenAlex does not support diacritic characters in search queries;
+     * "Nguyễn" → 0 results, "Nguyen" → 127K+ results.
+     * Applied before any OpenAlex API call that uses a user-typed keyword.
+     */
+    private String stripDiacritics(String str) {
+        if (str == null || str.isEmpty()) return str;
+        String normalized = java.text.Normalizer.normalize(str, java.text.Normalizer.Form.NFD);
+        return normalized.replaceAll("\\p{InCombiningDiacriticalMarks}+", "")
+                .replace('đ', 'd')  // đ
+                .replace('Đ', 'D'); // Đ
+    }
+
     private String normalizeOrcid(String orcid) {
         if (orcid == null || orcid.isBlank()) return null;
         // Strip ORCID URL prefix if present
@@ -1015,6 +1032,9 @@ public class AuthorQuickStatsService {
     public java.util.Map<String, Object> suggestAuthors(String query, int page, int size) {
         if (query == null || query.isBlank()) return java.util.Map.of("data", List.of(), "total", 0, "page", page, "hasMore", false);
 
+        // Strip Vietnamese diacritics — OpenAlex doesn't support them
+        String stripped = stripDiacritics(query.trim());
+
         String authParam = (openalexApiKey != null && !openalexApiKey.isBlank())
                 ? "&api_key=" + openalexApiKey
                 : (openalexEmail != null && !openalexEmail.isBlank())
@@ -1022,7 +1042,7 @@ public class AuthorQuickStatsService {
 
         // OpenAlex uses 1-based pages, per-page param
         String url = "https://api.openalex.org/authors?search="
-                + java.net.URLEncoder.encode(query.trim(), java.nio.charset.StandardCharsets.UTF_8)
+                + java.net.URLEncoder.encode(stripped, java.nio.charset.StandardCharsets.UTF_8)
                 + "&sort=cited_by_count:desc&page=" + page + "&per-page=" + size + authParam;
 
         try {

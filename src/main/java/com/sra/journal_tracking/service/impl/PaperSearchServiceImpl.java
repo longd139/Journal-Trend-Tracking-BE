@@ -33,6 +33,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
@@ -126,6 +127,23 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 if (!fallbackPapers.isEmpty()) {
                     return mapFallbackSearchResultDTO(fallbackPapers, page, size);
                 }
+                // Also try author search if query looks like a person name
+                String[] parts = query.split("\\s+");
+                if (parts.length >= 2) {
+                    try {
+                        var authorResult = authorQuickStatsService.searchAuthor(query);
+                        if (authorResult != null && authorResult.getOpenAlexId() != null) {
+                            log.info("Keyword '{}' matches author '{}', trying author papers", query, authorResult.getFullName());
+                            var papers = openAlexFallbackSearchService.searchByAuthorId(
+                                    authorResult.getOpenAlexId(), 0, size, null, null);
+                            if (!papers.papers().isEmpty()) {
+                                return mapFallbackSearchResultDTO(papers.papers(), page, size, papers.totalCount());
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.debug("Author fallback for keyword '{}' failed: {}", query, e.getMessage());
+                    }
+                }
             } else {
                 searchBackfillService.requestBackfill(query, size);
             }
@@ -170,45 +188,76 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 pageable);
 
         // ── OpenAlex fallback: author not in local DB ──
-        if (results.isEmpty() && page == 0) {
-            log.info("No local papers for author '{}', trying OpenAlex fallback", authorName);
+        if (results.isEmpty()) {
+            log.info("No local papers for author '{}' (page {}), trying OpenAlex fallback", authorName, page);
 
-            try {
-                var authorStats = authorQuickStatsService.searchAuthor(authorName);
-                // searchAuthor always returns non-null or throws — but check defensively
-                if (authorStats != null && authorStats.getOpenAlexId() != null) {
-                    log.info("Found author on OpenAlex: {} (ID: {}). Syncing papers...",
-                            authorStats.getFullName(), authorStats.getOpenAlexId());
+            // Only attempt sync on first page to avoid redundant API calls
+            if (page == 0) {
+                String openAlexId = null;  // captured here for use in fallback below
 
-                    // Sync their papers into local DB
-                    dataSyncService.syncPapersFromOpenAlexByAuthor(
-                            authorStats.getOpenAlexId(), authorName, Math.min(size, 25));
+                try {
+                    var authorStats = authorQuickStatsService.searchAuthor(authorName);
+                    if (authorStats != null && authorStats.getOpenAlexId() != null) {
+                        openAlexId = authorStats.getOpenAlexId();
+                        log.info("Found author on OpenAlex: {} (ID: {}). Syncing papers...",
+                                authorStats.getFullName(), openAlexId);
 
-                    // Re-query local DB after sync
-                    results = researchPaperRepository.searchByAuthorName(
-                            authorName,
-                            recentStartYear(),
-                            currentYear(),
-                            pageable);
+                        dataSyncService.syncPapersFromOpenAlexByAuthor(
+                                openAlexId, authorName, Math.min(size, 25));
 
-                    log.info("Re-query after sync: {} papers found for author '{}'",
-                            results.getTotalElements(), authorName);
+                        results = researchPaperRepository.searchByAuthorName(
+                                authorName,
+                                recentStartYear(),
+                                currentYear(),
+                                pageable);
+
+                        log.info("Re-query after sync: {} papers found for author '{}'",
+                                results.getTotalElements(), authorName);
+
+                        if (!results.isEmpty()) {
+                            return mapToSearchResultDTO(results);
+                        }
+                    }
+                } catch (AppException e) {
+                    if (e.getErrorCode() == ErrorCode.AUTHOR_NOT_FOUND) {
+                        log.info("Author '{}' not found on OpenAlex — no match", authorName);
+                    } else {
+                        log.warn("OpenAlex API unavailable while searching author '{}': {}", authorName, e.getMessage());
+                    }
+                } catch (Exception e) {
+                    log.warn("Unexpected error during OpenAlex author fallback for '{}': {}", authorName, e.getMessage());
                 }
-            } catch (AppException e) {
-                if (e.getErrorCode() == ErrorCode.AUTHOR_NOT_FOUND) {
-                    log.info("Author '{}' not found on OpenAlex — no match", authorName);
-                } else {
-                    log.warn("OpenAlex API unavailable while searching author '{}': {}", authorName, e.getMessage());
-                }
-            } catch (Exception e) {
-                log.warn("Unexpected error during OpenAlex author fallback for '{}': {}", authorName, e.getMessage());
-            }
 
-            // If still empty after sync, use OpenAlex live preview as last resort
-            if (results.isEmpty()) {
-                List<PaperDetailResponseDTO> fallbackPapers = openAlexFallbackSearchService.search(authorName, size);
-                if (!fallbackPapers.isEmpty()) {
-                    return mapFallbackSearchResultDTO(fallbackPapers, page, size);
+                // If still empty after sync, use OpenAlex author-ID search
+                if (results.isEmpty() && openAlexId != null) {
+                    try {
+                        log.info("Trying OpenAlex author-ID search for '{}' (page {}, y:{}-{})", openAlexId, page,
+                                request.getPubYearFrom(), request.getPubYearTo());
+                        var authorResult = openAlexFallbackSearchService.searchByAuthorId(
+                                openAlexId, page, size, request.getPubYearFrom(), request.getPubYearTo());
+                        if (!authorResult.papers().isEmpty()) {
+                            return mapFallbackSearchResultDTO(authorResult.papers(), page, size, authorResult.totalCount());
+                        }
+                    } catch (Exception e) {
+                        log.warn("OpenAlex author-ID search failed for '{}': {}", openAlexId, e.getMessage());
+                    }
+                }
+            } else {
+                // Page > 0: skip sync, use OpenAlex direct search if we know the author ID
+                // Fetch author stats to get the OpenAlex ID
+                try {
+                    var authorStats = authorQuickStatsService.searchAuthor(authorName);
+                    if (authorStats != null && authorStats.getOpenAlexId() != null) {
+                        log.info("Trying OpenAlex author-ID search for '{}' (page {}, y:{}-{})", authorStats.getOpenAlexId(), page,
+                                request.getPubYearFrom(), request.getPubYearTo());
+                        var authorResult = openAlexFallbackSearchService.searchByAuthorId(
+                                authorStats.getOpenAlexId(), page, size, request.getPubYearFrom(), request.getPubYearTo());
+                        if (!authorResult.papers().isEmpty()) {
+                            return mapFallbackSearchResultDTO(authorResult.papers(), page, size, authorResult.totalCount());
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("OpenAlex page-{} fallback failed for '{}': {}", page, authorName, e.getMessage());
                 }
             }
         }
@@ -762,18 +811,23 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 .build();
     }
 
-    private PaperSearchResultDTO mapFallbackSearchResultDTO(List<PaperDetailResponseDTO> papers, int page, int size) {
-        long totalElements = papers.size();
-        int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / size);
+    private PaperSearchResultDTO mapFallbackSearchResultDTO(List<PaperDetailResponseDTO> papers, int page, int size, long totalCount) {
+        int totalPages = totalCount == 0 ? 0 : (int) Math.ceil((double) totalCount / size);
+        boolean hasNext = (long) (page + 1) * size < totalCount;
         return PaperSearchResultDTO.builder()
                 .papers(papers)
-                .totalElements(totalElements)
+                .totalElements(totalCount)
                 .totalPages(totalPages)
                 .currentPage(page)
                 .pageSize(size)
-                .hasNext(false)
+                .hasNext(hasNext)
                 .hasPrev(page > 0)
                 .build();
+    }
+
+    /** @deprecated kept for backward compatibility with searchPapers fallback */
+    private PaperSearchResultDTO mapFallbackSearchResultDTO(List<PaperDetailResponseDTO> papers, int page, int size) {
+        return mapFallbackSearchResultDTO(papers, page, size, papers.size());
     }
 
     private PaperSearchResultDTO mapToSearchResultDTO(Page<ResearchPaper> paperPage) {

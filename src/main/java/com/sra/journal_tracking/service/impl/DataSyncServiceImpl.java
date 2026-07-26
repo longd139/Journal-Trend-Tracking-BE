@@ -40,6 +40,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -307,6 +308,7 @@ public class DataSyncServiceImpl implements DataSyncService {
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public SyncLog syncPapersFromOpenAlexByAuthor(String openAlexAuthorId, String authorName, int limit) {
         log.info("Starting OpenAlex sync by author ID: {} ({})", authorName, openAlexAuthorId);
 

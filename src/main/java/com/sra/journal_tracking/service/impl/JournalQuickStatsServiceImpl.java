@@ -608,11 +608,14 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
     public List<JournalSuggestionResponse> suggestJournals(String query) {
         if (query.isBlank()) return List.of();
 
+        // Strip Vietnamese diacritics — OpenAlex doesn't support them
+        String stripped = stripDiacritics(query);
+
         String authParam = (openalexApiKey != null && !openalexApiKey.isBlank())
                 ? "&api_key=" + openalexApiKey : "";
 
         String url = "https://api.openalex.org/sources?search="
-                + java.net.URLEncoder.encode(query, java.nio.charset.StandardCharsets.UTF_8)
+                + java.net.URLEncoder.encode(stripped, java.nio.charset.StandardCharsets.UTF_8)
                 + "&sort=cited_by_count:desc&per-page=10" + authParam;
 
         try {
@@ -643,5 +646,17 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
     private static Integer toInt(Object val) {
         if (val instanceof Number n) return n.intValue();
         return null;
+    }
+
+    /**
+     * Strip Vietnamese diacritics so OpenAlex can return results.
+     * OpenAlex does not support diacritic characters in search queries.
+     */
+    private String stripDiacritics(String str) {
+        if (str == null || str.isEmpty()) return str;
+        String normalized = java.text.Normalizer.normalize(str, java.text.Normalizer.Form.NFD);
+        return normalized.replaceAll("\\p{InCombiningDiacriticalMarks}+", "")
+                .replace('đ', 'd')
+                .replace('Đ', 'D');
     }
 }

@@ -392,12 +392,19 @@ public class SearchController {
         List<CategoryResponse> categories = researchFieldRepository
                 .findByParentFieldIsNullAndIsTrackedTrue()
                 .stream()
-                .map(field -> CategoryResponse.builder()
-                        .keywordText(field.getFieldName())
-                        .normalizedText(field.getFieldName().toLowerCase().trim())
-                        .paperCount(researchFieldRepository.countPapersByFieldId(field.getFieldId()))
-                        .build())
-                .filter(c -> c.getPaperCount() > 0) // Only show fields with papers
+                .map(field -> {
+                    // Try direct field count first; fall back to keyword-based count
+                    // since most papers imported from OpenAlex are linked via keywords
+                    long count = researchFieldRepository.countPapersByFieldId(field.getFieldId());
+                    if (count == 0) {
+                        count = researchFieldRepository.countPapersByFieldIdViaKeywords(field.getFieldId());
+                    }
+                    return CategoryResponse.builder()
+                            .keywordText(field.getFieldName())
+                            .normalizedText(field.getFieldName().toLowerCase().trim())
+                            .paperCount(count)
+                            .build();
+                })
                 .sorted((a, b) -> Long.compare(b.getPaperCount(), a.getPaperCount()))
                 .limit(limit)
                 .toList();

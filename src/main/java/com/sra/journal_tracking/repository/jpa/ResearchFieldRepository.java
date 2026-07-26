@@ -19,7 +19,16 @@ public interface ResearchFieldRepository extends JpaRepository<ResearchField, UU
     /** Sub-fields (niches) under a given parent field. */
     List<ResearchField> findByParentField_FieldIdAndIsTrackedTrue(UUID parentFieldId);
 
-    /** Count papers in a specific field. */
+    /** Count papers in a specific field (through direct field relationship). */
     @Query("SELECT COUNT(p) FROM ResearchPaper p WHERE p.field.fieldId = :fieldId")
     long countPapersByFieldId(UUID fieldId);
+
+    /**
+     * Count distinct papers in a field through the keyword relationship.
+     * Most papers imported from OpenAlex have keywords linked to fields
+     * rather than a direct field relationship on ResearchPaper.
+     */
+    @Query("SELECT COUNT(DISTINCT pk.paper.paperId) FROM PaperKeyword pk " +
+           "WHERE pk.keyword.field.fieldId = :fieldId")
+    long countPapersByFieldIdViaKeywords(UUID fieldId);
 }
