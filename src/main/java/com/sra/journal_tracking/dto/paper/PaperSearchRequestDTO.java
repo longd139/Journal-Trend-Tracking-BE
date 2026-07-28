@@ -40,10 +40,10 @@ public class PaperSearchRequestDTO {
     /**
      * Pagination: page size
      * Default: 10
-     * Max: 50 (to prevent abuse)
+     * Max: 200 (allows fetching many papers for year-filtered author searches)
      */
     @Min(value = 1, message = "Page size must not be less than 1")
-    @Max(value = 50, message = "Page size must not be greater than 50")
+    @Max(value = 200, message = "Page size must not be greater than 200")
     @Builder.Default
     private Integer size = 10;
 

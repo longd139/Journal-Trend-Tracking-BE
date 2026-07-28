@@ -481,7 +481,7 @@ public class OpenAlexFallbackSearchService {
         if (normalizedQuery.isBlank()) return new PaginatedOpenAlexResult(List.of(), 0);
 
         int safePage = Math.max(0, page);
-        int safeSize = Math.min(50, Math.max(1, size));
+        int safeSize = Math.min(200, Math.max(1, size));
         int openAlexPage = safePage + 1; // OpenAlex uses 1-based pages
 
         String url = withApiKey(UriComponentsBuilder
@@ -530,28 +530,48 @@ public class OpenAlexFallbackSearchService {
      * Uses filter=authorships.author.display_name.search to find papers
      * where the author's display name matches the query.
      *
-     * @param authorName author name to search for
-     * @param page       0-based page number (as sent by frontend)
-     * @param size       number of results per page
+     * @param authorName  author name to search for
+     * @param pubYearFrom optional: filter by publication year from (inclusive)
+     * @param pubYearTo   optional: filter by publication year to (inclusive)
+     * @param page        0-based page number (as sent by frontend)
+     * @param size        number of results per page
      * @return record containing papers list + total count from OpenAlex
      */
-    public PaginatedOpenAlexResult searchByAuthorOnOpenAlex(String authorName, int page, int size) {
+    public PaginatedOpenAlexResult searchByAuthorOnOpenAlex(String authorName, Integer pubYearFrom, Integer pubYearTo, int page, int size) {
         String trimmed = authorName != null ? authorName.trim() : "";
         if (trimmed.isBlank()) return new PaginatedOpenAlexResult(List.of(), 0);
 
         int safePage = Math.max(0, page);
-        int safeSize = Math.min(50, Math.max(1, size));
+        int safeSize = Math.min(200, Math.max(1, size));
         int openAlexPage = safePage + 1; // OpenAlex uses 1-based pages
 
         // Use filter=raw_author_name.search to find works by this author
         // Manually encode the author name to preserve colon in filter syntax
         String encodedName = java.net.URLEncoder.encode(trimmed, StandardCharsets.UTF_8);
-        String filterValue = "raw_author_name.search:" + encodedName;
+        StringBuilder filterValue = new StringBuilder("raw_author_name.search:").append(encodedName);
+
+        // Append publication_year filter if year range is provided
+        if (pubYearFrom != null || pubYearTo != null) {
+            filterValue.append(",");
+            if (pubYearFrom != null && pubYearTo != null && pubYearFrom.equals(pubYearTo)) {
+                // Single year: publication_year:2023
+                filterValue.append("publication_year:").append(pubYearFrom);
+            } else if (pubYearFrom != null && pubYearTo != null) {
+                // Range: publication_year:2020-2023
+                filterValue.append("publication_year:").append(pubYearFrom).append("-").append(pubYearTo);
+            } else if (pubYearFrom != null) {
+                // From only: publication_year:>2019
+                filterValue.append("publication_year:>").append(pubYearFrom - 1);
+            } else {
+                // To only: publication_year:<2024
+                filterValue.append("publication_year:<").append(pubYearTo + 1);
+            }
+        }
 
         // Use build(false) to avoid double-encoding the colon; values are already safe
         String url = withApiKey(UriComponentsBuilder
                 .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
-                .queryParam("filter", filterValue)
+                .queryParam("filter", filterValue.toString())
                 .queryParam("sort", "publication_date:desc")
                 .queryParam("page", openAlexPage)
                 .queryParam("per-page", safeSize)
