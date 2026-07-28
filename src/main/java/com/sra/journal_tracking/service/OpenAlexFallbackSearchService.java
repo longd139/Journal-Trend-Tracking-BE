@@ -467,9 +467,141 @@ public class OpenAlexFallbackSearchService {
         }
     }
 
+    /**
+     * Search papers from OpenAlex with pagination. Returns both the paper list
+     * and the REAL total count from OpenAlex meta (not limited to local DB).
+     *
+     * @param query search keyword
+     * @param page  0-based page number (as sent by frontend)
+     * @param size  number of results per page
+     * @return record containing papers list + total count from OpenAlex
+     */
+    public PaginatedOpenAlexResult searchOpenAlexPaginated(String query, int page, int size) {
+        String normalizedQuery = normalizeOpenAlexSearchQuery(query);
+        if (normalizedQuery.isBlank()) return new PaginatedOpenAlexResult(List.of(), 0);
+
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(50, Math.max(1, size));
+        int openAlexPage = safePage + 1; // OpenAlex uses 1-based pages
+
+        String url = withApiKey(UriComponentsBuilder
+                .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
+                .queryParam("search", normalizedQuery)
+                .queryParam("sort", "relevance_score:desc")
+                .queryParam("page", openAlexPage)
+                .queryParam("per-page", safeSize)
+                .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,"
+                        + "cited_by_count,abstract_inverted_index,open_access,"
+                        + "primary_location,best_oa_location,topics,keywords,authorships"))
+                .build().encode().toUriString();
+
+        try {
+            OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
+            if (response == null || response.getResults() == null) {
+                return new PaginatedOpenAlexResult(List.of(), 0);
+            }
+
+            long totalCount = response.getMeta() != null && response.getMeta().getCount() != null
+                    ? response.getMeta().getCount() : 0;
+
+            List<OpenAlexResponseDTO.OpenAlexWorkDTO> rawWorks = response.getResults();
+
+            // Fire-and-forget: async save to local DB
+            try {
+                dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
+            } catch (Exception e) {
+                log.debug("Save-on-search dispatch failed: {}", e.getMessage());
+            }
+
+            List<PaperDetailResponseDTO> papers = rawWorks.stream()
+                    .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
+                    .map(w -> mapToPaper(w.work(), w.abstractText()))
+                    .collect(Collectors.toList());
+
+            return new PaginatedOpenAlexResult(papers, totalCount);
+        } catch (RestClientException e) {
+            log.warn("OpenAlex paginated search failed for '{}': {}", query, e.getMessage());
+            return new PaginatedOpenAlexResult(List.of(), 0);
+        }
+    }
+
+    /**
+     * Search papers by author name on OpenAlex with pagination.
+     * Uses filter=authorships.author.display_name.search to find papers
+     * where the author's display name matches the query.
+     *
+     * @param authorName author name to search for
+     * @param page       0-based page number (as sent by frontend)
+     * @param size       number of results per page
+     * @return record containing papers list + total count from OpenAlex
+     */
+    public PaginatedOpenAlexResult searchByAuthorOnOpenAlex(String authorName, int page, int size) {
+        String trimmed = authorName != null ? authorName.trim() : "";
+        if (trimmed.isBlank()) return new PaginatedOpenAlexResult(List.of(), 0);
+
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(50, Math.max(1, size));
+        int openAlexPage = safePage + 1; // OpenAlex uses 1-based pages
+
+        // Use filter=raw_author_name.search to find works by this author
+        // Manually encode the author name to preserve colon in filter syntax
+        String encodedName = java.net.URLEncoder.encode(trimmed, StandardCharsets.UTF_8);
+        String filterValue = "raw_author_name.search:" + encodedName;
+
+        // Use build(false) to avoid double-encoding the colon; values are already safe
+        String url = withApiKey(UriComponentsBuilder
+                .fromHttpUrl(OPEN_ALEX_BASE_URL + "/works")
+                .queryParam("filter", filterValue)
+                .queryParam("sort", "publication_date:desc")
+                .queryParam("page", openAlexPage)
+                .queryParam("per-page", safeSize)
+                .queryParam("select", "id,doi,title,display_name,publication_year,publication_date,"
+                        + "cited_by_count,abstract_inverted_index,open_access,"
+                        + "primary_location,best_oa_location,topics,keywords,authorships"))
+                .build(false).toUriString();
+
+        try {
+            OpenAlexResponseDTO response = restTemplate.getForObject(url, OpenAlexResponseDTO.class);
+            if (response == null || response.getResults() == null) {
+                return new PaginatedOpenAlexResult(List.of(), 0);
+            }
+
+            long totalCount = response.getMeta() != null && response.getMeta().getCount() != null
+                    ? response.getMeta().getCount() : 0;
+
+            List<OpenAlexResponseDTO.OpenAlexWorkDTO> rawWorks = response.getResults();
+
+            // Fire-and-forget: async save to local DB
+            try {
+                dataSyncService.saveWorksFromOpenAlexAsync(rawWorks);
+            } catch (Exception e) {
+                log.debug("Save-on-search dispatch failed: {}", e.getMessage());
+            }
+
+            List<PaperDetailResponseDTO> papers = rawWorks.stream()
+                    .map(work -> new WorkWithAbstract(work, rebuildAbstract(work.getAbstractInvertedIndex())))
+                    .map(w -> mapToPaper(w.work(), w.abstractText()))
+                    .collect(Collectors.toList());
+
+            log.info("OpenAlex author search for '{}': found {} papers (total: {})",
+                    trimmed, papers.size(), totalCount);
+            return new PaginatedOpenAlexResult(papers, totalCount);
+        } catch (RestClientException e) {
+            log.warn("OpenAlex author search failed for '{}': {}", trimmed, e.getMessage());
+            return new PaginatedOpenAlexResult(List.of(), 0);
+        }
+    }
+
+    /**
+     * Result container for paginated OpenAlex search.
+     */
+    public record PaginatedOpenAlexResult(List<PaperDetailResponseDTO> papers, long totalCount) {}
+
     private UriComponentsBuilder withApiKey(UriComponentsBuilder builder) {
         if (openalexApiKey != null && !openalexApiKey.isBlank()) {
             builder.queryParam("api_key", openalexApiKey);
+        } else if (openalexEmail != null && !openalexEmail.isBlank()) {
+            builder.queryParam("mailto", openalexEmail); // fallback (deprecated since Feb 2026)
         }
         return builder;
     }

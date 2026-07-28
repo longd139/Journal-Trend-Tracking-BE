@@ -12,6 +12,7 @@ import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
 import com.sra.journal_tracking.service.CitationService;
+import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperSearchOrchestrator;
 import com.sra.journal_tracking.service.PaperSearchService;
 import com.sra.journal_tracking.service.RatingCalculator;
@@ -44,6 +45,7 @@ public class PaperSearchController {
 
     private final PaperSearchService paperSearchService;
     private final PaperSearchOrchestrator paperSearchOrchestrator;
+    private final OpenAlexFallbackSearchService openAlexFallbackSearchService;
     private final ResearchPaperRepository researchPaperRepository;
     private final CitationService citationService;
 
@@ -190,6 +192,38 @@ public class PaperSearchController {
         String author = request.getAuthorName();
         String journal = request.getJournalId();
         return (author == null || author.isBlank()) && (journal == null || journal.isBlank());
+    }
+
+    @Operation(summary = "Search papers directly from OpenAlex", description = "Search papers by keyword via OpenAlex API with full pagination. Returns REAL total count from OpenAlex, not limited to local DB.")
+    @GetMapping("/search/openalex")
+    public ResponseEntity<AppResponse<PaperSearchResultDTO>> searchOpenAlex(
+            @RequestParam("query") String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        String keyword = query.trim();
+        if (keyword.length() > KeywordConstants.MAX_KEYWORD_LENGTH) {
+            keyword = keyword.substring(0, KeywordConstants.MAX_KEYWORD_LENGTH);
+        }
+
+        OpenAlexFallbackSearchService.PaginatedOpenAlexResult result =
+                openAlexFallbackSearchService.searchOpenAlexPaginated(keyword, page, size);
+
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(50, Math.max(1, size));
+        long totalElements = result.totalCount();
+        int totalPages = totalElements > 0 ? (int) Math.ceil((double) totalElements / safeSize) : 0;
+
+        PaperSearchResultDTO dto = PaperSearchResultDTO.builder()
+                .papers(result.papers())
+                .totalElements(totalElements)
+                .totalPages(totalPages)
+                .currentPage(safePage)
+                .pageSize(safeSize)
+                .hasNext(safePage + 1 < totalPages)
+                .hasPrev(safePage > 0)
+                .build();
+
+        return ResponseEntity.ok(AppResponse.success("Papers retrieved from OpenAlex", dto));
     }
 
     @GetMapping("/search/author")
