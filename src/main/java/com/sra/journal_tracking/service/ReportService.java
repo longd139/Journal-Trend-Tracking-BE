@@ -19,16 +19,17 @@ public interface ReportService {
      * @param keyword the search keyword to analyze
      * @return KeywordTrendReportResponse with publication/citation trends, co-occurring keywords, and top journals
      */
-    KeywordTrendReportResponse getKeywordTrendReport(String keyword, Integer startYear, Integer endYear);
+    KeywordTrendReportResponse getKeywordTrendReport(String keyword, Integer startYear, Integer endYear, String lang);
 
     /**
      * Retrieve a previously cached keyword trend report from the database.
      * Falls back to generating a fresh report if no cache entry exists.
      *
      * @param keyword the search keyword
+     * @param lang    the preferred language (en/vi)
      * @return KeywordTrendReportResponse deserialized from the cached JSON
      */
-    KeywordTrendReportResponse getCachedKeywordTrendReport(String keyword);
+    KeywordTrendReportResponse getCachedKeywordTrendReport(String keyword, String lang);
 
     /**
      * Get all previously generated keyword trend reports.
@@ -50,13 +51,14 @@ public interface ReportService {
      * @param authorName the author name to analyze
      * @return AuthorImpactReportResponse with h-index, total papers, activity status, insight, and collaborators
      */
-    AuthorImpactReportResponse getAuthorImpactReport(String authorName);
+    AuthorImpactReportResponse getAuthorImpactReport(String authorName, String lang);
 
     /**
      * Generate a journal quality report evaluating a journal's prestige and submission suitability.
      *
      * @param journalName the journal name to analyze
+     * @param lang        the preferred language (en/vi)
      * @return JournalQualityReportResponse with quartile, impact factor, editorial taste, and insight
      */
-    JournalQualityReportResponse getJournalQualityReport(String journalName);
+    JournalQualityReportResponse getJournalQualityReport(String journalName, String lang);
 }

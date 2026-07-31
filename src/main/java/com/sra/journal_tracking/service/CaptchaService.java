@@ -109,10 +109,10 @@ public class CaptchaService {
         }
 
         boolean correct = entry.answer == answer;
+        // Always remove the captcha after verification (one-time use)
+        captchaStore.remove(key);
         if (!correct) {
             log.warn("CAPTCHA verify: wrong answer for {} (expected {}, got {})", key, entry.answer, answer);
-            // Generate a new captcha so the old one can't be brute-forced
-            captchaStore.remove(key);
         }
         return correct;
     }
