@@ -45,6 +45,7 @@ public class TrendingTopicSyncService {
     private final NotificationRepository notificationRepository;
     private final NotificationEventPublisher eventPublisher;
     private final UserRepository userRepository;
+    private final com.sra.journal_tracking.repository.jpa.KeywordRepository keywordRepository;
 
     @Value("${app.openalex-email:}")
     private String openalexEmail;
@@ -165,12 +166,17 @@ public class TrendingTopicSyncService {
 
                 for (User user : activeUsers) {
                     try {
+                        // Try to link the keyword entity so FE can show a "Search" button
+                        String normalizedKw = topic.getTopicName().toLowerCase().trim();
+                        var keywordOpt = keywordRepository.findByNormalizedText(normalizedKw);
+
                         Notification notification = notificationRepository.save(Notification.builder()
                                 .user(user)
                                 .type(NotificationType.TREND_ALERT)
                                 .title("Trending: " + topic.getTopicName())
                                 .message("\"" + topic.getTopicName() + "\" is trending with "
                                         + topic.getPaperCount() + " recent papers.")
+                                .relatedKeyword(keywordOpt.orElse(null))
                                 .isRead(false)
                                 .createdAt(LocalDateTime.now())
                                 .build());

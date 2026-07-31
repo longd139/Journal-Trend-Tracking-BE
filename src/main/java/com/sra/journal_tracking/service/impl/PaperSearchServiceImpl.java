@@ -96,7 +96,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         }
 
         int page = Math.max(0, request.getPage());
-        int size = Math.min(50, Math.max(1, request.getSize()));
+        int size = Math.min(200, Math.max(1, request.getSize()));
 
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userEmail));
@@ -160,12 +160,14 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         }
 
         int page = Math.max(0, request.getPage());
-        int size = Math.min(50, Math.max(1, request.getSize()));
+        int size = Math.min(200, Math.max(1, request.getSize()));
 
-        // ── Direct OpenAlex call (filter by author display name) ──
-        log.info("Searching OpenAlex directly for author '{}' (page={}, size={})", authorName, page, size);
+        // ── Direct OpenAlex call (filter by author display name + optional year range) ──
+        log.info("Searching OpenAlex directly for author '{}' (page={}, size={}, pubYearFrom={}, pubYearTo={})",
+                authorName, page, size, request.getPubYearFrom(), request.getPubYearTo());
         OpenAlexFallbackSearchService.PaginatedOpenAlexResult result =
-                openAlexFallbackSearchService.searchByAuthorOnOpenAlex(authorName, page, size);
+                openAlexFallbackSearchService.searchByAuthorOnOpenAlex(
+                        authorName, request.getPubYearFrom(), request.getPubYearTo(), page, size);
 
         long totalElements = result.totalCount();
         int totalPages = totalElements > 0 ? (int) Math.ceil((double) totalElements / size) : 0;
@@ -208,7 +210,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         }
 
         int page = Math.max(0, request.getPage());
-        int size = Math.min(50, Math.max(1, request.getSize()));
+        int size = Math.min(200, Math.max(1, request.getSize()));
         Pageable pageable = PageRequest.of(page, size, buildSort(request.getSortBy(), request.getSortDirection()));
 
         Page<ResearchPaper> results = researchPaperRepository.findByJournal_JournalIdAndPubYearBetween(
@@ -240,7 +242,7 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         }
 
         int page = Math.max(0, filterRequest.getPage());
-        int size = Math.min(50, Math.max(1, filterRequest.getSize()));
+        int size = Math.min(200, Math.max(1, filterRequest.getSize()));
         Pageable pageable = PageRequest.of(page, size, buildSort(filterRequest.getSortBy(), filterRequest.getSortDirection()));
 
         Page<ResearchPaper> results = researchPaperRepository.advancedFilter(
