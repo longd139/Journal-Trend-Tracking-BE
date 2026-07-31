@@ -12,6 +12,7 @@ import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
 import com.sra.journal_tracking.entity.jpa.ResearchPaper;
 import com.sra.journal_tracking.repository.jpa.PaperAuthorRepository;
 import com.sra.journal_tracking.repository.jpa.ResearchPaperRepository;
+import com.sra.journal_tracking.repository.jpa.JournalRepository;
 import com.sra.journal_tracking.service.JournalQuickStatsService;
 import com.sra.journal_tracking.service.OpenAlexFallbackSearchService;
 import com.sra.journal_tracking.service.PaperCacheService;
@@ -40,6 +41,7 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
     private final DataSyncService dataSyncService;
     private final ResearchPaperRepository researchPaperRepository;
     private final PaperAuthorRepository paperAuthorRepository;
+    private final JournalRepository journalRepository;
 
     @Value("${app.openalex-api-key:}")
     private String openalexApiKey;
@@ -53,7 +55,8 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
                                          PaperCacheService paperCacheService,
                                          DataSyncService dataSyncService,
                                          ResearchPaperRepository researchPaperRepository,
-                                         PaperAuthorRepository paperAuthorRepository) {
+                                         PaperAuthorRepository paperAuthorRepository,
+                                         JournalRepository journalRepository) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.openAlexSearchService = openAlexSearchService;
@@ -61,6 +64,7 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
         this.dataSyncService = dataSyncService;
         this.researchPaperRepository = researchPaperRepository;
         this.paperAuthorRepository = paperAuthorRepository;
+        this.journalRepository = journalRepository;
     }
 
     // ═══════════════════════════════════════════════════════
@@ -102,6 +106,8 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
                     ? Math.round((double) totalCitations / totalPapers * 100.0) / 100.0 : null;
 
             return JournalQuickStatsResponse.builder()
+                    .journalId(journalRepository.findByJournalNameIgnoreCase(journalName)
+                            .map(j -> j.getJournalId().toString()).orElse(null))
                     .journalName(journalName)
                     .totalPapers(totalPapers)
                     .totalCitations(totalCitations)
@@ -131,7 +137,10 @@ public class JournalQuickStatsServiceImpl implements JournalQuickStatsService {
         List<String> topKeywords = getTopKeywordsFromOpenAlex(jsonStr(journal, "id"));
 
         return JournalQuickStatsResponse.builder()
-                .journalId(jsonStr(journal, "id"))
+                .journalId(journalRepository.findByJournalNameIgnoreCase(
+                        jsonStr(journal, "display_name"))
+                        .map(j -> j.getJournalId().toString())
+                        .orElse(jsonStr(journal, "id")))
                 .journalName(jsonStr(journal, "display_name"))
                 .issn(jsonStr(journal, "issn_l"))
                 .publisher(jsonStr(journal, "host_organization_name"))
