@@ -503,7 +503,11 @@ public class AuthServiceImpl implements AuthService {
 
                 // Send real email + log fallback for dev testing
                 String verificationLink = frontendUrl + "/verify-email?token=" + tokenValue;
-                emailService.sendVerificationEmail(user.getEmail(), user.getFullName(), verificationLink);
+                try {
+                        emailService.sendVerificationEmail(user.getEmail(), user.getFullName(), verificationLink);
+                } catch (Exception e) {
+                        log.warn("Failed to send verification email to {}: {}. Token saved in DB anyway.", user.getEmail(), e.getMessage());
+                }
         }
 
         private TokenPair createUserSession(User user, String jwt) {

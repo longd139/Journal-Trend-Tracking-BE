@@ -26,6 +26,17 @@ public class PaperReportController {
     private final PaperReportService paperReportService;
 
     @Operation(
+            summary = "Get reports for a paper",
+            description = "Retrieve all reports submitted for a specific paper, ordered by latest first."
+    )
+    @GetMapping("/{paperId}/reports")
+    public ResponseEntity<AppResponse<List<PaperReportResponseDTO>>> getReports(
+            @PathVariable UUID paperId) {
+        List<PaperReportResponseDTO> reports = paperReportService.getReportsByPaperId(paperId);
+        return ResponseEntity.ok(AppResponse.success("Reports retrieved", reports));
+    }
+
+    @Operation(
             summary = "Report/flag a paper",
             description = "Submit a report for a specific paper with reason, description, and optional images."
     )

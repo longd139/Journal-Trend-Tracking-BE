@@ -11,6 +11,9 @@ public enum ReportType {
     /** Lỗi nội dung bài báo */
     CONTENT_ERROR,
 
+    /** Báo cáo / gắn cờ paper (spam, duplicate, incorrect info, retracted...) */
+    PAPER_FLAG,
+
     /** Loại khác */
     OTHER
 }

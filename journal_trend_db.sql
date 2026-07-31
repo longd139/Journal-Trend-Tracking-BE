@@ -49,6 +49,8 @@ DROP TABLE IF EXISTS RESEARCH_FIELD;
 DROP TABLE IF EXISTS SYNC_LOG;
 DROP TABLE IF EXISTS API_SOURCE;
 DROP TABLE IF EXISTS USER_SESSION;
+DROP TABLE IF EXISTS USER_REPORT;
+DROP TABLE IF EXISTS PAPER_REPORT;
 DROP TABLE IF EXISTS [USER];
 DROP TABLE IF EXISTS ROLE;
 GO
@@ -480,7 +482,13 @@ CREATE TABLE NOTIFICATION (
                                 'new_paper',
                                 'trend_alert',
                                 'system',
-                                'upgrade_prompt'   -- nhac Academic User nang cap
+                                'upgrade_prompt',
+                                'new_user',
+                                'user_report',
+                                'sync_completed',
+                                'sync_failed',
+                                'system_alert',
+                                'content_alert'
                             )),
     Title               NVARCHAR(300)       NOT NULL,
     [Message]           NVARCHAR(MAX)       NULL,
@@ -526,6 +534,55 @@ CREATE TABLE PDF_REQUEST (
                                       REFERENCES RESEARCH_PAPER(PaperID),
     CONSTRAINT FK_PDF_REQUEST_Admin  FOREIGN KEY (ResolvedByAdminID)
                                       REFERENCES [USER](UserID)
+);
+GO
+
+-- ── USER_REPORT ──────────────────────────────────────────────
+-- Nguoi dung gui bao cao chung (PDF issues, content errors...).
+-- Admin quan ly qua trang /admin/reports.
+CREATE TABLE USER_REPORT (
+    ReportID            UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    UserID              UNIQUEIDENTIFIER    NOT NULL,
+    ReportType          NVARCHAR(50)        NOT NULL
+                            CHECK (ReportType IN ('PDF_ISSUE','CONTENT_ERROR','PAPER_FLAG','OTHER')),
+    TargetType          NVARCHAR(50)        NULL,
+    TargetID            UNIQUEIDENTIFIER    NULL,
+    Title               NVARCHAR(300)       NOT NULL,
+    Description         NVARCHAR(MAX)       NULL,
+    Status              NVARCHAR(20)        NOT NULL  DEFAULT 'pending'
+                            CHECK (Status IN ('pending','reviewed','resolved','dismissed')),
+    AdminNote           NVARCHAR(MAX)       NULL,
+    ResolvedByAdminID   UNIQUEIDENTIFIER    NULL,
+    CreatedAt           DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+    ResolvedAt          DATETIME2(0)        NULL,
+
+    CONSTRAINT PK_USER_REPORT            PRIMARY KEY (ReportID),
+    CONSTRAINT FK_USER_REPORT_UserID     FOREIGN KEY (UserID)
+                                         REFERENCES [USER](UserID),
+    CONSTRAINT FK_USER_REPORT_ResolvedBy FOREIGN KEY (ResolvedByAdminID)
+                                         REFERENCES [USER](UserID)
+);
+GO
+
+-- ── PAPER_REPORT ──────────────────────────────────────────────
+-- Nguoi dung bao cao / flag mot paper cu the (spam, duplicate,
+-- incorrect info, retracted...). Moi user chi bao cao 1 paper 1 lan.
+CREATE TABLE PAPER_REPORT (
+    ReportID    UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    PaperID     UNIQUEIDENTIFIER    NOT NULL,
+    UserID      UNIQUEIDENTIFIER    NOT NULL,
+    Reason      NVARCHAR(50)        NOT NULL,
+    Description NVARCHAR(MAX)       NULL,
+    ImageUrls   NVARCHAR(MAX)       NULL,           -- JSON array of Cloudinary URLs
+    Status      NVARCHAR(20)        NOT NULL  DEFAULT 'PENDING'
+                    CHECK (Status IN ('PENDING','REVIEWED','RESOLVED','DISMISSED')),
+    CreatedAt   DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+    UpdatedAt   DATETIME2(0)        NULL,
+
+    CONSTRAINT PK_PAPER_REPORT          PRIMARY KEY (ReportID),
+    CONSTRAINT FK_PAPER_REPORT_User     FOREIGN KEY (UserID)
+                                        REFERENCES [USER](UserID),
+    CONSTRAINT CK_PAPER_REPORT_Status   CHECK (Status IN ('PENDING','REVIEWED','RESOLVED','DISMISSED'))
 );
 GO
 
@@ -792,6 +849,19 @@ CREATE INDEX IX_PDF_REQUEST_StatusRequestedAt
 CREATE UNIQUE INDEX UX_PDF_REQUEST_UserPaperPending
     ON PDF_REQUEST(UserID, PaperID)
     WHERE Status = 'pending';
+
+-- USER_REPORT
+CREATE INDEX IX_USER_REPORT_UserID
+    ON USER_REPORT(UserID, CreatedAt DESC);
+CREATE INDEX IX_USER_REPORT_Status
+    ON USER_REPORT(Status, CreatedAt DESC);
+
+-- PAPER_REPORT
+CREATE INDEX IX_PAPER_REPORT_PaperID
+    ON PAPER_REPORT(PaperID, CreatedAt DESC);
+CREATE UNIQUE INDEX UX_PAPER_REPORT_UserPaper
+    ON PAPER_REPORT(UserID, PaperID)
+    WHERE Status = 'PENDING';
 
 -- REPORT
 CREATE INDEX IX_REPORT_UserID       ON REPORT(UserID);

@@ -8,10 +8,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sra.journal_tracking.dto.report.PaperReportRequestDTO;
 import com.sra.journal_tracking.dto.report.PaperReportResponseDTO;
 import com.sra.journal_tracking.entity.jpa.PaperReport;
+import com.sra.journal_tracking.entity.jpa.ReportStatus;
+import com.sra.journal_tracking.entity.jpa.ReportType;
 import com.sra.journal_tracking.entity.jpa.User;
+import com.sra.journal_tracking.entity.jpa.UserReport;
 import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.repository.jpa.PaperReportRepository;
+import com.sra.journal_tracking.repository.jpa.UserReportRepository;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +25,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -29,11 +34,21 @@ public class PaperReportService {
 
     private final PaperReportRepository paperReportRepository;
     private final UserRepository userRepository;
+    private final UserReportRepository userReportRepository;
+    private final AdminNotificationService adminNotificationService;
     private final Cloudinary cloudinary;
     private final ObjectMapper objectMapper;
 
     private static final long MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB per image
     private static final int MAX_IMAGES = 5;
+
+    @Transactional(readOnly = true)
+    public List<PaperReportResponseDTO> getReportsByPaperId(UUID paperId) {
+        List<PaperReport> reports = paperReportRepository.findByPaperIdOrderByCreatedAtDesc(paperId);
+        return reports.stream()
+                .map(this::toResponseDTO)
+                .collect(Collectors.toList());
+    }
 
     @Transactional
     public PaperReportResponseDTO submitReport(
@@ -93,7 +108,41 @@ public class PaperReportService {
         log.info("Paper report submitted: reportId={}, paperId={}, userId={}, reason={}",
                 saved.getReportId(), paperId, user.getUserId(), request.getReason());
 
+        // Bridge to USER_REPORT so it appears in the admin reports panel
+        bridgeToUserReport(user, paperId, request);
+
         return toResponseDTO(saved);
+    }
+
+    /**
+     * Create a corresponding USER_REPORT entry so the admin panel
+     * at /admin/reports can see paper flagging reports alongside
+     * other report types.
+     */
+    private void bridgeToUserReport(User user, UUID paperId, PaperReportRequestDTO request) {
+        try {
+            UserReport userReport = UserReport.builder()
+                    .user(user)
+                    .reportType(ReportType.PAPER_FLAG)
+                    .targetType("paper")
+                    .targetId(paperId)
+                    .title("Paper flagged: " + request.getReason())
+                    .description(request.getDescription())
+                    .status(ReportStatus.PENDING)
+                    .build();
+            userReportRepository.save(userReport);
+            log.info("Bridged PAPER_REPORT -> USER_REPORT for paperId={}", paperId);
+
+            // Notify admins
+            adminNotificationService.broadcastToAdmins(
+                    com.sra.journal_tracking.entity.jpa.NotificationType.USER_REPORT,
+                    "Paper Flagged — " + request.getReason(),
+                    "User " + user.getFullName() + " (" + user.getEmail() + ") flagged paper "
+                            + paperId + " for: " + request.getReason()
+            );
+        } catch (Exception e) {
+            log.warn("Failed to bridge paper report to USER_REPORT: {}", e.getMessage());
+        }
     }
 
     private void validateImage(MultipartFile file) {

@@ -352,6 +352,37 @@ BEGIN
 END
 
 
+-- 14. PAPER_REPORT — user reports/flagging for individual papers
+IF OBJECT_ID('PAPER_REPORT', 'U') IS NULL
+  AND OBJECT_ID('USER', 'U') IS NOT NULL
+BEGIN
+    EXEC sp_executesql N'
+        CREATE TABLE PAPER_REPORT (
+            ReportID    UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+            PaperID     UNIQUEIDENTIFIER NOT NULL,
+            UserID      UNIQUEIDENTIFIER NOT NULL,
+            Reason      NVARCHAR(50)  NOT NULL,
+            Description NVARCHAR(MAX) NULL,
+            ImageUrls   NVARCHAR(MAX) NULL,
+            Status      NVARCHAR(20)  NOT NULL DEFAULT ''PENDING'',
+            CreatedAt   DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
+            UpdatedAt   DATETIME2     NULL,
+            CONSTRAINT PK_PAPER_REPORT PRIMARY KEY CLUSTERED (ReportID),
+            CONSTRAINT FK_PAPER_REPORT_User FOREIGN KEY (UserID)
+                REFERENCES [USER] (UserID),
+            CONSTRAINT CK_PAPER_REPORT_Status
+                CHECK (Status IN (''PENDING'', ''REVIEWED'', ''RESOLVED'', ''DISMISSED''))
+        )'
+    EXEC sp_executesql N'
+        CREATE NONCLUSTERED INDEX IX_PAPER_REPORT_PaperID
+            ON PAPER_REPORT (PaperID, CreatedAt DESC)'
+    EXEC sp_executesql N'
+        CREATE UNIQUE INDEX UX_PAPER_REPORT_UserPaper
+            ON PAPER_REPORT (UserID, PaperID)
+            WHERE Status = ''PENDING'''
+END
+
+
 -- 15. Seed admin role if missing
 IF NOT EXISTS (SELECT 1 FROM ROLE WHERE RoleName = 'admin')
 BEGIN
