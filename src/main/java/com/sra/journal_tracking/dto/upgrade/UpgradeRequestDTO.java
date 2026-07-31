@@ -22,6 +22,8 @@ public class UpgradeRequestDTO {
     private String position;
     private String orcid;
     private String reason;
+    private String paperLinks;
+    private String paperFileUrls;
     private String status;
     private String adminNote;
     private UUID reviewedBy;

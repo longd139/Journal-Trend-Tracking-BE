@@ -47,6 +47,8 @@ public class UpgradeRequestServiceImpl implements UpgradeRequestService {
                 .position(request.getPosition())
                 .orcid(request.getOrcid())
                 .reason(request.getReason())
+                .paperLinks(request.getPaperLinks())
+                .paperFileUrls(request.getPaperFileUrls())
                 .status(UpgradeRequestStatus.PENDING)
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -227,6 +229,8 @@ public class UpgradeRequestServiceImpl implements UpgradeRequestService {
                 .position(entity.getPosition())
                 .orcid(entity.getOrcid())
                 .reason(entity.getReason())
+                .paperLinks(entity.getPaperLinks())
+                .paperFileUrls(entity.getPaperFileUrls())
                 .status(entity.getStatus().name())
                 .adminNote(entity.getAdminNote())
                 .reviewedBy(entity.getReviewedBy() != null ? entity.getReviewedBy().getUserId() : null)

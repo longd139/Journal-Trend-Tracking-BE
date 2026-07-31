@@ -35,4 +35,10 @@ public class CreateUpgradeRequest {
     @NotBlank(message = "Reason is required")
     @Size(max = 5000)
     private String reason;
+
+    @Size(max = 5000)
+    private String paperLinks;  // user-provided links to their research papers
+
+    @Size(max = 5000)
+    private String paperFileUrls;  // Cloudinary URLs after upload (filled by service)
 }

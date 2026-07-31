@@ -1330,6 +1330,8 @@ CREATE TABLE ROLE_UPGRADE_REQUEST (
     [Position]      NVARCHAR(100)       NOT NULL,
     Orcid           NVARCHAR(50)        NULL,
     Reason          NVARCHAR(MAX)       NOT NULL,
+    PaperLinks      NVARCHAR(MAX)       NULL,           -- user-provided links to their papers (JSON array)
+    PaperFileUrls   NVARCHAR(MAX)       NULL,           -- Cloudinary PDF URLs uploaded by user (JSON array)
     Status          NVARCHAR(20)        NOT NULL  DEFAULT 'PENDING'
                         CHECK (Status IN ('PENDING','APPROVED','REJECTED')),
     AdminNote       NVARCHAR(500)       NULL,
