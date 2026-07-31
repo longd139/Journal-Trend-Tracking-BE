@@ -138,6 +138,29 @@ public class McpOrchestrator {
                     "Tool result for %s: %s".formatted(action.tool, toolResult)));
         }
 
+        // If max iterations reached without final answer, force one last call
+        if (!conversation.isEmpty()) {
+            conversation.add(Map.of("role", "user", "content",
+                    "You have now reached the maximum number of steps. "
+                    + "Please produce your FINAL_ANSWER now with all research gap suggestions "
+                    + "based on the tool results you have received. "
+                    + "Format: FINAL_ANSWER: {\"suggestions\": [...]}"));
+            String finalAiResponse = callAI(conversation);
+            McpAction finalAction = parseFinalAnswerJson(finalAiResponse);
+            if (finalAction != null && "final_answer".equals(finalAction.type)) {
+                List<McpSuggestion> suggestions = parseSuggestions(finalAiResponse);
+                log.info("MCP forced final answer: {} suggestions", suggestions.size());
+                McpResponse response = new McpResponse(finalAction.content, suggestions);
+                enrichResponseFromJson(response, finalAction.content);
+                response.matchLevel = matchResult.getMatchLevel().name();
+                response.unmatchedTerms = matchResult.getUnmatchedTerms();
+                response.fuzzyCandidates = convertFuzzyCandidates(matchResult.getFuzzySuggestions());
+                suggestCache.put(cacheKey, response);
+                suggestCacheExpiry.put(cacheKey, System.currentTimeMillis() + CACHE_TTL_MS);
+                return response;
+            }
+        }
+
         McpResponse response = buildDirectMatchResponse(matchResult, userIdea);
         suggestCache.put(cacheKey, response);
         suggestCacheExpiry.put(cacheKey, System.currentTimeMillis() + CACHE_TTL_MS);
@@ -545,6 +568,27 @@ public class McpOrchestrator {
             conversation.add(Map.of("role", "assistant", "content", aiResponse));
             conversation.add(Map.of("role", "user", "content",
                     "Tool result for %s: %s".formatted(action.tool, toolResult)));
+        }
+
+        // If max iterations reached, force one last call for final answer
+        if (!conversation.isEmpty()) {
+            conversation.add(Map.of("role", "user", "content",
+                    "You have now reached the maximum number of steps. "
+                    + "Please produce your FINAL_ANSWER now with all research gap suggestions "
+                    + "based on the tool results you have received. "
+                    + "Format: FINAL_ANSWER: {\"suggestions\": [...]}"));
+            String finalAiResponse = callAI(conversation);
+            McpAction finalAction = parseFinalAnswerJson(finalAiResponse);
+            if (finalAction != null && "final_answer".equals(finalAction.type)) {
+                List<McpSuggestion> suggestions = parseSuggestions(finalAiResponse);
+                log.info("MCP forced final answer in exploreWithAI: {} suggestions", suggestions.size());
+                McpResponse response = new McpResponse(finalAction.content, suggestions);
+                enrichResponseFromJson(response, finalAction.content);
+                response.matchLevel = matchResult.getMatchLevel().name();
+                response.unmatchedTerms = matchResult.getUnmatchedTerms();
+                response.fuzzyCandidates = convertFuzzyCandidates(matchResult.getFuzzySuggestions());
+                return response;
+            }
         }
 
         // Fallback — return match info with empty suggestions

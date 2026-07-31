@@ -111,7 +111,7 @@ public class KeywordMatchingService {
         for (Map<String, Object> kw : allKeywords) {
             String norm = (String) kw.get("normalizedText");
             if (norm != null && !norm.isBlank()) {
-                keywordLookup.put(norm, kw);
+                keywordLookup.put(norm.toLowerCase(), kw);
             }
         }
 

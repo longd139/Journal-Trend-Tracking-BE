@@ -48,6 +48,12 @@ public class RoleUpgradeRequest {
     @Column(name = "Reason", nullable = false, columnDefinition = "NVARCHAR(MAX)")
     private String reason;
 
+    @Column(name = "PaperLinks", columnDefinition = "NVARCHAR(MAX)")
+    private String paperLinks;  // JSON array of URLs or newline-separated links
+
+    @Column(name = "PaperFileUrls", columnDefinition = "NVARCHAR(MAX)")
+    private String paperFileUrls;  // JSON array of Cloudinary PDF URLs
+
     @Enumerated(EnumType.STRING)
     @Column(name = "Status", nullable = false, length = 20)
     @Builder.Default
