@@ -46,7 +46,6 @@ import com.sra.journal_tracking.security.CustomUserDetails;
 import com.sra.journal_tracking.security.CustomUserDetailsService;
 import com.sra.journal_tracking.security.JwtTokenProvider;
 import com.sra.journal_tracking.service.AuthService;
-import com.sra.journal_tracking.service.CaptchaService;
 import com.sra.journal_tracking.service.EmailService;
 
 import lombok.RequiredArgsConstructor;
@@ -70,7 +69,6 @@ public class AuthServiceImpl implements AuthService {
         private final JwtTokenProvider tokenProvider;
         private final CustomUserDetailsService customUserDetailsService;
         private final EmailService emailService;
-        private final CaptchaService captchaService;
 
         @Value("${app.frontend-url:http://localhost:3000}")
         private String frontendUrl;
@@ -342,19 +340,6 @@ public class AuthServiceImpl implements AuthService {
         public AuthResponse login(LoginRequest request) {
                 String email = request.getEmail().toLowerCase().trim();
 
-                if (captchaService.isCaptchaRequired(email)) {
-                        if (request.getCaptchaToken() == null || request.getCaptchaToken().isBlank()
-                                        || request.getCaptchaAnswer() == null) {
-                                throw new AppException(ErrorCode.CAPTCHA_REQUIRED);
-                        }
-                        boolean captchaOk = captchaService.verifyCaptcha(
-                                        email, request.getCaptchaToken(), request.getCaptchaAnswer());
-                        if (!captchaOk) {
-                                captchaService.recordFailedAttempt(email);
-                                throw new AppException(ErrorCode.CAPTCHA_INVALID);
-                        }
-                }
-
                 try {
                         Authentication authentication = authenticationManager.authenticate(
                                         new UsernamePasswordAuthenticationToken(email, request.getPassword()));
@@ -365,8 +350,6 @@ public class AuthServiceImpl implements AuthService {
                         User user = userRepository.findByEmail(email)
                                         .orElseThrow(() -> new RuntimeException("User not found"));
 
-                        captchaService.resetFailedAttempts(email);
-
                         log.info("User logged in: email={}, role={}, roleExpiryAt={}",
                                         user.getEmail(), user.getRole().getRoleName(), user.getRoleExpiryAt());
 
@@ -375,7 +358,6 @@ public class AuthServiceImpl implements AuthService {
                 } catch (AppException e) {
                         throw e;
                 } catch (Exception e) {
-                        captchaService.recordFailedAttempt(email);
                         throw e;
                 }
         }
