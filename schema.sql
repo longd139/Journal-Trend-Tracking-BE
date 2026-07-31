@@ -543,7 +543,7 @@ GO
 ALTER TABLE [dbo].[JOURNAL] ADD CONSTRAINT [CK__JOURNAL__Quartil__76969D2E] CHECK ([Quartile]='Q4' OR [Quartile]='Q3' OR [Quartile]='Q2' OR [Quartile]='Q1');
 GO
 
-ALTER TABLE [dbo].[NOTIFICATION] ADD CONSTRAINT [CK__NOTIFICATI__Type__44CA3770] CHECK ([Type]='upgrade_prompt' OR [Type]='system' OR [Type]='trend_alert' OR [Type]='new_paper');
+ALTER TABLE [dbo].[NOTIFICATION] ADD CONSTRAINT [CK__NOTIFICATI__Type__44CA3770] CHECK ([Type]='new_paper' OR [Type]='trend_alert' OR [Type]='system' OR [Type]='upgrade_prompt' OR [Type]='new_user' OR [Type]='user_report' OR [Type]='sync_completed' OR [Type]='sync_failed' OR [Type]='system_alert' OR [Type]='content_alert');
 GO
 
 ALTER TABLE [dbo].[PAPER_AUTHOR] ADD CONSTRAINT [CK_PA_AuthorOrder] CHECK ([AuthorOrder]>=(1));
