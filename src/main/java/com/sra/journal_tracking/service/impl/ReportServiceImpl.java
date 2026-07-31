@@ -69,6 +69,14 @@ public class ReportServiceImpl implements ReportService {
     private final OpenAlexFallbackSearchService openAlexSearchService;
 
     // ============================================
+    //  LANGUAGE HELPER
+    // ============================================
+
+    private boolean isEnglish(String lang) {
+        return lang != null && lang.equalsIgnoreCase("en");
+    }
+
+    // ============================================
     //  KEYWORD TREND REPORT
     // ============================================
 
@@ -78,10 +86,10 @@ public class ReportServiceImpl implements ReportService {
             key = "'keywordTrend:' + #keyword.trim().toLowerCase() + ':' + (#startYear != null ? #startYear : '') + ':' + (#endYear != null ? #endYear : '')",
             unless = "#result == null || #result.summary == null || #result.summary.totalPublications == 0")
     public KeywordTrendReportResponse getKeywordTrendReport(String keyword,
-                                                              Integer startYear, Integer endYear) {
+                                                              Integer startYear, Integer endYear, String lang) {
         String trimmed = keyword.trim();
         if (trimmed.isEmpty()) {
-            return buildEmptyKeywordReport(keyword);
+            return buildEmptyKeywordReport(keyword, lang);
         }
 
         log.info("Generating keyword trend report for: '{}' (y={}-{})", trimmed, startYear, endYear);
@@ -94,7 +102,7 @@ public class ReportServiceImpl implements ReportService {
         long totalPapers = openAlexSearchService.getKeywordTotalCount(trimmed, startYear, endYear);
         if (totalPapers == 0) {
             log.info("No papers found for '{}'", trimmed);
-            return buildEmptyKeywordReport(trimmed);
+            return buildEmptyKeywordReport(trimmed, lang);
         }
 
         // Step 2: Try SQL for paper IDs (via keyword join)
@@ -171,12 +179,15 @@ public class ReportServiceImpl implements ReportService {
                     .build();
         }
 
-        String insight = generateKeywordInsight(trimmed, summary);
+        String insight = generateKeywordInsight(trimmed, summary, lang);
+
+        String reportTitle = isEnglish(lang)
+                ? "Trend Report: " + trimmed
+                : "Báo cáo xu hướng: " + trimmed;
 
         KeywordTrendReportResponse report = KeywordTrendReportResponse.builder()
                 .keyword(trimmed)
-                .reportTitle("Báo cáo xu hướng: " + trimmed)
-                .summary(summary)
+                .reportTitle(reportTitle)
                 .publicationTrend(publicationTrend)
                 .citationTrend(citationTrend)
                 .coOccurringKeywords(coOccurringKeywords)
@@ -257,10 +268,10 @@ public class ReportServiceImpl implements ReportService {
     @Cacheable(value = "search:report", cacheManager = "searchCacheManager",
             key = "'authorImpact:' + #authorName.trim().toLowerCase()",
             unless = "#result == null")
-    public AuthorImpactReportResponse getAuthorImpactReport(String authorName) {
+    public AuthorImpactReportResponse getAuthorImpactReport(String authorName, String lang) {
         String trimmed = authorName.trim();
         if (trimmed.isEmpty()) {
-            return buildEmptyAuthorReport(authorName);
+            return buildEmptyAuthorReport(authorName, lang);
         }
 
         log.info("Generating author impact report for: '{}'", trimmed);
@@ -323,10 +334,11 @@ public class ReportServiceImpl implements ReportService {
         List<AuthorImpactReportResponse.Collaborator> topCollaborators = findTopCollaborators(authorId, trimmed);
 
         // Step 7: Generate insight text
-        String insight = generateAuthorInsight(trimmed, hIndex, topField, status);
+        String insight = generateAuthorInsight(trimmed, hIndex, topField, status, lang);
 
-        // Step 8: Build report title
-        String reportTitle = "Hồ sơ năng lực học thuật: " + trimmed;
+        String reportTitle = isEnglish(lang)
+                ? "Academic Profile: " + trimmed
+                : "Hồ sơ năng lực học thuật: " + trimmed;
 
         log.info("Author impact report for '{}': papers={}, hIndex={}, status={}, field={}",
                 trimmed, totalPapers, hIndex, status, topField);
@@ -353,10 +365,10 @@ public class ReportServiceImpl implements ReportService {
     @Cacheable(value = "search:report", cacheManager = "searchCacheManager",
             key = "'journalQuality:' + #journalName.trim().toLowerCase()",
             unless = "#result == null || #result.totalPapers == 0")
-    public JournalQualityReportResponse getJournalQualityReport(String journalName) {
+    public JournalQualityReportResponse getJournalQualityReport(String journalName, String lang) {
         String trimmed = journalName.trim();
         if (trimmed.isEmpty()) {
-            return buildEmptyJournalReport(journalName);
+            return buildEmptyJournalReport(journalName, lang);
         }
 
         log.info("Generating journal quality report for: '{}'", trimmed);
@@ -367,12 +379,12 @@ public class ReportServiceImpl implements ReportService {
             stats = journalQuickStatsService.getStats(trimmed);
         } catch (Exception e) {
             log.warn("Journal quick stats failed for '{}': {}", trimmed, e.getMessage());
-            return buildEmptyJournalReport(trimmed);
+            return buildEmptyJournalReport(trimmed, lang);
         }
 
         if (stats.getTotalPapers() == null || stats.getTotalPapers() == 0) {
             log.info("No papers found for journal '{}'", trimmed);
-            return buildEmptyJournalReport(trimmed);
+            return buildEmptyJournalReport(trimmed, lang);
         }
 
         // Step 2: Find the journal entity for recent keyword queries
@@ -391,13 +403,13 @@ public class ReportServiceImpl implements ReportService {
                 : stats.getCalculatedCiteScore();
 
         // Step 5: Generate taste text
-        String taste = generateJournalTaste(recentKeywords);
+        String taste = generateJournalTaste(recentKeywords, lang);
 
-        // Step 6: Generate insight text
-        String insight = generateJournalInsight(stats.getQuartile(), stats.getJournalName(), stats.getImpactFactor());
+        String insight = generateJournalInsight(stats.getQuartile(), stats.getJournalName(), stats.getImpactFactor(), lang);
 
-        // Step 7: Build report title
-        String reportTitle = "Đánh giá chất lượng tạp chí: " + stats.getJournalName();
+        String reportTitle = isEnglish(lang)
+                ? "Journal Quality: " + stats.getJournalName()
+                : "Đánh giá chất lượng tạp chí: " + stats.getJournalName();
 
         log.info("Journal quality report for '{}': Q={}, IF={}, papers={}, citations={}",
                 stats.getJournalName(), stats.getQuartile(), stats.getImpactFactor(),
@@ -423,10 +435,11 @@ public class ReportServiceImpl implements ReportService {
     //  PRIVATE HELPERS — Keyword Trend
     // ============================================
 
-    private KeywordTrendReportResponse buildEmptyKeywordReport(String keyword) {
+    private KeywordTrendReportResponse buildEmptyKeywordReport(String keyword, String lang) {
+        boolean en = isEnglish(lang);
         return KeywordTrendReportResponse.builder()
                 .keyword(keyword)
-                .reportTitle("Báo cáo xu hướng: " + keyword)
+                .reportTitle(en ? "Trend Report: " + keyword : "Báo cáo xu hướng: " + keyword)
                 .summary(KeywordTrendReportResponse.Summary.builder()
                         .totalPublications(0L)
                         .totalCitations(0L)
@@ -435,8 +448,10 @@ public class ReportServiceImpl implements ReportService {
                 .citationTrend(List.of())
                 .coOccurringKeywords(List.of())
                 .topJournals(List.of())
-                .insight("Chưa có đủ dữ liệu về chủ đề \"" + keyword
-                        + "\" trong hệ thống. Vui lòng thử tìm kiếm với từ khóa khác hoặc đợi dữ liệu được đồng bộ.")
+                .insight(en
+                        ? "Not enough data about \"" + keyword + "\" in the system. Please try a different keyword or wait for data to sync."
+                        : "Chưa có đủ dữ liệu về chủ đề \"" + keyword
+                                + "\" trong hệ thống. Vui lòng thử tìm kiếm với từ khóa khác hoặc đợi dữ liệu được đồng bộ.")
                 .build();
     }
 
@@ -539,46 +554,67 @@ public class ReportServiceImpl implements ReportService {
         }
     }
 
-    private String generateKeywordInsight(String keyword, KeywordTrendReportResponse.Summary summary) {
+    private String generateKeywordInsight(String keyword, KeywordTrendReportResponse.Summary summary, String lang) {
+        boolean en = isEnglish(lang);
         long totalPapers = summary.getTotalPublications() != null ? summary.getTotalPublications() : 0;
         long totalCitations = summary.getTotalCitations() != null ? summary.getTotalCitations() : 0;
         Integer peakYear = summary.getPeakYear();
 
         if (totalPapers == 0) {
-            return "Chủ đề \"" + keyword
-                    + "\" chưa có đủ dữ liệu trong hệ thống để đưa ra nhận định chính xác.";
+            return en
+                    ? "Topic \"" + keyword + "\" does not have enough data in the system for accurate analysis."
+                    : "Chủ đề \"" + keyword
+                            + "\" chưa có đủ dữ liệu trong hệ thống để đưa ra nhận định chính xác.";
         }
 
         StringBuilder insight = new StringBuilder();
-        insight.append("Chủ đề \"").append(keyword).append("\" có tổng cộng ")
-                .append(String.format("%,d", totalPapers)).append(" bài báo");
+        if (en) {
+            insight.append("Topic \"").append(keyword).append("\" has a total of ")
+                    .append(String.format("%,d", totalPapers)).append(" papers");
+        } else {
+            insight.append("Chủ đề \"").append(keyword).append("\" có tổng cộng ")
+                    .append(String.format("%,d", totalPapers)).append(" bài báo");
+        }
 
         if (totalCitations > 0) {
-            insight.append(" với ").append(String.format("%,d", totalCitations)).append(" lượt trích dẫn");
+            insight.append(en ? " with " : " với ")
+                    .append(String.format("%,d", totalCitations))
+                    .append(en ? " citations" : " lượt trích dẫn");
         }
 
         if (peakYear != null) {
-            insight.append(", đạt đỉnh cao vào năm ").append(peakYear);
+            insight.append(en ? ", peaking in " : ", đạt đỉnh cao vào năm ").append(peakYear);
         }
 
         insight.append(". ");
 
-        // Add insight about top journal if available
         if (summary.getTopJournal() != null && summary.getTopJournal().getName() != null) {
-            insight.append("Tạp chí xuất bản nhiều nhất là ")
-                    .append(summary.getTopJournal().getName())
-                    .append(" với ").append(summary.getTopJournal().getPaperCount())
-                    .append(" bài báo. ");
+            if (en) {
+                insight.append("The most publishing journal is ")
+                        .append(summary.getTopJournal().getName())
+                        .append(" with ").append(summary.getTopJournal().getPaperCount())
+                        .append(" papers. ");
+            } else {
+                insight.append("Tạp chí xuất bản nhiều nhất là ")
+                        .append(summary.getTopJournal().getName())
+                        .append(" với ").append(summary.getTopJournal().getPaperCount())
+                        .append(" bài báo. ");
+            }
         }
 
-        // Trend characterization based on total volume
         if (totalPapers > 5000) {
-            insight.append("Đây là một lĩnh vực nghiên cứu lớn với lượng xuất bản dồi dào, "
-                    + "thu hút sự quan tâm mạnh mẽ từ cộng đồng học thuật.");
+            insight.append(en
+                    ? "This is a large research field with abundant publications, attracting strong interest from the academic community."
+                    : "Đây là một lĩnh vực nghiên cứu lớn với lượng xuất bản dồi dào, "
+                            + "thu hút sự quan tâm mạnh mẽ từ cộng đồng học thuật.");
         } else if (totalPapers > 1000) {
-            insight.append("Đây là một lĩnh vực nghiên cứu đang phát triển với lượng xuất bản ổn định.");
+            insight.append(en
+                    ? "This is a growing research field with stable publication volume."
+                    : "Đây là một lĩnh vực nghiên cứu đang phát triển với lượng xuất bản ổn định.");
         } else {
-            insight.append("Đây là một lĩnh vực nghiên cứu chuyên sâu, có thể còn nhiều tiềm năng khai phá.");
+            insight.append(en
+                    ? "This is a specialized research field with potential for further exploration."
+                    : "Đây là một lĩnh vực nghiên cứu chuyên sâu, có thể còn nhiều tiềm năng khai phá.");
         }
 
         return insight.toString();
@@ -588,14 +624,17 @@ public class ReportServiceImpl implements ReportService {
     //  PRIVATE HELPERS — Author Impact
     // ============================================
 
-    private AuthorImpactReportResponse buildEmptyAuthorReport(String authorName) {
+    private AuthorImpactReportResponse buildEmptyAuthorReport(String authorName, String lang) {
+        boolean en = isEnglish(lang);
         return AuthorImpactReportResponse.builder()
-                .reportTitle("Hồ sơ năng lực học thuật: " + authorName)
+                .reportTitle(en ? "Academic Profile: " + authorName : "Hồ sơ năng lực học thuật: " + authorName)
                 .authorName(authorName)
                 .totalPapers(0)
                 .hIndex(0)
                 .status("Không có dữ liệu")
-                .insight("Chưa tìm thấy thông tin về tác giả \"" + authorName + "\" trong hệ thống.")
+                .insight(en
+                        ? "No information found about author \"" + authorName + "\" in the system."
+                        : "Chưa tìm thấy thông tin về tác giả \"" + authorName + "\" trong hệ thống.")
                 .topField(null)
                 .topCollaborators(List.of())
                 .build();
@@ -682,28 +721,47 @@ public class ReportServiceImpl implements ReportService {
         }
     }
 
-    private String generateAuthorInsight(String authorName, Integer hIndex, String topField, String status) {
+    private String generateAuthorInsight(String authorName, Integer hIndex, String topField, String status, String lang) {
+        boolean en = isEnglish(lang);
+
         if (hIndex == null || hIndex == 0) {
             if (topField != null && !topField.isBlank()) {
-                return "Tác giả " + authorName + " hoạt động trong lĩnh vực " + topField
-                        + ". Dữ liệu trích dẫn chưa đủ để đánh giá chỉ số h-index.";
+                return en
+                        ? "Author " + authorName + " works in the field of " + topField
+                                + ". Citation data is insufficient to evaluate h-index."
+                        : "Tác giả " + authorName + " hoạt động trong lĩnh vực " + topField
+                                + ". Dữ liệu trích dẫn chưa đủ để đánh giá chỉ số h-index.";
             }
-            return "Tác giả " + authorName + " chưa có đủ dữ liệu trích dẫn trong hệ thống để đưa ra đánh giá đầy đủ.";
+            return en
+                    ? "Author " + authorName + " does not have enough citation data in the system for a full evaluation."
+                    : "Tác giả " + authorName + " chưa có đủ dữ liệu trích dẫn trong hệ thống để đưa ra đánh giá đầy đủ.";
         }
 
         StringBuilder insight = new StringBuilder();
-        insight.append("Tác giả có chỉ số h-index đạt ").append(hIndex);
+        if (en) {
+            insight.append("The author has an h-index of ").append(hIndex);
+        } else {
+            insight.append("Tác giả có chỉ số h-index đạt ").append(hIndex);
+        }
 
         if (topField != null && !topField.isBlank()) {
-            insight.append(", khẳng định vị thế chuyên gia trong lĩnh vực ").append(topField).append(". ");
+            if (en) {
+                insight.append(", establishing expert status in ").append(topField).append(". ");
+            } else {
+                insight.append(", khẳng định vị thế chuyên gia trong lĩnh vực ").append(topField).append(". ");
+            }
         } else {
-            insight.append(", thể hiện năng lực nghiên cứu đáng kể. ");
+            insight.append(en ? ", demonstrating significant research capability. " : ", thể hiện năng lực nghiên cứu đáng kể. ");
         }
 
         if ("Đang sung sức".equals(status)) {
-            insight.append("Tác giả vẫn đang tích cực công bố nghiên cứu trong những năm gần đây.");
+            insight.append(en
+                    ? "The author is still actively publishing research in recent years."
+                    : "Tác giả vẫn đang tích cực công bố nghiên cứu trong những năm gần đây.");
         } else if ("Đã dừng nghiên cứu".equals(status)) {
-            insight.append("Tuy nhiên, tác giả dường như đã giảm hoặc dừng công bố trong 3 năm gần đây.");
+            insight.append(en
+                    ? "However, the author appears to have reduced or stopped publishing in the last 3 years."
+                    : "Tuy nhiên, tác giả dường như đã giảm hoặc dừng công bố trong 3 năm gần đây.");
         }
 
         return insight.toString();
@@ -713,15 +771,20 @@ public class ReportServiceImpl implements ReportService {
     //  PRIVATE HELPERS — Journal Quality
     // ============================================
 
-    private JournalQualityReportResponse buildEmptyJournalReport(String journalName) {
+    private JournalQualityReportResponse buildEmptyJournalReport(String journalName, String lang) {
+        boolean en = isEnglish(lang);
         return JournalQualityReportResponse.builder()
-                .reportTitle("Đánh giá chất lượng tạp chí: " + journalName)
+                .reportTitle(en ? "Journal Quality: " + journalName : "Đánh giá chất lượng tạp chí: " + journalName)
                 .journalName(journalName)
                 .quartile(null)
                 .impactFactor(null)
                 .score(null)
-                .taste("Chưa có dữ liệu về xu hướng đăng tải của tạp chí này.")
-                .insight("Chưa tìm thấy dữ liệu về tạp chí \"" + journalName + "\" trong hệ thống.")
+                .taste(en
+                        ? "No data available on the publication trends of this journal."
+                        : "Chưa có dữ liệu về xu hướng đăng tải của tạp chí này.")
+                .insight(en
+                        ? "No data found for journal \"" + journalName + "\" in the system."
+                        : "Chưa tìm thấy dữ liệu về tạp chí \"" + journalName + "\" trong hệ thống.")
                 .totalPapers(0L)
                 .totalCitations(0L)
                 .topKeywords(List.of())
@@ -745,41 +808,66 @@ public class ReportServiceImpl implements ReportService {
         }
     }
 
-    private String generateJournalTaste(List<String> recentKeywords) {
+    private String generateJournalTaste(List<String> recentKeywords, String lang) {
+        boolean en = isEnglish(lang);
         if (recentKeywords == null || recentKeywords.isEmpty()) {
-            return "Chưa có đủ dữ liệu để xác định xu hướng đăng tải gần đây của tạp chí này.";
+            return en
+                    ? "Not enough data to determine recent publication trends for this journal."
+                    : "Chưa có đủ dữ liệu để xác định xu hướng đăng tải gần đây của tạp chí này.";
         }
         if (recentKeywords.size() == 1) {
-            return "Tạp chí đang ưu tiên đăng tải các nghiên cứu về "
-                    + recentKeywords.get(0) + " trong 2 năm gần đây.";
+            return en
+                    ? "The journal prioritizes publishing research on " + recentKeywords.get(0) + " in the last 2 years."
+                    : "Tạp chí đang ưu tiên đăng tải các nghiên cứu về "
+                            + recentKeywords.get(0) + " trong 2 năm gần đây.";
         }
         String keywordA = recentKeywords.get(0);
         String keywordB = recentKeywords.get(1);
-        return "Tạp chí đang ưu tiên đăng tải các nghiên cứu về "
-                + keywordA + ", " + keywordB + " trong 2 năm gần đây.";
+        return en
+                ? "The journal prioritizes publishing research on " + keywordA + ", " + keywordB + " in the last 2 years."
+                : "Tạp chí đang ưu tiên đăng tải các nghiên cứu về "
+                        + keywordA + ", " + keywordB + " trong 2 năm gần đây.";
     }
 
-    private String generateJournalInsight(String quartile, String journalName, java.math.BigDecimal impactFactor) {
-        if (quartile == null) {
-            return "Tạp chí \"" + journalName + "\" chưa có xếp hạng quartile trong hệ thống.";
-        }
+    private String generateJournalInsight(String quartile, String journalName, java.math.BigDecimal impactFactor, String lang) {
+        boolean en = isEnglish(lang);
 
         String ifStr = impactFactor != null ? " (IF=" + impactFactor + ")" : "";
 
+        if (quartile == null) {
+            return en
+                    ? "Journal \"" + journalName + "\" has no quartile ranking in the system."
+                    : "Tạp chí \"" + journalName + "\" chưa có xếp hạng quartile trong hệ thống.";
+        }
+
         return switch (quartile.toUpperCase()) {
-            case "Q1" -> "Đây là tạp chí nhóm Q1" + ifStr
-                    + ", phù hợp cho các nghiên cứu chuyên sâu, có tính đột phá cao. "
-                    + "Tỷ lệ chấp nhận thường thấp, đòi hỏi chất lượng nghiên cứu xuất sắc.";
-            case "Q2" -> "Đây là tạp chí nhóm Q2" + ifStr
-                    + ", có uy tín tốt và phù hợp cho các nghiên cứu chất lượng cao. "
-                    + "Cân bằng tốt giữa độ uy tín và khả năng được chấp nhận.";
-            case "Q3" -> "Đây là tạp chí nhóm Q3" + ifStr
-                    + ", phù hợp cho các nghiên cứu ở mức chuyên ngành hẹp hoặc mới bắt đầu. "
-                    + "Tỷ lệ chấp nhận cao hơn so với nhóm Q1-Q2.";
-            case "Q4" -> "Đây là tạp chí nhóm Q4" + ifStr
-                    + ", phù hợp cho các nghiên cứu bước đầu hoặc báo cáo ngắn. "
-                    + "Cần cân nhắc kỹ về độ uy tín khi lựa chọn xuất bản.";
-            default -> "Tạp chí \"" + journalName + "\" có xếp hạng " + quartile + ifStr + ".";
+            case "Q1" -> en
+                    ? "This is a Q1 journal" + ifStr + ", suitable for in-depth, groundbreaking research. "
+                            + "Acceptance rates are typically low, requiring excellent research quality."
+                    : "Đây là tạp chí nhóm Q1" + ifStr
+                            + ", phù hợp cho các nghiên cứu chuyên sâu, có tính đột phá cao. "
+                            + "Tỷ lệ chấp nhận thường thấp, đòi hỏi chất lượng nghiên cứu xuất sắc.";
+            case "Q2" -> en
+                    ? "This is a Q2 journal" + ifStr + ", with good reputation and suitable for high-quality research. "
+                            + "Good balance between prestige and acceptance likelihood."
+                    : "Đây là tạp chí nhóm Q2" + ifStr
+                            + ", có uy tín tốt và phù hợp cho các nghiên cứu chất lượng cao. "
+                            + "Cân bằng tốt giữa độ uy tín và khả năng được chấp nhận.";
+            case "Q3" -> en
+                    ? "This is a Q3 journal" + ifStr + ", suitable for niche or early-stage research. "
+                            + "Acceptance rates are higher compared to Q1-Q2."
+                    : "Đây là tạp chí nhóm Q3" + ifStr
+                            + ", phù hợp cho các nghiên cứu ở mức chuyên ngành hẹp hoặc mới bắt đầu. "
+                            + "Tỷ lệ chấp nhận cao hơn so với nhóm Q1-Q2.";
+            case "Q4" -> en
+                    ? "This is a Q4 journal" + ifStr + ", suitable for preliminary research or short reports. "
+                            + "Consider the prestige level carefully when choosing to publish."
+                    : "Đây là tạp chí nhóm Q4" + ifStr
+                            + ", phù hợp cho các nghiên cứu bước đầu hoặc báo cáo ngắn. "
+                            + "Cần cân nhắc kỹ về độ uy tín khi lựa chọn xuất bản.";
+            default -> en
+                    ? "Journal \"" + journalName + "\" has ranking " + quartile + ifStr + "."
+                    : "Tạp chí \"" + journalName + "\" có xếp hạng " + quartile + ifStr + ".";
         };
     }
 
@@ -818,7 +906,7 @@ public class ReportServiceImpl implements ReportService {
     // ============================================
 
     @Override
-    public KeywordTrendReportResponse getCachedKeywordTrendReport(String keyword) {
+    public KeywordTrendReportResponse getCachedKeywordTrendReport(String keyword, String lang) {
         String normalized = keyword.trim().toLowerCase();
         log.info("Looking up cached keyword trend report for '{}'", keyword);
 
@@ -840,7 +928,7 @@ public class ReportServiceImpl implements ReportService {
 
         // Cache miss or deserialization failure — generate fresh
         log.info("Cache miss for '{}', generating fresh report", keyword);
-        return getKeywordTrendReport(keyword, null, null);
+        return getKeywordTrendReport(keyword, null, null, lang);
     }
 
     @Override

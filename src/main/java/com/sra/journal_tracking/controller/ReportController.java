@@ -44,11 +44,13 @@ public class ReportController {
             @Parameter(description = "Optional: filter by publication year from (inclusive)")
             @RequestParam(required = false) Integer startYear,
             @Parameter(description = "Optional: filter by publication year to (inclusive)")
-            @RequestParam(required = false) Integer endYear) {
+            @RequestParam(required = false) Integer endYear,
+            @Parameter(description = "Preferred language (en or vi, default en)")
+            @RequestParam(defaultValue = "en") String lang) {
         if (keyword == null || keyword.trim().isEmpty()) {
             throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
         }
-        KeywordTrendReportResponse report = reportService.getKeywordTrendReport(keyword, startYear, endYear);
+        KeywordTrendReportResponse report = reportService.getKeywordTrendReport(keyword, startYear, endYear, lang);
         return ResponseEntity.ok(AppResponse.success("Keyword trend report generated successfully", report));
     }
 
@@ -73,11 +75,13 @@ public class ReportController {
     @GetMapping("/keyword-trend/cached")
     public ResponseEntity<AppResponse<KeywordTrendReportResponse>> getCachedKeywordTrendReport(
             @Parameter(description = "The keyword to retrieve the cached report for", required = true, example = "machine learning")
-            @RequestParam String keyword) {
+            @RequestParam String keyword,
+            @Parameter(description = "Preferred language (en or vi, default en)")
+            @RequestParam(defaultValue = "en") String lang) {
         if (keyword == null || keyword.trim().isEmpty()) {
             throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
         }
-        KeywordTrendReportResponse report = reportService.getCachedKeywordTrendReport(keyword);
+        KeywordTrendReportResponse report = reportService.getCachedKeywordTrendReport(keyword, lang);
         return ResponseEntity.ok(AppResponse.success("Cached keyword trend report retrieved successfully", report));
     }
 
@@ -108,11 +112,13 @@ public class ReportController {
     @GetMapping("/author-impact")
     public ResponseEntity<AppResponse<AuthorImpactReportResponse>> getAuthorImpactReport(
             @Parameter(description = "The author name to analyze", required = true, example = "Yoshua Bengio")
-            @RequestParam String authorName) {
+            @RequestParam String authorName,
+            @Parameter(description = "Preferred language (en or vi, default en)")
+            @RequestParam(defaultValue = "en") String lang) {
         if (authorName == null || authorName.trim().isEmpty()) {
             throw new AppException(ErrorCode.AUTHOR_NOT_FOUND);
         }
-        AuthorImpactReportResponse report = reportService.getAuthorImpactReport(authorName);
+        AuthorImpactReportResponse report = reportService.getAuthorImpactReport(authorName, lang);
         return ResponseEntity.ok(AppResponse.success("Author impact report generated successfully", report));
     }
 
@@ -126,11 +132,13 @@ public class ReportController {
     @GetMapping("/journal-quality")
     public ResponseEntity<AppResponse<JournalQualityReportResponse>> getJournalQualityReport(
             @Parameter(description = "The journal name to analyze", required = true, example = "Nature")
-            @RequestParam String journalName) {
+            @RequestParam String journalName,
+            @Parameter(description = "Preferred language (en or vi, default en)")
+            @RequestParam(defaultValue = "en") String lang) {
         if (journalName == null || journalName.trim().isEmpty()) {
             throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
         }
-        JournalQualityReportResponse report = reportService.getJournalQualityReport(journalName);
+        JournalQualityReportResponse report = reportService.getJournalQualityReport(journalName, lang);
         return ResponseEntity.ok(AppResponse.success("Journal quality report generated successfully", report));
     }
 }
