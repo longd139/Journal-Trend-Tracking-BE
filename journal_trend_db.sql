@@ -480,7 +480,13 @@ CREATE TABLE NOTIFICATION (
                                 'new_paper',
                                 'trend_alert',
                                 'system',
-                                'upgrade_prompt'   -- nhac Academic User nang cap
+                                'upgrade_prompt',   -- nhac Academic User nang cap
+                                'new_user',         -- admin: nguoi dung moi dang ky
+                                'user_report',      -- admin: nguoi dung gui bao cao
+                                'sync_completed',   -- admin: dong bo hoan tat
+                                'sync_failed',      -- admin: dong bo that bai
+                                'system_alert',     -- admin: canh bao he thong
+                                'content_alert'     -- admin: canh bao noi dung
                             )),
     Title               NVARCHAR(300)       NOT NULL,
     [Message]           NVARCHAR(MAX)       NULL,
