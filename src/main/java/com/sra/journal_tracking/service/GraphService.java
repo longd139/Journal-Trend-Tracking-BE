@@ -273,8 +273,8 @@ public class GraphService {
                 WITH p
                 UNWIND $keywords AS kw
                 MERGE (k:Keyword {keywordId: kw.keywordId})
-                ON CREATE SET k.text = kw.keywordText, k.normalizedText = kw.normalizedText
-                ON MATCH SET k.text = kw.keywordText
+                ON CREATE SET k.text = kw.keywordText, k.normalizedText = toLower(kw.normalizedText)
+                ON MATCH SET k.text = kw.keywordText, k.normalizedText = toLower(kw.normalizedText)
                 MERGE (p)-[:HAS_KEYWORD]->(k)
                 """;
 
