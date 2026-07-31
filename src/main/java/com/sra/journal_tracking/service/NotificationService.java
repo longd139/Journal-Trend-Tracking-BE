@@ -8,8 +8,8 @@ import java.util.UUID;
 
 public interface NotificationService {
 
-    /** Lấy danh sách notification của user, phân trang. filter=unread để lấy chưa đọc. */
-    List<NotificationResponse> getNotifications(String email, int page, int size, String filter);
+    /** Lấy danh sách notification của user, phân trang. filter=unread để lấy chưa đọc. type để lọc theo NotificationType. */
+    List<NotificationResponse> getNotifications(String email, int page, int size, String filter, String type);
 
     /** Đếm số notification chưa đọc (dùng cho bell badge). */
     UnreadCountResponse getUnreadCount(String email);

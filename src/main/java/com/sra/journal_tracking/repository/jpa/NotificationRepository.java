@@ -44,4 +44,12 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
      */
     @Query("SELECT COUNT(n) FROM Notification n WHERE n.user.userId = :userId AND n.type = :type AND n.createdAt >= :since")
     long countByUserAndTypeSince(@Param("userId") UUID userId, @Param("type") NotificationType type, @Param("since") LocalDateTime since);
+
+    // ── Admin notification queries ──
+
+    /** Lấy danh sách notification của user, lọc theo type. */
+    Page<Notification> findByUser_UserIdAndTypeOrderByCreatedAtDesc(UUID userId, NotificationType type, Pageable pageable);
+
+    /** Đếm số notification chưa đọc của user, theo type (dùng cho admin badge breakdown). */
+    long countByUser_UserIdAndIsReadFalseAndType(UUID userId, NotificationType type);
 }

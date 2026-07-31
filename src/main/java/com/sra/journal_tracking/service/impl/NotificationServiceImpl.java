@@ -3,6 +3,7 @@ package com.sra.journal_tracking.service.impl;
 import com.sra.journal_tracking.dto.notification.NotificationResponse;
 import com.sra.journal_tracking.dto.notification.UnreadCountResponse;
 import com.sra.journal_tracking.entity.jpa.Notification;
+import com.sra.journal_tracking.entity.jpa.NotificationType;
 import com.sra.journal_tracking.entity.jpa.User;
 import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
@@ -29,11 +30,26 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<NotificationResponse> getNotifications(String email, int page, int size, String filter) {
+    public List<NotificationResponse> getNotifications(String email, int page, int size, String filter, String type) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
         PageRequest pageRequest = PageRequest.of(page, size);
+
+        // Nếu có type filter, ưu tiên lọc theo type
+        if (type != null && !type.isBlank()) {
+            try {
+                NotificationType notificationType = NotificationType.valueOf(type.toUpperCase());
+                Page<Notification> result = notificationRepository
+                        .findByUser_UserIdAndTypeOrderByCreatedAtDesc(user.getUserId(), notificationType, pageRequest);
+                return result.getContent().stream()
+                        .map(this::mapToResponse)
+                        .toList();
+            } catch (IllegalArgumentException e) {
+                log.warn("Invalid notification type filter: {}", type);
+                return List.of();
+            }
+        }
 
         Page<Notification> result;
         if ("unread".equalsIgnoreCase(filter)) {

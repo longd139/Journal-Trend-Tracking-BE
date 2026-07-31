@@ -37,21 +37,23 @@ public class NotificationController {
     @Operation(
             summary = "Lấy danh sách notification",
             description = "Lấy danh sách thông báo của user hiện tại, mới nhất trước. "
-                        + "Filter: không truyền = tất cả, 'unread' = chỉ lấy chưa đọc."
+                        + "Filter: không truyền = tất cả, 'unread' = chỉ lấy chưa đọc. "
+                        + "Type: lọc theo NotificationType (new_user, sync_completed, ...)."
     )
     @GetMapping
     public ResponseEntity<AppResponse<List<NotificationResponse>>> getNotifications(
             Authentication authentication,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String filter) {
+            @RequestParam(required = false) String filter,
+            @RequestParam(required = false) String type) {
 
         if (page < 0) page = 0;
         if (size < 1) size = 1;
         if (size > 50) size = 50;
 
         List<NotificationResponse> notifications = notificationService.getNotifications(
-                authentication.getName(), page, size, filter);
+                authentication.getName(), page, size, filter, type);
         return ResponseEntity.ok(AppResponse.success("Notifications retrieved", notifications));
     }
 

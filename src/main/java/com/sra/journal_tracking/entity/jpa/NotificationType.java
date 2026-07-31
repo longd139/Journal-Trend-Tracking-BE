@@ -15,5 +15,25 @@ public enum NotificationType {
     SYSTEM,
 
     /** Nhắc Academic User nâng cấp lên Researcher khi hết lượt */
-    UPGRADE_PROMPT
+    UPGRADE_PROMPT,
+
+    // ── Admin-specific notification types ──
+
+    /** Người dùng mới đăng ký */
+    NEW_USER,
+
+    /** Người dùng gửi báo cáo (report) */
+    USER_REPORT,
+
+    /** Đồng bộ dữ liệu hoàn tất */
+    SYNC_COMPLETED,
+
+    /** Đồng bộ dữ liệu thất bại */
+    SYNC_FAILED,
+
+    /** Cảnh báo hệ thống (lỗi, cảnh báo) */
+    SYSTEM_ALERT,
+
+    /** Cảnh báo nội dung (trending keyword spike, etc.) */
+    CONTENT_ALERT
 }

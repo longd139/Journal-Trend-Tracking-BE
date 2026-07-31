@@ -476,6 +476,7 @@ public class GraphExplorerService {
         List<Map<String, Object>> results = new ArrayList<>();
         try {
             int startYear = java.time.Year.now().getValue() - yearsBack;
+            // Try year-filtered query first
             neo4jClient.query("""
                     MATCH (k:Keyword {normalizedText: $kw})<-[:HAS_KEYWORD]-(p:Paper)-[:PUBLISHED_IN]->(y:Year)
                     WHERE y.year >= $startYear
@@ -490,6 +491,24 @@ public class GraphExplorerService {
                         row.put("paperCount", ((Number) record.get("cnt")).longValue());
                         results.add(row);
                     });
+
+            // Fallback: if year-filtered query returned nothing, try without year constraint
+            // (some crawled papers may not have PUBLISHED_IN → Year relationships)
+            if (results.isEmpty()) {
+                neo4jClient.query("""
+                        MATCH (k:Keyword {normalizedText: $kw})<-[:HAS_KEYWORD]-(p:Paper)
+                        MATCH (p)-[:HAS_KEYWORD]->(other:Keyword) WHERE other.normalizedText <> $kw
+                        RETURN other.text AS text, other.normalizedText AS nText, COUNT(DISTINCT p) AS cnt
+                        ORDER BY cnt DESC LIMIT 20
+                        """).bind(kw).to("kw").fetch().all()
+                        .forEach(record -> {
+                            Map<String, Object> row = new LinkedHashMap<>();
+                            row.put("text", stringVal(record, "text"));
+                            row.put("normalizedText", stringVal(record, "nText"));
+                            row.put("paperCount", ((Number) record.get("cnt")).longValue());
+                            results.add(row);
+                        });
+            }
         } catch (Exception e) { /* return empty */ }
         return results;
     }

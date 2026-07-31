@@ -51,7 +51,9 @@ public class KeywordExpansionService {
             Map.entry("phenomenon", List.of("phenomena", "effect", "behavior", "pattern")),
             Map.entry("phenomena", List.of("phenomenon", "effects", "behaviors", "patterns")),
             Map.entry("ai", List.of("artificial intelligence", "machine learning", "deep learning", "large language model")),
-            Map.entry("artificial intelligence", List.of("ai", "machine learning", "deep learning", "large language model"))
+            Map.entry("artificial intelligence", List.of("ai", "machine learning", "deep learning", "large language model")),
+            Map.entry("iot", List.of("internet of things", "iot devices", "embedded systems", "sensor networks", "smart devices")),
+            Map.entry("internet of things", List.of("iot", "iot devices", "embedded systems", "sensor networks", "smart devices", "wireless sensor networks"))
     );
 
     private final PaperKeywordRepository paperKeywordRepository;
