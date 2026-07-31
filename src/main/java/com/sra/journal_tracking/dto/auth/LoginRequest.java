@@ -21,4 +21,10 @@ public class LoginRequest {
     @Schema(description = "Password", example = "123456")
     @NotBlank(message = "Password is required")
     private String password;
+
+    @Schema(description = "CAPTCHA token (required after 5 failed attempts)")
+    private String captchaToken;
+
+    @Schema(description = "CAPTCHA answer (required after 5 failed attempts)")
+    private Integer captchaAnswer;
 }

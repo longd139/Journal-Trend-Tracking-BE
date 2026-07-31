@@ -17,6 +17,8 @@ public enum ErrorCode {
     VERIFICATION_TOKEN_INVALID(HttpStatus.BAD_REQUEST, "The token is invalid or has already been used."),
     VERIFICATION_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "The token has expired. Please request a new one."),
     EMAIL_ALREADY_VERIFIED(HttpStatus.BAD_REQUEST, "Email has already been verified."),
+    CAPTCHA_REQUIRED(HttpStatus.BAD_REQUEST, "CAPTCHA verification is required."),
+    CAPTCHA_INVALID(HttpStatus.BAD_REQUEST, "CAPTCHA answer is incorrect. Please try again."),
 
     // ---- CÁC LỖI KHÁC THÊM SAU NÀY ----
     // INVALID_ROLE(HttpStatus.BAD_REQUEST, "Role không hợp lệ!"),
