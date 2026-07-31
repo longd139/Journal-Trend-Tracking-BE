@@ -265,9 +265,8 @@ public class PaperSearchServiceImpl implements PaperSearchService {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userEmail));
 
-        if ("ACADEMIC_USER".equalsIgnoreCase(user.getRole().getRoleName())) {
-            checkAndIncrementUsage(user.getUserId(), "view");
-        }
+        // View limit removed — search quota already controls access for academic users.
+        // Academic users with remaining search quota can view papers freely.
 
         // Try local DB first
         ResearchPaper paper = researchPaperRepository.findByIdWithDetails(paperId).orElse(null);
