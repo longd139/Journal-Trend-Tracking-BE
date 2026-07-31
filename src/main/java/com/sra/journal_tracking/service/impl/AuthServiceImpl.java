@@ -37,6 +37,7 @@ import com.sra.journal_tracking.exception.AppException;
 import com.sra.journal_tracking.exception.ErrorCode;
 import com.sra.journal_tracking.repository.jpa.NotificationRepository;
 import com.sra.journal_tracking.repository.jpa.RoleRepository;
+import com.sra.journal_tracking.service.AdminNotificationService;
 import com.sra.journal_tracking.service.NotificationEventPublisher;
 import com.sra.journal_tracking.repository.jpa.UserRepository;
 import com.sra.journal_tracking.repository.jpa.UserSessionRepository;
@@ -60,6 +61,7 @@ public class AuthServiceImpl implements AuthService {
         private final RoleRepository roleRepository;
         private final NotificationRepository notificationRepository;
         private final NotificationEventPublisher eventPublisher;
+        private final AdminNotificationService adminNotificationService;
         private final UserSessionRepository userSessionRepository;
         private final VerificationTokenRepository verificationTokenRepository;
         private final PasswordEncoder passwordEncoder;
@@ -302,6 +304,17 @@ public class AuthServiceImpl implements AuthService {
                 }
 
                 createResearcherTrialNotification(user);
+
+                // Notify all admins about the new registration
+                try {
+                        adminNotificationService.broadcastToAdmins(
+                                NotificationType.NEW_USER,
+                                "New User Registration",
+                                "User " + user.getFullName() + " (" + user.getEmail() + ") has registered as " + role.getRoleName() + "."
+                        );
+                } catch (Exception e) {
+                        log.warn("Failed to broadcast NEW_USER admin notification: {}", e.getMessage());
+                }
 
                 // Generate verification token and send email
                 createAndSendVerificationToken(user);

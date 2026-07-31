@@ -370,3 +370,27 @@ BEGIN
     INSERT INTO ROLE (RoleID, RoleName, Description)
     VALUES (NEWID(), 'academic_user', 'Standard academic user')
 END
+
+-- ══════════════════════════════════════════════════════════════
+-- USER_REPORT — user-submitted reports (PDF issues, content errors, etc.)
+-- ══════════════════════════════════════════════════════════════
+IF OBJECT_ID(N'USER_REPORT', N'U') IS NULL
+BEGIN
+    CREATE TABLE USER_REPORT (
+        ReportID UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+        UserID UNIQUEIDENTIFIER NOT NULL,
+        ReportType NVARCHAR(50) NOT NULL,
+        TargetType NVARCHAR(50) NULL,
+        TargetID UNIQUEIDENTIFIER NULL,
+        Title NVARCHAR(300) NOT NULL,
+        Description NVARCHAR(MAX) NULL,
+        Status NVARCHAR(20) NOT NULL DEFAULT 'pending',
+        AdminNote NVARCHAR(MAX) NULL,
+        ResolvedByAdminID UNIQUEIDENTIFIER NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
+        ResolvedAt DATETIME2 NULL,
+        CONSTRAINT PK_USER_REPORT PRIMARY KEY (ReportID),
+        CONSTRAINT FK_USER_REPORT_UserID FOREIGN KEY (UserID) REFERENCES [USER](UserID),
+        CONSTRAINT FK_USER_REPORT_ResolvedByAdminID FOREIGN KEY (ResolvedByAdminID) REFERENCES [USER](UserID)
+    );
+END

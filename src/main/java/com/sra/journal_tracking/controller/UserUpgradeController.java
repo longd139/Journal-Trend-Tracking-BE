@@ -3,6 +3,8 @@ package com.sra.journal_tracking.controller;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.dto.upgrade.CreateUpgradeRequest;
 import com.sra.journal_tracking.dto.upgrade.UpgradeRequestDTO;
+import com.sra.journal_tracking.entity.jpa.NotificationType;
+import com.sra.journal_tracking.service.AdminNotificationService;
 import com.sra.journal_tracking.service.UpgradeRequestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +23,7 @@ import java.util.UUID;
 public class UserUpgradeController {
 
     private final UpgradeRequestService upgradeRequestService;
+    private final AdminNotificationService adminNotificationService;
 
     @PostMapping("/upgrade-request")
     @PreAuthorize("hasRole('ACADEMIC_USER')")
@@ -28,6 +31,18 @@ public class UserUpgradeController {
             Authentication authentication,
             @Valid @RequestBody CreateUpgradeRequest request) {
         UpgradeRequestDTO result = upgradeRequestService.submitRequest(authentication.getName(), request);
+
+        // Notify admins about the new upgrade request
+        try {
+            adminNotificationService.broadcastToAdmins(
+                    NotificationType.SYSTEM_ALERT,
+                    "New Upgrade Request",
+                    "User " + authentication.getName() + " has requested to upgrade to Researcher."
+            );
+        } catch (Exception e) {
+            // Best-effort: don't fail the request if notification fails
+        }
+
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(AppResponse.success("Upgrade request submitted", result));
     }

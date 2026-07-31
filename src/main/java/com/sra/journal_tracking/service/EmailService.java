@@ -33,4 +33,14 @@ public interface EmailService {
      * @param body    email body (can be plain text or minimal HTML)
      */
     void sendSimpleEmail(String to, String subject, String body);
+
+    /**
+     * Send an admin notification email (new user, sync status, system alert, etc.).
+     * Runs asynchronously — failure is logged but never thrown.
+     *
+     * @param to      admin email address
+     * @param subject email subject line
+     * @param body    HTML email body
+     */
+    void sendAdminNotification(String to, String subject, String body);
 }

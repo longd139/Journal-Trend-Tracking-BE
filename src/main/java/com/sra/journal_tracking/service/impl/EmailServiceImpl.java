@@ -64,6 +64,16 @@ public class EmailServiceImpl implements EmailService {
         send(to, subject, body);
     }
 
+    @Override
+    @Async
+    public void sendAdminNotification(String to, String subject, String body) {
+        send(to, "[SCITRACK Admin] " + subject, buildAdminNotificationBody(subject, body));
+        log.info("============================================");
+        log.info("ADMIN NOTIFICATION EMAIL sent to {}", to);
+        log.info("   Subject: {}", subject);
+        log.info("============================================");
+    }
+
     // ──────────────────────────────────────────────
     //  Internal helpers
     // ──────────────────────────────────────────────
@@ -168,6 +178,36 @@ public class EmailServiceImpl implements EmailService {
             </html>
             """;
 
+    // ── Admin notification template ──
+
+    private static final String ADMIN_NOTIFICATION_TEMPLATE = """
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="UTF-8"></head>
+            <body style="font-family: Arial, sans-serif; background: #f4f4f9; padding: 40px 0; margin: 0;">
+              <div style="max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 12px;
+                          box-shadow: 0 2px 12px rgba(0,0,0,0.08); overflow: hidden;">
+                <div style="background: linear-gradient(135deg, #1e293b, #334155); padding: 32px 24px; text-align: center;">
+                  <h1 style="color: #f8fafc; margin: 0; font-size: 24px;">{{APP_NAME}} Admin</h1>
+                  <p style="color: #94a3b8; margin: 4px 0 0 0; font-size: 13px;">Academic Research Analytics</p>
+                </div>
+                <div style="padding: 32px 24px;">
+                  <h2 style="color: #1e293b; margin: 0 0 12px; font-size: 20px;">{{SUBJECT}}</h2>
+                  <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0;">
+                    {{BODY}}
+                  </p>
+                </div>
+                <div style="background: #f8fafc; padding: 16px 24px; text-align: center;
+                            border-top: 1px solid #e2e8f0;">
+                  <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+                    This is an automated notification from SCITRACK. Please do not reply to this email.
+                  </p>
+                </div>
+              </div>
+            </body>
+            </html>
+            """;
+
     private String buildVerificationEmailBody(String userName, String verificationLink) {
         String displayName = userName != null && !userName.isBlank() ? escapeHtml(userName) : "there";
         return VERIFICATION_TEMPLATE
@@ -182,6 +222,13 @@ public class EmailServiceImpl implements EmailService {
                 .replace("{{APP_NAME}}", APP_NAME)
                 .replace("{{USER_NAME}}", displayName)
                 .replace("{{LINK}}", resetLink);
+    }
+
+    private String buildAdminNotificationBody(String subject, String body) {
+        return ADMIN_NOTIFICATION_TEMPLATE
+                .replace("{{APP_NAME}}", APP_NAME)
+                .replace("{{SUBJECT}}", escapeHtml(subject))
+                .replace("{{BODY}}", escapeHtml(body).replace("\n", "<br>"));
     }
 
     /**

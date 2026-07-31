@@ -290,8 +290,8 @@ public class GraphService {
 
             log.info("Neo4j: saved paper '{}' with {} keywords (batched UNWIND)", paperId, kwList.size());
         } catch (Exception e) {
-            log.error("Neo4j batch save failed for paper {}: {}", paperId, e.getMessage());
-            log.error("Full stack trace:", e);
+            log.error("Neo4j batch save failed for paper {}: {}", paperId, e.getMessage(), e);
+            throw new RuntimeException("Neo4j save failed for paper " + paperId + ": " + e.getMessage(), e);
         }
     }
 

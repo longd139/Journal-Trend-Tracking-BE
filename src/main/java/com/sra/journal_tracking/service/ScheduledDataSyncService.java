@@ -1,5 +1,6 @@
 package com.sra.journal_tracking.service;
 
+import com.sra.journal_tracking.entity.jpa.NotificationType;
 import com.sra.journal_tracking.entity.jpa.SyncLog;
 import com.sra.journal_tracking.repository.jpa.SystemConfigRepository;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +47,7 @@ public class ScheduledDataSyncService {
     private final DataSyncService dataSyncService;
     private final SystemConfigRepository systemConfigRepository;
     private final KeywordExpansionService keywordExpansionService;
+    private final AdminNotificationService adminNotificationService;
 
     @Value("${app.core-api-key:}")
     private String coreApiKey;
@@ -252,6 +254,20 @@ public class ScheduledDataSyncService {
         }
 
         log.info("=== AUTO-SYNC DONE: {} new papers inserted ===", totalPapersInserted);
+
+        // Notify admins if new content was synced with significant volume
+        if (totalPapersInserted > 0) {
+            try {
+                adminNotificationService.broadcastToAdmins(
+                        NotificationType.CONTENT_ALERT,
+                        "Trending Content Synced",
+                        "Hourly auto-sync completed: " + totalPapersInserted
+                                + " new papers inserted across trending keywords."
+                );
+            } catch (Exception e) {
+                log.warn("Failed to broadcast CONTENT_ALERT admin notification: {}", e.getMessage());
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════

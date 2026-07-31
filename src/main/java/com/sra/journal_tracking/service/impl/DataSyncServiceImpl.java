@@ -30,6 +30,8 @@ import com.sra.journal_tracking.service.DataSyncService;
 import com.sra.journal_tracking.service.GraphService;
 import com.sra.journal_tracking.service.KeywordExtractionService;
 import com.sra.journal_tracking.service.NotificationTriggerService;
+import com.sra.journal_tracking.entity.jpa.NotificationType;
+import com.sra.journal_tracking.service.AdminNotificationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -116,6 +118,7 @@ public class DataSyncServiceImpl implements DataSyncService {
     private final BulkSyncProgressTracker bulkSyncProgressTracker;
     private final KeywordExtractionService keywordExtractionService;
     private final NotificationTriggerService notificationTriggerService;
+    private final AdminNotificationService adminNotificationService;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -448,18 +451,13 @@ public class DataSyncServiceImpl implements DataSyncService {
     }
 
     @Override
+    @Transactional
     public void saveSingleWorkFromOpenAlex(OpenAlexResponseDTO.OpenAlexWorkDTO work) {
-        try {
-            ApiSource source = getOrCreateOpenAlexSource();
-            // Use wide year range to accept all papers (top-papers search includes old papers)
-            int startYear = 1900;
-            int endYear = Year.now().getValue();
-            LocalDate today = LocalDate.now();
-            // Use wide year range + skip relevance to accept all papers
-            saveOpenAlexWork(work, source, "fallback-cache", startYear, endYear, today, true);
-        } catch (Exception e) {
-            log.warn("Failed to save fallback paper from OpenAlex: {}", e.getMessage());
-        }
+        ApiSource source = getOrCreateOpenAlexSource();
+        int startYear = 1900;
+        int endYear = Year.now().getValue();
+        LocalDate today = LocalDate.now();
+        saveOpenAlexWork(work, source, "fallback-cache", startYear, endYear, today, true);
     }
 
     @Override
@@ -471,16 +469,28 @@ public class DataSyncServiceImpl implements DataSyncService {
         log.info("Save-on-search: starting async save of {} works", works.size());
         int saved = 0;
         int skipped = 0;
+        int retried = 0;
         for (OpenAlexResponseDTO.OpenAlexWorkDTO work : works) {
-            try {
-                saveSingleWorkFromOpenAlex(work);
-                saved++;
-            } catch (Exception e) {
-                skipped++;
-                log.debug("Save-on-search skipped work {}: {}", work.getId(), e.getMessage());
+            boolean success = false;
+            for (int attempt = 0; attempt < 3; attempt++) {
+                try {
+                    self.saveSingleWorkFromOpenAlex(work);
+                    saved++;
+                    success = true;
+                    if (attempt > 0) retried++;
+                    break;
+                } catch (Exception e) {
+                    if (attempt < 2) {
+                        log.debug("Save-on-search retry {}/2 for work {}: {}", attempt + 1, work.getId(), e.getMessage());
+                        try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+                    } else {
+                        skipped++;
+                        log.warn("Save-on-search failed after 3 attempts for work {}: {}", work.getId(), e.getMessage());
+                    }
+                }
             }
         }
-        log.info("Save-on-search: completed — saved={}, skipped={}", saved, skipped);
+        log.info("Save-on-search: completed — saved={}, retried={}, skipped={}", saved, retried, skipped);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -2090,6 +2100,28 @@ public class DataSyncServiceImpl implements DataSyncService {
         source.setLastSyncedAt(LocalDateTime.now());
         apiSourceRepository.save(source);
 
+        // Broadcast admin notification about sync result
+        try {
+            if ("completed".equals(savedSyncLog.getStatus())) {
+                adminNotificationService.broadcastToAdmins(
+                        NotificationType.SYNC_COMPLETED,
+                        "Data Sync Completed — " + source.getSourceName(),
+                        "Sync from " + source.getSourceName() + " completed successfully. "
+                                + savedSyncLog.getPapersInserted() + " papers inserted, "
+                                + savedSyncLog.getPapersFetched() + " papers fetched."
+                );
+            } else if ("failed".equals(savedSyncLog.getStatus())) {
+                adminNotificationService.broadcastToAdmins(
+                        NotificationType.SYNC_FAILED,
+                        "Data Sync Failed — " + source.getSourceName(),
+                        "Sync from " + source.getSourceName() + " failed"
+                                + (savedSyncLog.getErrorMessage() != null ? ": " + savedSyncLog.getErrorMessage() : ".")
+                );
+            }
+        } catch (Exception e) {
+            log.warn("Failed to broadcast sync admin notification: {}", e.getMessage());
+        }
+
         return savedSyncLog;
     }
 
@@ -3131,29 +3163,25 @@ public class DataSyncServiceImpl implements DataSyncService {
             }
         }
 
-        try {
-            List<String> graphKeywords = new ArrayList<>();
-            // Always add the search query first so graph search finds it
-            if (searchQuery != null && !searchQuery.isBlank()) {
-                graphKeywords.add(searchQuery.trim());
-            }
-            if (keywords != null) {
-                keywords.stream()
-                        .filter(kw -> kw != null && !kw.isBlank())
-                        .forEach(graphKeywords::add);
-            }
-            if (graphKeywords.isEmpty()) {
-                graphKeywords.add(paper.getTitle() != null ? paper.getTitle() : "Untitled");
-            }
-            graphService.savePaperWithKeywords(
-                    paper.getPaperId().toString(),
-                    paper.getPubYear() != null ? paper.getPubYear().intValue() : null,
-                    graphKeywords
-            );
-        } catch (Exception e) {
-            log.warn("Neo4j save skipped for paper {}: {}", paper.getPaperId(), e.getMessage());
-            log.warn("Full stack trace:", e);
+        List<String> graphKeywords = new ArrayList<>();
+        // Always add the search query first so graph search finds it
+        if (searchQuery != null && !searchQuery.isBlank()) {
+            graphKeywords.add(searchQuery.trim());
         }
+        if (keywords != null) {
+            keywords.stream()
+                    .filter(kw -> kw != null && !kw.isBlank())
+                    .forEach(graphKeywords::add);
+        }
+        if (graphKeywords.isEmpty()) {
+            graphKeywords.add(paper.getTitle() != null ? paper.getTitle() : "Untitled");
+        }
+        // Exception will propagate — caller handles rollback
+        graphService.savePaperWithKeywords(
+                paper.getPaperId().toString(),
+                paper.getPubYear() != null ? paper.getPubYear().intValue() : null,
+                graphKeywords
+        );
     }
 
     private String normalizeDoi(String doi) {
