@@ -13,6 +13,7 @@ public interface AuthService {
     AuthResponse refreshToken(RefreshTokenRequest request);
     void logout(String token);
     void verifyEmail(String token);
+    void resendVerification(String email);
     void forgotPassword(String email);
     void resetPassword(String token, String newPassword);
 }

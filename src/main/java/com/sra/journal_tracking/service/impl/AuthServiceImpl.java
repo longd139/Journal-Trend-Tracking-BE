@@ -46,6 +46,7 @@ import com.sra.journal_tracking.security.CustomUserDetails;
 import com.sra.journal_tracking.security.CustomUserDetailsService;
 import com.sra.journal_tracking.security.JwtTokenProvider;
 import com.sra.journal_tracking.service.AuthService;
+import com.sra.journal_tracking.service.CaptchaService;
 import com.sra.journal_tracking.service.EmailService;
 
 import lombok.RequiredArgsConstructor;
@@ -69,6 +70,7 @@ public class AuthServiceImpl implements AuthService {
         private final JwtTokenProvider tokenProvider;
         private final CustomUserDetailsService customUserDetailsService;
         private final EmailService emailService;
+        private final CaptchaService captchaService;
 
         @Value("${app.frontend-url:http://localhost:3000}")
         private String frontendUrl;
@@ -285,7 +287,7 @@ public class AuthServiceImpl implements AuthService {
                                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                                 .institution(request.getInstitution())
                                 .role(role)
-                                .isActive(true) // Auto-active — no email verification required
+                                .isActive(false) // Require email verification before login
                                 .build();
 
                 // If registering as researcher, set 3-day trial
@@ -338,20 +340,44 @@ public class AuthServiceImpl implements AuthService {
         @Override
         @Transactional
         public AuthResponse login(LoginRequest request) {
-                Authentication authentication = authenticationManager.authenticate(
-                                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
+                String email = request.getEmail().toLowerCase().trim();
 
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-                String jwt = tokenProvider.generateToken(authentication);
+                if (captchaService.isCaptchaRequired(email)) {
+                        if (request.getCaptchaToken() == null || request.getCaptchaToken().isBlank()
+                                        || request.getCaptchaAnswer() == null) {
+                                throw new AppException(ErrorCode.CAPTCHA_REQUIRED);
+                        }
+                        boolean captchaOk = captchaService.verifyCaptcha(
+                                        email, request.getCaptchaToken(), request.getCaptchaAnswer());
+                        if (!captchaOk) {
+                                captchaService.recordFailedAttempt(email);
+                                throw new AppException(ErrorCode.CAPTCHA_INVALID);
+                        }
+                }
 
-                User user = userRepository.findByEmail(request.getEmail())
-                                .orElseThrow(() -> new RuntimeException("User not found"));
+                try {
+                        Authentication authentication = authenticationManager.authenticate(
+                                        new UsernamePasswordAuthenticationToken(email, request.getPassword()));
 
-                log.info("User logged in: email={}, role={}, roleExpiryAt={}",
-                                user.getEmail(), user.getRole().getRoleName(), user.getRoleExpiryAt());
+                        SecurityContextHolder.getContext().setAuthentication(authentication);
+                        String jwt = tokenProvider.generateToken(authentication);
 
-                TokenPair tokenPair = createUserSession(user, jwt);
-                return buildAuthResponse(jwt, tokenPair.refreshToken(), user);
+                        User user = userRepository.findByEmail(email)
+                                        .orElseThrow(() -> new RuntimeException("User not found"));
+
+                        captchaService.resetFailedAttempts(email);
+
+                        log.info("User logged in: email={}, role={}, roleExpiryAt={}",
+                                        user.getEmail(), user.getRole().getRoleName(), user.getRoleExpiryAt());
+
+                        TokenPair tokenPair = createUserSession(user, jwt);
+                        return buildAuthResponse(jwt, tokenPair.refreshToken(), user);
+                } catch (AppException e) {
+                        throw e;
+                } catch (Exception e) {
+                        captchaService.recordFailedAttempt(email);
+                        throw e;
+                }
         }
 
         @Override
@@ -420,6 +446,25 @@ public class AuthServiceImpl implements AuthService {
                 verificationTokenRepository.save(verificationToken);
 
                 log.info("✅ Email verified successfully for user: {}", user.getEmail());
+        }
+
+        @Override
+        @Transactional
+        public void resendVerification(String email) {
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+                if (user.getIsActive()) {
+                        throw new AppException(ErrorCode.EMAIL_ALREADY_VERIFIED);
+                }
+
+                // Invalidate old verification tokens
+                verificationTokenRepository.invalidatePreviousTokens(user.getUserId(), TokenType.EMAIL_VERIFICATION);
+
+                // Create and send new verification token
+                createAndSendVerificationToken(user);
+
+                log.info("Verification email resent to {}", email);
         }
 
         @Override

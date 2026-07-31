@@ -15,9 +15,12 @@ import com.sra.journal_tracking.dto.auth.GoogleLoginRequest;
 import com.sra.journal_tracking.dto.auth.LoginRequest;
 import com.sra.journal_tracking.dto.auth.RefreshTokenRequest;
 import com.sra.journal_tracking.dto.auth.RegisterRequest;
+import com.sra.journal_tracking.dto.auth.ResendVerificationRequest;
 import com.sra.journal_tracking.dto.auth.ResetPasswordRequest;
 import com.sra.journal_tracking.dto.response.AppResponse;
 import com.sra.journal_tracking.service.AuthService;
+import com.sra.journal_tracking.service.CaptchaService;
+import com.sra.journal_tracking.service.CaptchaService.CaptchaChallenge;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -35,6 +38,7 @@ import lombok.extern.slf4j.Slf4j;
 public class AuthController {
 
     private final AuthService authService;
+    private final CaptchaService captchaService;
 
     @Operation(summary = "Register new account", description = "Create a new user account and return a JWT token.")
     @ApiResponse(responseCode = "200", description = "Register successful")
@@ -95,6 +99,32 @@ public class AuthController {
         authService.verifyEmail(token);
         return ResponseEntity.ok(AppResponse.success("Email verified successfully! You can now login."));
     }
+
+    @Operation(summary = "Resend verification email", description = "Resend email verification link to the registered email address")
+    @ApiResponse(responseCode = "200", description = "Verification email sent")
+    @PostMapping("/resend-verification")
+    public ResponseEntity<AppResponse<Void>> resendVerification(
+            @Valid @RequestBody ResendVerificationRequest request) {
+        authService.resendVerification(request.getEmail());
+        return ResponseEntity.ok(AppResponse.success("Verification email sent. Please check your inbox."));
+    }
+
+    @Operation(summary = "Check CAPTCHA required", description = "Check if CAPTCHA is required for login. Returns question if needed.")
+    @ApiResponse(responseCode = "200", description = "CAPTCHA status")
+    @GetMapping("/captcha")
+    public ResponseEntity<AppResponse<CaptchaResponse>> getCaptcha(
+            @RequestParam("email") String email) {
+        boolean required = captchaService.isCaptchaRequired(email);
+        if (required) {
+            CaptchaChallenge challenge = captchaService.generateCaptcha(email);
+            return ResponseEntity.ok(AppResponse.success("CAPTCHA required",
+                    new CaptchaResponse(true, challenge.question(), challenge.token())));
+        }
+        return ResponseEntity.ok(AppResponse.success("No CAPTCHA needed",
+                new CaptchaResponse(false, null, null)));
+    }
+
+    public record CaptchaResponse(boolean required, String question, String token) {}
 
     @Operation(summary = "Forgot password", description = "Send password reset link to email. Check terminal for the link when testing.")
     @ApiResponse(responseCode = "200", description = "Reset link sent")
