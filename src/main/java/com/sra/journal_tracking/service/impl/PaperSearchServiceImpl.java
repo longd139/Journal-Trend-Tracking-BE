@@ -325,6 +325,11 @@ public class PaperSearchServiceImpl implements PaperSearchService {
                 dto.setCitationCount(enrichedCitations);
             }
 
+            // Enrich pdfAvailable from OpenAlex if DB says false
+            if (!Boolean.TRUE.equals(dto.getPdfAvailable())) {
+                enrichPdfAvailability(dto, paper.getOpenAlexWorkId(), paper.getDoi());
+            }
+
             // Compute real viewCount and bookmarkCount
             dto.setViewCount(readingHistoryRepository.countByPaper_PaperId(paperId));
             dto.setBookmarkCount(bookmarkRepository.countByPaper_PaperId(paperId));
@@ -902,9 +907,35 @@ public class PaperSearchServiceImpl implements PaperSearchService {
     }
 
     /**
-     * Enrich citation count from OpenAlex when DB has 0.
-     * Updates both the returned value and the DB entity for future use.
+     * Enrich pdfAvailable from OpenAlex if the DB record says false.
+     * OpenAlex may report a paper as OA even if our local copy hasn't been updated.
      */
+    private void enrichPdfAvailability(PaperDetailResponseDTO dto, String openAlexWorkId, String doi) {
+        String lookupId = openAlexWorkId;
+        if (lookupId == null || lookupId.isBlank()) {
+            // Fallback: OpenAlex can look up by DOI (format: doi:10.xxxx)
+            if (doi != null && !doi.isBlank()) {
+                lookupId = "doi:" + doi;
+            }
+        }
+        if (lookupId == null || lookupId.isBlank()) return;
+
+        try {
+            log.info("pdfAvailable enrichment: calling OpenAlex with lookupId={}", lookupId);
+            PaperDetailResponseDTO fromOpenAlex =
+                    openAlexFallbackSearchService.getPaperByOpenAlexId(lookupId);
+            if (fromOpenAlex != null && Boolean.TRUE.equals(fromOpenAlex.getPdfAvailable())) {
+                log.info("pdfAvailable enriched from OpenAlex for paper {}", dto.getPaperId());
+                dto.setPdfAvailable(true);
+                dto.setPdfUrl(fromOpenAlex.getPdfUrl());
+                dto.setDownloadUrl(fromOpenAlex.getDownloadUrl());
+                dto.setIsOpenAccess(true);
+            }
+        } catch (Exception e) {
+            log.debug("pdfAvailable enrichment failed for {}: {}", dto.getPaperId(), e.getMessage());
+        }
+    }
+
     private Integer enrichCitationCount(UUID paperId, String openAlexWorkId, ResearchPaper paper) {
         if (paper.getCitationCount() != null && paper.getCitationCount() > 0) {
             return null; // already has citations, no enrichment needed

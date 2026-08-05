@@ -114,10 +114,27 @@ public class JournalServiceImpl implements JournalService {
                     .filter(j -> j.getField() != null)
                     .collect(Collectors.groupingBy(j -> j.getField().getFieldId()));
 
-            // Build response — no extra DB calls
+            // Build response from DB
             result = topFields.stream()
                     .map(field -> buildCategoryResponse(field, journalsByField.getOrDefault(field.getFieldId(), Collections.emptyList())))
                     .collect(Collectors.toList());
+
+            // If fewer than 10 categories, supplement with OpenAlex
+            if (result.size() < 10) {
+                log.info("Only {} categories from DB, supplementing with OpenAlex data...", result.size());
+                List<JournalCategoryResponse> oaResult = fetchCategoriesFromOpenAlex();
+                if (oaResult != null) {
+                    Set<String> existingNames = result.stream()
+                            .map(JournalCategoryResponse::getFieldName)
+                            .collect(Collectors.toSet());
+                    for (JournalCategoryResponse oaCat : oaResult) {
+                        if (!existingNames.contains(oaCat.getFieldName())) {
+                            result.add(oaCat);
+                            existingNames.add(oaCat.getFieldName());
+                        }
+                    }
+                }
+            }
         }
 
         // Update cache
