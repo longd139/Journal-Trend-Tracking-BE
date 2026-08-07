@@ -1,17 +1,5 @@
 package com.sra.journal_tracking.service;
 
-import com.sra.journal_tracking.dto.paper.AuthorDTO;
-import com.sra.journal_tracking.dto.paper.KeywordDTO;
-import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
-import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
-import com.sra.journal_tracking.service.DataSyncService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
-
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -23,6 +11,19 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
+
+import com.sra.journal_tracking.dto.paper.AuthorDTO;
+import com.sra.journal_tracking.dto.paper.KeywordDTO;
+import com.sra.journal_tracking.dto.paper.PaperDetailResponseDTO;
+import com.sra.journal_tracking.dto.sync.OpenAlexResponseDTO;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service

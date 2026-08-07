@@ -21,7 +21,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 @Slf4j
@@ -47,18 +50,39 @@ public class UserUpgradeController {
             List<String> urls = new ArrayList<>();
             for (MultipartFile file : files) {
                 if (file.isEmpty()) continue;
+                File tempFile = null;
                 try {
+                    // Save to temp file first to avoid byte[] encoding issues
+                    Path tempDir = Files.createTempDirectory("scitrack-upgrade-");
+                    tempFile = new File(tempDir.toFile(), file.getOriginalFilename() != null
+                            ? file.getOriginalFilename()
+                            : "upload.pdf");
+                    file.transferTo(tempFile);
+
                     @SuppressWarnings("unchecked")
-                    Map<String, Object> result = cloudinary.uploader().upload(
-                            file.getBytes(),
+                    Map<String, Object> result = cloudinary.uploader().uploadLarge(
+                            tempFile,
                             ObjectUtils.asMap(
                                     "folder", "scitrack/upgrade-requests",
                                     "resource_type", "auto"
                             )
                     );
-                    urls.add((String) result.get("secure_url"));
+                    String url = (String) result.get("secure_url");
+                    // Add fl_attachment flag so browser recognizes it as a proper PDF
+                    url = url.replace("/upload/", "/upload/fl_attachment/");
+                    urls.add(url);
                 } catch (IOException e) {
                     log.warn("Failed to upload upgrade request file: {}", e.getMessage());
+                } finally {
+                    if (tempFile != null && tempFile.exists()) {
+                        try {
+                            Path tempDir = tempFile.getParentFile().toPath();
+                            Files.deleteIfExists(tempFile.toPath());
+                            Files.deleteIfExists(tempDir);
+                        } catch (IOException e) {
+                            log.warn("Failed to clean up temp file: {}", e.getMessage());
+                        }
+                    }
                 }
             }
             if (!urls.isEmpty()) {

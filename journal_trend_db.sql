@@ -24,6 +24,8 @@ DROP TABLE IF EXISTS TRENDING_TOPIC;
 DROP TABLE IF EXISTS SEARCH_KEYWORD;
 DROP TABLE IF EXISTS AUTO_SYNC_KEYWORD;
 DROP TABLE IF EXISTS VERIFICATION_TOKEN;
+DROP TABLE IF EXISTS PAPER_RATING;
+DROP TABLE IF EXISTS PAPER_CACHE;
 DROP TABLE IF EXISTS AUDIT_LOG;
 DROP TABLE IF EXISTS USER_USAGE;
 DROP TABLE IF EXISTS SYSTEM_CONFIG;
@@ -537,7 +539,49 @@ CREATE TABLE PDF_REQUEST (
 );
 GO
 
--- ── USER_REPORT ──────────────────────────────────────────────
+-- ── PAPER_RATING ────────────────────────────────────────────────
+-- Nguoi dung danh gia bai bao. Moi user chi danh gia 1 paper 1 lan.
+CREATE TABLE PAPER_RATING (
+    RatingID    UNIQUEIDENTIFIER    NOT NULL  DEFAULT NEWID(),
+    UserID      UNIQUEIDENTIFIER    NOT NULL,
+    PaperID     UNIQUEIDENTIFIER    NOT NULL,
+    Score       INT                 NOT NULL,
+    RatedAt     DATETIME2(0)        NOT NULL  DEFAULT SYSDATETIME(),
+
+    CONSTRAINT PK_PAPER_RATING          PRIMARY KEY (RatingID),
+    CONSTRAINT UK_PAPER_RATING_UserPaper UNIQUE (UserID, PaperID),
+    CONSTRAINT FK_RATING_User           FOREIGN KEY (UserID)  REFERENCES [USER](UserID)
+                                        ON DELETE CASCADE,
+    CONSTRAINT FK_RATING_Paper          FOREIGN KEY (PaperID) REFERENCES RESEARCH_PAPER(PaperID)
+);
+GO
+
+-- ── PAPER_CACHE ────────────────────────────────────────────────
+-- Cache nhanh papers tu OpenAlex API. Khong co FK — luu tru doc lap
+-- de giu du lieu paper ngay ca khi DB chinh thay doi.
+CREATE TABLE PAPER_CACHE (
+    PaperID         UNIQUEIDENTIFIER    NOT NULL,
+    Title           NVARCHAR(1000)      NULL,
+    Abstract        NVARCHAR(MAX)       NULL,
+    Doi             NVARCHAR(200)       NULL,
+    PubYear         SMALLINT            NULL,
+    CitationCount   INT                 NULL,
+    JournalName     NVARCHAR(500)       NULL,
+    SourceUrl       NVARCHAR(500)       NULL,
+    OpenAlexWorkId  NVARCHAR(500)       NULL,
+    DataJson        NVARCHAR(MAX)       NULL,
+    UpdatedAt       DATETIME2(0)        NOT NULL,
+
+    CONSTRAINT PK_PAPER_CACHE PRIMARY KEY (PaperID)
+);
+GO
+
+CREATE INDEX IX_RATING_UserID  ON PAPER_RATING(UserID);
+CREATE INDEX IX_RATING_PaperID ON PAPER_RATING(PaperID);
+CREATE INDEX IX_PAPER_CACHE_Doi           ON PAPER_CACHE(Doi);
+CREATE INDEX IX_PAPER_CACHE_OpenAlexWorkId ON PAPER_CACHE(OpenAlexWorkId);
+CREATE INDEX IX_PAPER_CACHE_UpdatedAt     ON PAPER_CACHE(UpdatedAt DESC);
+GO
 -- Nguoi dung gui bao cao chung (PDF issues, content errors, paper flags...).
 -- Admin quan ly qua trang /admin/reports.
 CREATE TABLE USER_REPORT (

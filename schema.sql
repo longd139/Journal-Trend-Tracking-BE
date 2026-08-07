@@ -276,6 +276,7 @@ CREATE TABLE [dbo].[SEARCH_KEYWORD] (
     [NormalizedText] nvarchar(500) NOT NULL,
     [SearchCount] int CONSTRAINT [DF__SEARCH_KE__Searc__03BB8E22] DEFAULT ((1)) NOT NULL,
     [LastSearchedAt] datetime2(7) CONSTRAINT [DF__SEARCH_KE__LastS__04AFB25B] DEFAULT (getdate()) NOT NULL,
+    [LastRefreshedAt] datetime2(7) NULL,
     [CreatedAt] datetime2(7) CONSTRAINT [DF__SEARCH_KE__Creat__05A3D694] DEFAULT (getdate()) NOT NULL
 );
 GO
