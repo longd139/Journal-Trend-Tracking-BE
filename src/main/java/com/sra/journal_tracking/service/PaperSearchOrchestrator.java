@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.stream.Collectors;
@@ -41,13 +42,14 @@ import java.util.stream.Collectors;
 public class PaperSearchOrchestrator {
     private static final int MAX_SEARCH_RESULTS = 50;
     private static final double MIN_PRIMARY_KEYWORD_SCORE = 0.55d;
-    private static final long CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 giờ
+    private static final long RAM_CACHE_TTL_MS = 60 * 60 * 1000; // RAM cache 1 giờ (buffer)
+    private static final int DB_CACHE_TTL_DAYS = 7; // DB cache 7 ngày (primary)
 
     // ── Manual in-memory cache ──
     private static class CacheEntry<T> {
         final T data;
         final long expiryTime;
-        CacheEntry(T data) { this.data = data; this.expiryTime = System.currentTimeMillis() + CACHE_TTL_MS; }
+        CacheEntry(T data) { this.data = data; this.expiryTime = System.currentTimeMillis() + RAM_CACHE_TTL_MS; }
         boolean isExpired() { return System.currentTimeMillis() > expiryTime; }
     }
     private final ConcurrentHashMap<String, CacheEntry<PaperSearchResultDTO>> searchResultCache = new ConcurrentHashMap<>();
@@ -68,7 +70,7 @@ public class PaperSearchOrchestrator {
                 "totalEntries", searchResultCache.size(),
                 "activeEntries", active,
                 "expiredEntries", expired,
-                "ttlHours", CACHE_TTL_MS / (60 * 60 * 1000)
+                "ttlHours", RAM_CACHE_TTL_MS / (60 * 60 * 1000)
         );
     }
 
@@ -96,15 +98,15 @@ public class PaperSearchOrchestrator {
         }
         int safeLimit = Math.max(1, Math.min(resultLimit, MAX_SEARCH_RESULTS));
 
-        // ── Cache check ──
+        // ── L1: RAM cache check (1 giờ, buffer layer) ──
         String cacheKey = trimmedKeyword.toLowerCase();
-        CacheEntry<PaperSearchResultDTO> cached = searchResultCache.get(cacheKey);
-        if (cached != null && !cached.isExpired()) {
-            log.info("CACHE HIT: orchestrator '{}' → {} papers (from cache)", trimmedKeyword,
-                    cached.data.getPapers() != null ? cached.data.getPapers().size() : 0);
-            return cached.data;
+        CacheEntry<PaperSearchResultDTO> ramCached = searchResultCache.get(cacheKey);
+        if (ramCached != null && !ramCached.isExpired()) {
+            log.info("RAM CACHE HIT: '{}' → {} papers", trimmedKeyword,
+                    ramCached.data.getPapers() != null ? ramCached.data.getPapers().size() : 0);
+            return ramCached.data;
         }
-        if (cached != null) {
+        if (ramCached != null) {
             searchResultCache.remove(cacheKey);
         }
 
@@ -117,7 +119,23 @@ public class PaperSearchOrchestrator {
         try { searchKeywordService.recordSearch(trimmedKeyword); } catch (Exception e) { log.warn("Record search failed: {}", e.getMessage()); }
         try { userSearchHistoryService.recordSearch(userEmail, trimmedKeyword, "KEYWORD"); } catch (Exception e) { log.warn("Record history failed: {}", e.getMessage()); }
 
-        // ── Fetch directly from OpenAlex API ──
+        // ── L2: DB cache check (7 ngày, persistent) ──
+        LocalDateTime lastRefreshed = searchKeywordService.getLastRefreshedAt(trimmedKeyword);
+        boolean dbCacheFresh = lastRefreshed != null
+                && lastRefreshed.isAfter(LocalDateTime.now().minusDays(DB_CACHE_TTL_DAYS));
+
+        if (dbCacheFresh) {
+            log.info("DB CACHE FRESH: '{}' (refreshed: {}, TTL: {} days)",
+                    trimmedKeyword, lastRefreshed, DB_CACHE_TTL_DAYS);
+            PaperSearchResultDTO localResult = loadFromLocalDb(trimmedKeyword, cacheKey);
+            if (localResult != null) {
+                return localResult;
+            }
+            // DB cache says fresh but no papers found → fall through to OpenAlex
+            log.info("DB cache fresh but no papers in local DB for '{}', will try OpenAlex", trimmedKeyword);
+        }
+
+        // ── L3: Call OpenAlex API (primary data source) ──
         log.info("Fetching from OpenAlex for '{}'", trimmedKeyword);
         PaperSearchResultDTO result;
         try {
@@ -142,15 +160,48 @@ public class PaperSearchOrchestrator {
                         .hasNext(false)
                         .hasPrev(false)
                         .build();
+                // Update caches
                 searchResultCache.put(cacheKey, new CacheEntry<>(result));
-                log.info("CACHE STORE: '{}' → {} papers (TTL=6h)", trimmedKeyword, papers.size());
+                try { searchKeywordService.markRefreshed(trimmedKeyword); } catch (Exception e) { log.warn("Failed to mark refreshed: {}", e.getMessage()); }
+                log.info("CACHE STORE: '{}' → {} papers (RAM: 1h, DB: {}d)", trimmedKeyword, papers.size(), DB_CACHE_TTL_DAYS);
                 return result;
             }
+            log.info("OpenAlex returned 0 results for '{}'", trimmedKeyword);
         } catch (Exception e) {
-            log.warn("OpenAlex search failed for '{}': {}", trimmedKeyword, e.getMessage());
+            log.warn("OpenAlex search failed for '{}': {}. Falling back to local DB...", trimmedKeyword, e.getMessage());
+        }
+
+        // ── L4: Fallback to local DB (even if expired) ──
+        PaperSearchResultDTO fallbackResult = loadFromLocalDb(trimmedKeyword, cacheKey);
+        if (fallbackResult != null) {
+            log.info("Local DB FALLBACK: {} papers for '{}' (data may be stale)",
+                    fallbackResult.getPapers() != null ? fallbackResult.getPapers().size() : 0, trimmedKeyword);
+            return fallbackResult;
         }
 
         return buildEmptyResult();
+    }
+
+    /**
+     * Try to load search results from local DB (Neo4j → SQL Server).
+     * Returns null if no data found.
+     */
+    private PaperSearchResultDTO loadFromLocalDb(String keyword, String cacheKey) {
+        try {
+            List<String> paperIds = graphService.searchPapersByKeyword(keyword);
+            if (!paperIds.isEmpty()) {
+                List<ResearchPaper> localPapers = fetchPapersFromSql(paperIds);
+                if (!localPapers.isEmpty()) {
+                    log.info("Local DB HIT: {} papers for '{}'", localPapers.size(), keyword);
+                    PaperSearchResultDTO result = mapToSearchResultDTO(localPapers);
+                    searchResultCache.put(cacheKey, new CacheEntry<>(result));
+                    return result;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Local DB query failed for '{}': {}", keyword, e.getMessage());
+        }
+        return null;
     }
 
     /**

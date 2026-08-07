@@ -32,6 +32,9 @@ public class SearchKeyword {
     @Column(name = "LastSearchedAt", nullable = false)
     private LocalDateTime lastSearchedAt;
 
+    @Column(name = "LastRefreshedAt")
+    private LocalDateTime lastRefreshedAt;
+
     @Column(name = "CreatedAt", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

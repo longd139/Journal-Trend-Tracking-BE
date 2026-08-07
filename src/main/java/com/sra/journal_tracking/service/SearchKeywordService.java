@@ -78,4 +78,27 @@ public class SearchKeywordService {
                         .build())
                 .toList();
     }
+
+    /**
+     * Update lastRefreshedAt timestamp after a successful OpenAlex sync.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markRefreshed(String keywordText) {
+        String normalized = keywordText.toLowerCase().trim();
+        searchKeywordRepository.findByNormalizedText(normalized).ifPresent(sk -> {
+            sk.setLastRefreshedAt(LocalDateTime.now());
+            searchKeywordRepository.save(sk);
+            log.debug("Marked '{}' as refreshed at {}", normalized, sk.getLastRefreshedAt());
+        });
+    }
+
+    /**
+     * Get lastRefreshedAt for a keyword. Returns null if keyword not found or never refreshed.
+     */
+    public LocalDateTime getLastRefreshedAt(String keywordText) {
+        String normalized = keywordText.toLowerCase().trim();
+        return searchKeywordRepository.findByNormalizedText(normalized)
+                .map(SearchKeyword::getLastRefreshedAt)
+                .orElse(null);
+    }
 }
